@@ -1,9 +1,10 @@
 {
   "expo": {
-    "name": "finance-app-native",
+    "name": "財務管家",
     "slug": "finance-app-native",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "finance-app-native",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -13,7 +14,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.financeappnative"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +23,15 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.financeappnative"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "./plugins/withBudgetWidget"
+    ]
   }
 }

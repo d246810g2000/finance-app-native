@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media screen and (min-width: 0px) {
+
+    /* Override Expo's restricted width and outer shadow for tablets/desktops */
+    /* This prevents the website from appearing as a framed narrow app in the center */
+    #root,
+    body {
+        max-width: 100% !important;
+        width: 100vw !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        overflow-x: hidden;
+    }
+}
