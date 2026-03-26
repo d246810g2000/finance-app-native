@@ -110,14 +110,14 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
     android:orientation="vertical"
     android:gravity="center_vertical"
     android:background="@drawable/widget_bg"
-    android:padding="16dp">
+    android:padding="12dp">
 
     <!-- Daily Budget Section -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="8dp"
+        android:padding="6dp"
         android:background="@drawable/widget_inner_bg">
         
         <TextView
@@ -127,7 +127,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
             android:textColor="#94A3B8"
             android:textSize="10sp"
             android:textStyle="bold"
-            android:layout_marginBottom="4dp"/>
+            android:layout_marginBottom="2dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -194,7 +194,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="8dp" />
+        android:layout_height="4dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -206,7 +206,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:padding="8dp"
+            android:padding="6dp"
             android:background="@drawable/widget_inner_bg">
             <TextView
                 android:layout_width="match_parent"
@@ -215,7 +215,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:textColor="#94A3B8"
                 android:textSize="10sp"
                 android:textStyle="bold"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="2dp"/>
             <TextView
                 android:id="@+id/tv_fixed_spent"
                 android:layout_width="match_parent"
@@ -234,7 +234,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
             android:layout_height="wrap_content"
             android:layout_weight="1.2"
             android:orientation="vertical"
-            android:padding="8dp"
+            android:padding="6dp"
             android:background="@drawable/widget_inner_bg">
             <TextView
                 android:layout_width="match_parent"
@@ -243,7 +243,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:textColor="#94A3B8"
                 android:textSize="10sp"
                 android:textStyle="bold"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="2dp"/>
             <TextView
                 android:id="@+id/tv_overall_spent"
                 android:layout_width="match_parent"
