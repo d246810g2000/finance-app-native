@@ -115,6 +115,7 @@ export const calculateBudgetStatus = (
 
   // 2. Aggregate expenses by category AND project group
   const dailyCategorySpent: { [category: string]: number } = {};
+  const fixedCategorySpent: { [category: string]: number } = {}; // 新增：按分類追蹤固定支出
   const fixedProjectSpent: { [project: string]: number } = {};
   let totalSpent = 0;
   let totalDailySpent = 0;
@@ -147,30 +148,27 @@ export const calculateBudgetStatus = (
 
       const group = getProjectGroup(project, config);
       if (group === 'fixed') {
-        // 固定支出：按專案彙總
+        // 固定支出：按專案彙總，也按分類彙總（用於扣除預算母數）
         fixedProjectSpent[project] = (fixedProjectSpent[project] || 0) + amount;
+        fixedCategorySpent[category] = (fixedCategorySpent[category] || 0) + amount;
         totalFixedSpent += amount;
       } else {
-        // 日常預算：按分類彙總（用於 category budget 比對）
+        // 日常預算：按分類彙總
         dailyCategorySpent[category] = (dailyCategorySpent[category] || 0) + amount;
         totalDailySpent += amount;
       }
     }
   });
 
-  // 3. Map budget rules to daily statuses (只計算日常專案的支出)
-  // 計算縮放係素：(總預算 - 固定支出) / 總預算
-  const totalBudgetLimit = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
-  const scaleRemaining = totalBudgetLimit - totalFixedSpent;
-  const scaleFactor = totalBudgetLimit > 0 ? Math.max(0, scaleRemaining / totalBudgetLimit) : 1;
-
+  // 3. Map budget rules to daily statuses
   const dailyStatuses: BudgetStatus[] = budgets.map(rule => {
-    const spent = Math.round(dailyCategorySpent[rule.category] || 0);
-    // 母數扣除固定支出後的實際限額
-    const adjustedLimit = rule.monthlyLimit * scaleFactor;
+    const dailySpent = Math.round(dailyCategorySpent[rule.category] || 0);
+    const fixedSpent = Math.round(fixedCategorySpent[rule.category] || 0);
     
-    const remaining = Math.round(adjustedLimit - spent);
-    const percentage = adjustedLimit > 0 ? (spent / adjustedLimit) * 100 : 0;
+    // 母數扣除固定支出：實際可用的日常預算
+    const effectiveLimit = Math.max(0, rule.monthlyLimit - fixedSpent);
+    const remaining = effectiveLimit - dailySpent;
+    const percentage = effectiveLimit > 0 ? (dailySpent / effectiveLimit) * 100 : (dailySpent > 0 ? 100 : 0);
 
     let status: BudgetStatus['status'] = 'safe';
     if (percentage >= 100) status = 'exceeded';
@@ -190,14 +188,17 @@ export const calculateBudgetStatus = (
       }
     }
 
+    // 為了 UI 顯示，我們需要回傳調整過的母數。但 BudgetRule 本身不能改，
+    // 所以我們在 BudgetStatus 中定義它是經調整後的剩餘與百分比。
     return { 
-      rule: { ...rule, monthlyLimit: Math.round(adjustedLimit) }, // 這裡傳回調整後的限額
-      spent, 
+      rule: { ...rule, monthlyLimit: effectiveLimit }, // 暫時替換顯示用限額
+      originalLimit: rule.monthlyLimit, // 保留原始限額供參考
+      spent: dailySpent, 
       remaining, 
       percentage, 
       status, 
       dailySafeSpend 
-    };
+    } as any;
   });
 
   // 4. Build fixed project statuses
