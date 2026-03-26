@@ -123,7 +123,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="日常預算 / Daily Budget"
+            android:text="本月日常額度 (已扣除固定支出)"
             android:textColor="#94A3B8"
             android:textSize="10sp"
             android:textStyle="bold"
@@ -239,7 +239,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="📊 總支出"
+                android:text="📊 總支出進度"
                 android:textColor="#94A3B8"
                 android:textSize="10sp"
                 android:textStyle="bold"
@@ -251,6 +251,15 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+            <ProgressBar
+                android:id="@+id/progress_total"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>`;
@@ -398,6 +407,12 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
             views.setProgressBar(R.id.progress_bar, 100, Math.min(dailyPercent, 100), false)
         }
 
+        // Total Progress Bar (only for large)
+        try {
+            val totalPercent = if (totalBudget > 0) ((totalSpent.toFloat() / totalBudget) * 100).toInt() else 0
+            views.setProgressBar(R.id.progress_total, 100, Math.min(totalPercent, 100), false)
+        } catch (e: Exception) {}
+
         // Tap to open app
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         if (intent != null) {
@@ -409,7 +424,7 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
             views.setOnClickPendingIntent(R.id.tv_daily, pendingIntent)
             views.setOnClickPendingIntent(R.id.tv_remaining, pendingIntent)
         }
-
+        
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 

@@ -159,10 +159,18 @@ export const calculateBudgetStatus = (
   });
 
   // 3. Map budget rules to daily statuses (只計算日常專案的支出)
+  // 計算縮放係素：(總預算 - 固定支出) / 總預算
+  const totalBudgetLimit = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
+  const scaleRemaining = totalBudgetLimit - totalFixedSpent;
+  const scaleFactor = totalBudgetLimit > 0 ? Math.max(0, scaleRemaining / totalBudgetLimit) : 1;
+
   const dailyStatuses: BudgetStatus[] = budgets.map(rule => {
     const spent = Math.round(dailyCategorySpent[rule.category] || 0);
-    const remaining = rule.monthlyLimit - spent;
-    const percentage = rule.monthlyLimit > 0 ? (spent / rule.monthlyLimit) * 100 : 0;
+    // 母數扣除固定支出後的實際限額
+    const adjustedLimit = rule.monthlyLimit * scaleFactor;
+    
+    const remaining = Math.round(adjustedLimit - spent);
+    const percentage = adjustedLimit > 0 ? (spent / adjustedLimit) * 100 : 0;
 
     let status: BudgetStatus['status'] = 'safe';
     if (percentage >= 100) status = 'exceeded';
@@ -182,7 +190,14 @@ export const calculateBudgetStatus = (
       }
     }
 
-    return { rule, spent, remaining, percentage, status, dailySafeSpend };
+    return { 
+      rule: { ...rule, monthlyLimit: Math.round(adjustedLimit) }, // 這裡傳回調整後的限額
+      spent, 
+      remaining, 
+      percentage, 
+      status, 
+      dailySafeSpend 
+    };
   });
 
   // 4. Build fixed project statuses

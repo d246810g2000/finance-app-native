@@ -29,30 +29,34 @@ class WidgetService {
                 totalSpent 
             } = calculateBudgetStatus(records, budgets, now, config);
 
-            const dailyBudget = totalDailyBudget;
-            if (dailyBudget <= 0) return;
+            // 邏輯與 budget.tsx 保持一致
+            const totalBudget = totalDailyBudget;
+            const disposableDailyBudget = totalBudget - totalFixedSpent;
+            
+            if (totalBudget <= 0) return;
 
-            const dailyRemaining = dailyBudget - totalDailySpent;
+            const dailyRemaining = disposableDailyBudget - totalDailySpent;
             const isDailyOver = dailyRemaining < 0;
-            const dailyPercent = Math.round((totalDailySpent / dailyBudget) * 100);
+            const dailyPercent = Math.round((totalDailySpent / Math.max(1, disposableDailyBudget)) * 100);
 
             const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
             const remainingDays = Math.max(1, lastDayOfMonth - now.getDate() + 1);
+            // 日常剩餘 / 剩餘天數 = 每日可用
             const dailyAllowance = isDailyOver ? 0 : Math.floor(dailyRemaining / remainingDays);
 
             // 寫入 SharedPreferences
             await Promise.all([
-                SharedPrefs.setInt('dailyBudget', Math.round(dailyBudget)),
+                SharedPrefs.setInt('dailyBudget', Math.round(disposableDailyBudget)),
                 SharedPrefs.setInt('dailySpent', Math.round(totalDailySpent)),
                 SharedPrefs.setInt('dailyRemaining', Math.round(dailyRemaining)),
                 SharedPrefs.setInt('dailyAllowance', dailyAllowance),
-                SharedPrefs.setInt('dailyPercent', dailyPercent),
+                SharedPrefs.setInt('dailyPercent', Math.min(100, Math.max(0, dailyPercent))),
                 SharedPrefs.setBoolean('isDailyOver', isDailyOver),
                 
                 SharedPrefs.setInt('fixedSpent', Math.round(totalFixedSpent)),
                 
                 SharedPrefs.setInt('totalSpent', Math.round(totalSpent)),
-                SharedPrefs.setInt('totalBudget', Math.round(dailyBudget + totalFixedSpent)), // Assuming total is just sum here or whatever is appropriate
+                SharedPrefs.setInt('totalBudget', Math.round(totalBudget)), 
                 SharedPrefs.setInt('remainingDays', remainingDays),
             ]);
 
