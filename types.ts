@@ -97,6 +97,13 @@ export interface BudgetCalculationResult {
   // 固定支出（project-based，計算固定專案的支出）
   fixedProjectStatuses: FixedProjectStatus[];
   totalFixedSpent: number;
+  totalFixedBudget: number; // 新增：固定支出總預算
+  // 下一個待繳項目
+  nextFixedExpense?: {
+    name: string;
+    amount: number;
+    date: string; // MM/DD
+  };
   // 全域
   totalSpent: number;
 }

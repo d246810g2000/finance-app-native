@@ -73,6 +73,35 @@ const getProjectGroup = (project: string, config: BudgetGlobalConfig): 'fixed' |
   return config.projectGroups[project] || 'daily';
 };
 
+/**
+ * 從 Periodic 字串或日期字串提取扣款日 (Day)
+ */
+const getDueDayFromRecord = (record: RawRecord): number | null => {
+  // 優先從 Periodic 提取 (格式: Type|YYYYMMDD|...)
+  if (record['Periodic'] && typeof record['Periodic'] === 'string') {
+    const parts = record['Periodic'].split('|');
+    if (parts.length > 1 && parts[1].length === 8) {
+      const day = parseInt(parts[1].substring(6, 8), 10);
+      if (!isNaN(day)) return day;
+    }
+  }
+
+  // 次之從日期字串提取
+  const dateStr = record['日期'];
+  if (!dateStr) return null;
+
+  if (dateStr.includes('/') || dateStr.includes('-')) {
+    const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
+    if (parts.length === 3) {
+      return parseInt(parts[2], 10);
+    }
+  } else if (dateStr.length >= 8) {
+    return parseInt(dateStr.substring(6, 8), 10);
+  }
+
+  return null;
+};
+
 export const calculateBudgetStatus = (
   records: RawRecord[],
   budgets: BudgetRule[],
@@ -115,11 +144,14 @@ export const calculateBudgetStatus = (
 
   // 2. Aggregate expenses by category AND project group
   const dailyCategorySpent: { [category: string]: number } = {};
-  const fixedCategorySpent: { [category: string]: number } = {}; // 新增：按分類追蹤固定支出
+  const fixedCategorySpent: { [category: string]: number } = {};
   const fixedProjectSpent: { [project: string]: number } = {};
   let totalSpent = 0;
   let totalDailySpent = 0;
   let totalFixedSpent = 0;
+
+  // 追蹤固定支出專案是否已付 (用於判斷待繳)
+  const paidFixedProjects = new Set<string>();
 
   monthRecords.forEach(record => {
     const expenseAccount = record['付款(轉出)'];
@@ -148,12 +180,11 @@ export const calculateBudgetStatus = (
 
       const group = getProjectGroup(project, config);
       if (group === 'fixed') {
-        // 固定支出：按專案彙總，也按分類彙總（用於扣除預算母數）
         fixedProjectSpent[project] = (fixedProjectSpent[project] || 0) + amount;
         fixedCategorySpent[category] = (fixedCategorySpent[category] || 0) + amount;
         totalFixedSpent += amount;
+        paidFixedProjects.add(project);
       } else {
-        // 日常預算：按分類彙總
         dailyCategorySpent[category] = (dailyCategorySpent[category] || 0) + amount;
         totalDailySpent += amount;
       }
@@ -161,11 +192,21 @@ export const calculateBudgetStatus = (
   });
 
   // 3. Map budget rules to daily statuses
+  let totalFixedBudget = 0;
+  const fixedCategories = new Set<string>();
+
   const dailyStatuses: BudgetStatus[] = budgets.map(rule => {
     const dailySpent = Math.round(dailyCategorySpent[rule.category] || 0);
     const fixedSpent = Math.round(fixedCategorySpent[rule.category] || 0);
     
-    // 母數扣除固定支出：實際可用的日常預算
+    // 如果該類別下有任何一個專案是固定支出，則整個類別的預算計入固定預算
+    // 這裡我們預設使用者會把固定支出類別分開
+    const hasFixedProjectInThisCategory = records.some(r => r['分類'] === rule.category && getProjectGroup(r['專案'], config) === 'fixed');
+    if (hasFixedProjectInThisCategory) {
+      totalFixedBudget += rule.monthlyLimit;
+      fixedCategories.add(rule.category);
+    }
+
     const effectiveLimit = Math.max(0, rule.monthlyLimit - fixedSpent);
     const remaining = effectiveLimit - dailySpent;
     const percentage = effectiveLimit > 0 ? (dailySpent / effectiveLimit) * 100 : (dailySpent > 0 ? 100 : 0);
@@ -188,11 +229,9 @@ export const calculateBudgetStatus = (
       }
     }
 
-    // 為了 UI 顯示，我們需要回傳調整過的母數。但 BudgetRule 本身不能改，
-    // 所以我們在 BudgetStatus 中定義它是經調整後的剩餘與百分比。
     return { 
-      rule: { ...rule, monthlyLimit: effectiveLimit }, // 暫時替換顯示用限額
-      originalLimit: rule.monthlyLimit, // 保留原始限額供參考
+      rule: { ...rule, monthlyLimit: effectiveLimit },
+      originalLimit: rule.monthlyLimit,
       spent: dailySpent, 
       remaining, 
       percentage, 
@@ -202,13 +241,67 @@ export const calculateBudgetStatus = (
   });
 
   // 4. Build fixed project statuses
-  const fixedProjects = config.includedProjects.filter(p => getProjectGroup(p, config) === 'fixed');
-  const fixedProjectStatuses: FixedProjectStatus[] = fixedProjects.map(project => ({
+  const fixedProjectsInConfig = config.includedProjects.filter(p => getProjectGroup(p, config) === 'fixed');
+  const fixedProjectStatuses: FixedProjectStatus[] = fixedProjectsInConfig.map(project => ({
     project,
     spent: Math.round(fixedProjectSpent[project] || 0),
   }));
 
-  // 5. Calculate daily unbudgeted spent
+  // 5. Calculate nextFixedExpense (待繳項目)
+  let nextFixedExpense: BudgetCalculationResult['nextFixedExpense'] = undefined;
+  
+  if (isCurrentMonth) {
+    const pendingItems: { name: string; amount: number; day: number }[] = [];
+    
+    fixedProjectsInConfig.forEach(project => {
+      if (!paidFixedProjects.has(project)) {
+        // 尋找該專案的扣款日與最近一筆金額
+        // 我們從所有紀錄中尋找
+        const projectRecords = records.filter(r => r['專案'] === project).sort((a, b) => {
+          const dateA = a.parsedDate || new Date(0);
+          const dateB = b.parsedDate || new Date(0);
+          return dateB.getTime() - dateA.getTime();
+        });
+
+        if (projectRecords.length > 0) {
+          const lastRecord = projectRecords[0];
+          const dueDay = getDueDayFromRecord(lastRecord);
+          if (dueDay !== null) {
+            const rawAmountStr = (lastRecord['金額'] || '').replace(/[,￥$€£]/g, '').trim();
+            let lastAmount = parseFloat(rawAmountStr) || 0;
+            const exchangeRate = EXCHANGE_RATES[lastRecord['幣別']] || 1;
+            lastAmount = Math.abs(lastAmount * exchangeRate);
+            if (config.splitProjects.includes(project)) lastAmount *= 0.5;
+
+            pendingItems.push({
+              name: project,
+              amount: Math.round(lastAmount),
+              day: dueDay
+            });
+          }
+        }
+      }
+    });
+
+    if (pendingItems.length > 0) {
+      const today = now.getDate();
+      // 排序規則：優先找今天之後最接近的；如果都過了，選日期最小的（可能是下個月或過期）
+      pendingItems.sort((a, b) => {
+        const diffA = a.day >= today ? a.day - today : a.day + 31 - today;
+        const diffB = b.day >= today ? b.day - today : b.day + 31 - today;
+        return diffA - diffB;
+      });
+
+      const next = pendingItems[0];
+      nextFixedExpense = {
+        name: next.name,
+        amount: next.amount,
+        date: `${String(targetMonthIndex + 1).padStart(2, '0')}/${String(next.day).padStart(2, '0')}`
+      };
+    }
+  }
+
+  // 6. Calculate daily unbudgeted spent
   const budgetedCategories = new Set(budgets.map(b => b.category));
   let dailyUnbudgetedSpent = 0;
   for (const [cat, amount] of Object.entries(dailyCategorySpent)) {
@@ -226,6 +319,8 @@ export const calculateBudgetStatus = (
     totalDailySpent: Math.round(totalDailySpent),
     fixedProjectStatuses,
     totalFixedSpent: Math.round(totalFixedSpent),
+    totalFixedBudget: Math.round(totalFixedBudget),
+    nextFixedExpense,
     totalSpent: Math.round(totalSpent),
   };
 };

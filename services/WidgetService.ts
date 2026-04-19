@@ -26,6 +26,8 @@ class WidgetService {
                 totalDailyBudget, 
                 totalDailySpent, 
                 totalFixedSpent, 
+                totalFixedBudget,
+                nextFixedExpense,
                 totalSpent 
             } = calculateBudgetStatus(records, budgets, now, config);
 
@@ -45,7 +47,7 @@ class WidgetService {
             const dailyAllowance = isDailyOver ? 0 : Math.floor(dailyRemaining / remainingDays);
 
             // 寫入 SharedPreferences
-            await Promise.all([
+            const syncOps = [
                 SharedPrefs.setInt('dailyBudget', Math.round(disposableDailyBudget)),
                 SharedPrefs.setInt('dailySpent', Math.round(totalDailySpent)),
                 SharedPrefs.setInt('dailyRemaining', Math.round(dailyRemaining)),
@@ -54,11 +56,25 @@ class WidgetService {
                 SharedPrefs.setBoolean('isDailyOver', isDailyOver),
                 
                 SharedPrefs.setInt('fixedSpent', Math.round(totalFixedSpent)),
+                SharedPrefs.setInt('fixedBudget', Math.round(totalFixedBudget)),
                 
                 SharedPrefs.setInt('totalSpent', Math.round(totalSpent)),
                 SharedPrefs.setInt('totalBudget', Math.round(totalBudget)), 
                 SharedPrefs.setInt('remainingDays', remainingDays),
-            ]);
+            ];
+
+            // 待繳項目數據
+            if (nextFixedExpense) {
+                syncOps.push(SharedPrefs.setString('nextFixedName', nextFixedExpense.name));
+                syncOps.push(SharedPrefs.setString('nextFixedDate', nextFixedExpense.date));
+                syncOps.push(SharedPrefs.setInt('nextFixedAmount', nextFixedExpense.amount));
+            } else {
+                syncOps.push(SharedPrefs.setString('nextFixedName', ''));
+                syncOps.push(SharedPrefs.setString('nextFixedDate', ''));
+                syncOps.push(SharedPrefs.setInt('nextFixedAmount', 0));
+            }
+
+            await Promise.all(syncOps);
 
             // 觸發 Widget 刷新
             await SharedPrefs.updateWidget();
