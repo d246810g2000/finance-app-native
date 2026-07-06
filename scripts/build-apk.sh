@@ -25,7 +25,12 @@ sed -i '' "/def enableShrinkResources = findProperty/d" android/app/build.gradle
 echo "🏗️ 開始編譯 Release APK (這可能需要幾分鐘)..."
 export ANDROID_HOME=$HOME/Library/Android/sdk
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-cd android && ./gradlew assembleRelease
+export GRADLE_USER_HOME=$HOME/.gradle
+
+cd android
+# 先清理以避免舊的 root 權限快取干擾
+./gradlew clean
+./gradlew assembleRelease --no-daemon
 
 # 4. 複製結果到桌面
 if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then

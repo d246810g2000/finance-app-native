@@ -3,5 +3,6 @@ module.exports = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system.js',
+    '^expo-sharing$': '<rootDir>/__mocks__/expo-sharing.js',
   },
 };

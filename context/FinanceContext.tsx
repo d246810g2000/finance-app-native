@@ -1,8 +1,11 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode, useMemo } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
-import { RawRecord } from '../types';
+import { RawRecord, CustomAccountMappings, BudgetRule, BudgetGlobalConfig } from '../types';
 import { Alert, AppState, AppStateStatus } from 'react-native';
+import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS } from '../constants';
+import { loadCustomAccountMappings, saveCustomAccountMappings, loadExcludedAccounts, saveExcludedAccounts as saveExcludedAccountsService } from '../services/accountConfigService';
+import { loadBudgetConfig, saveBudgetConfig as saveBudgetConfigService, loadBudgets, saveBudgets as saveBudgetsService } from '../services/budgetService';
 
 const RECORDS_FILE_NAME = 'finance_records.json';
 const RECORDS_FILE_URI = (FileSystem.documentDirectory || FileSystem.cacheDirectory) + RECORDS_FILE_NAME;
@@ -23,6 +26,16 @@ interface FinanceContextType {
     menuVisible: boolean;
     setMenuVisible: (visible: boolean) => void;
     searchMetadata: SearchMetadata;
+    customMappings: CustomAccountMappings;
+    saveCustomMappings: (mappings: CustomAccountMappings) => Promise<void>;
+    personalAccounts: string[];
+    sharedAccounts: string[];
+    excludedAccounts: string[];
+    saveExcludedAccounts: (exclusions: string[]) => Promise<void>;
+    budgetConfig: BudgetGlobalConfig;
+    saveBudgetConfig: (config: BudgetGlobalConfig) => Promise<void>;
+    budgets: BudgetRule[];
+    saveBudgets: (budgets: BudgetRule[]) => Promise<void>;
 }
 
 export interface SearchMetadata {
@@ -53,6 +66,64 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
     const [searchModalVisible, setSearchModalVisible] = useState(false);
     const [menuVisible, setMenuVisible] = useState(false);
+    const [customMappings, setCustomMappings] = useState<CustomAccountMappings>({});
+    const [excludedAccounts, setExcludedAccounts] = useState<string[]>([]);
+    const [budgetConfig, setBudgetConfig] = useState<BudgetGlobalConfig>({ includedProjects: [], splitProjects: [], projectGroups: {} });
+    const [budgets, setBudgets] = useState<BudgetRule[]>([]);
+
+    useEffect(() => {
+        loadCustomAccountMappings().then(setCustomMappings);
+        loadExcludedAccounts().then(setExcludedAccounts);
+        loadBudgetConfig().then(setBudgetConfig);
+        loadBudgets().then(setBudgets);
+    }, []);
+
+    const saveCustomMappings = async (newMappings: CustomAccountMappings) => {
+        setCustomMappings(newMappings);
+        await saveCustomAccountMappings(newMappings);
+    };
+
+    const saveExcludedAccounts = async (exclusions: string[]) => {
+        setExcludedAccounts(exclusions);
+        await saveExcludedAccountsService(exclusions);
+    };
+
+    const saveBudgetConfig = async (newConfig: BudgetGlobalConfig) => {
+        setBudgetConfig(newConfig);
+        await saveBudgetConfigService(newConfig);
+    };
+
+    const saveBudgets = async (newBudgets: BudgetRule[]) => {
+        setBudgets(newBudgets);
+        await saveBudgetsService(newBudgets);
+    };
+
+
+    const personalAccounts = useMemo(() => {
+        const base = PERSONAL_ACCOUNTS.filter(acc => {
+            const mapping = customMappings[acc];
+            return !mapping || mapping.type !== 'shared';
+        });
+        Object.entries(customMappings).forEach(([acc, config]) => {
+            if (config.type === 'personal' && !base.includes(acc)) {
+                base.push(acc);
+            }
+        });
+        return base;
+    }, [customMappings]);
+
+    const sharedAccounts = useMemo(() => {
+        const base = SHARED_ACCOUNTS.filter(acc => {
+            const mapping = customMappings[acc];
+            return !mapping || mapping.type !== 'personal';
+        });
+        Object.entries(customMappings).forEach(([acc, config]) => {
+            if (config.type === 'shared' && !base.includes(acc)) {
+                base.push(acc);
+            }
+        });
+        return base;
+    }, [customMappings]);
 
     const refreshRecords = useCallback(async () => {
         setIsLoading(true);
@@ -184,7 +255,17 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
             searchFilters, setSearchFilters,
             searchModalVisible, setSearchModalVisible,
             menuVisible, setMenuVisible,
-            searchMetadata
+            searchMetadata,
+            customMappings,
+            saveCustomMappings,
+            personalAccounts,
+            sharedAccounts,
+            excludedAccounts,
+            saveExcludedAccounts,
+            budgetConfig,
+            saveBudgetConfig,
+            budgets,
+            saveBudgets
         }}>
             {children}
         </FinanceContext.Provider>

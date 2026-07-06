@@ -1,7 +1,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { CustomAccountMappings } from '../types';
 
 const ACCOUNT_CONFIG_FILE_NAME = 'account_config.json';
 const ACCOUNT_CONFIG_FILE_URI = (FileSystem.documentDirectory || FileSystem.cacheDirectory) + ACCOUNT_CONFIG_FILE_NAME;
+
+const CUSTOM_MAPPINGS_FILE_NAME = 'custom_account_mappings.json';
+const CUSTOM_MAPPINGS_FILE_URI = (FileSystem.documentDirectory || FileSystem.cacheDirectory) + CUSTOM_MAPPINGS_FILE_NAME;
 
 export const loadExcludedAccounts = async (): Promise<string[]> => {
     try {
@@ -20,5 +24,25 @@ export const saveExcludedAccounts = async (excludedAccounts: string[]): Promise<
         await FileSystem.writeAsStringAsync(ACCOUNT_CONFIG_FILE_URI, JSON.stringify(excludedAccounts));
     } catch (e) {
         console.error('Failed to save account config', e);
+    }
+};
+
+export const loadCustomAccountMappings = async (): Promise<CustomAccountMappings> => {
+    try {
+        const info = await FileSystem.getInfoAsync(CUSTOM_MAPPINGS_FILE_URI);
+        if (!info.exists) return {};
+        const content = await FileSystem.readAsStringAsync(CUSTOM_MAPPINGS_FILE_URI);
+        return JSON.parse(content);
+    } catch (e) {
+        console.error('Failed to load custom account mappings', e);
+        return {};
+    }
+};
+
+export const saveCustomAccountMappings = async (mappings: CustomAccountMappings): Promise<void> => {
+    try {
+        await FileSystem.writeAsStringAsync(CUSTOM_MAPPINGS_FILE_URI, JSON.stringify(mappings));
+    } catch (e) {
+        console.error('Failed to save custom account mappings', e);
     }
 };

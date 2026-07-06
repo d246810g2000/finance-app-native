@@ -603,201 +603,183 @@ export default function DashboardScreen() {
                             })()}
                         </Animated.View>
                     ) : (
-                        <Animated.View entering={FadeInDown.duration(400).springify()} style={{ paddingHorizontal: 20, width: '100%' }}>
-                            {accountTableData.groups.filter(g => g.accounts.length > 0).map((group, index, activeGroups) => {
-                                // Provide slightly visually distinct but interconnected blocks
-                                // In the requested picture, the colorful vertical bar is on the left
+                        <Animated.View entering={FadeInDown.duration(400).springify()} style={{ marginHorizontal: 20, gap: 12 }}>
+                            {accountTableData.groups.filter(g => g.accounts.length > 0).map((group) => {
                                 const color = ASSET_CLASS_COLORS[group.category];
-                                const isFirst = index === 0;
-                                const isLast = index === activeGroups.length - 1;
 
                                 return (
-                                    <View key={`list-${group.category}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-                                        {/* Colorful vertical bar matching Percento style */}
-                                        <Pressable
-                                            onPress={() => setShowRatioView(true)}
-                                            style={{
-                                                width: 24,
-                                                flexShrink: 0,
-                                                backgroundColor: color,
-                                                borderTopLeftRadius: isFirst ? 16 : 0,
-                                                borderTopRightRadius: isFirst ? 16 : 0,
-                                                borderBottomLeftRadius: isLast ? 16 : 0,
-                                                borderBottomRightRadius: isLast ? 16 : 0,
-                                            }}
-                                        />
+                                    <View key={`list-${group.category}`}>
+                                        {/* Top Level Card - color accent is INSIDE the card */}
+                                        <View style={[{
+                                            borderRadius: 20,
+                                            backgroundColor: group.isCollapsed ? COLORS.card : color,
+                                            overflow: 'hidden',
+                                        }, group.isCollapsed && SHADOWS.sm]}>
+                                            {/* Internal color accent strip (left edge) */}
+                                            <Pressable
+                                                onPress={() => setShowRatioView(true)}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: 0,
+                                                    top: 0,
+                                                    bottom: 0,
+                                                    width: group.isCollapsed ? 10 : 10,
+                                                    backgroundColor: group.isCollapsed ? color : 'rgba(0,0,0,0.08)',
+                                                    zIndex: 1,
+                                                }}
+                                            />
 
-                                        <View style={{ flex: 1, paddingLeft: 12, paddingBottom: isLast ? 0 : 16 }}>
-                                            {/* Top Level (Asset Class) Header */}
-                                            {!group.isCollapsed ? (
-                                                <View style={{ borderRadius: 20, backgroundColor: color, overflow: 'hidden' }}>
-                                                    <Pressable
-                                                        onPress={() => {
-                                                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                            toggleGroup(group.category);
-                                                        }}
-                                                        android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false, radius: 200 }}
-                                                        style={({ pressed }) => [
-                                                            {
-                                                                paddingHorizontal: 20,
-                                                                paddingVertical: 18,
-                                                                flexDirection: 'row',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center',
-                                                                borderRadius: 20,
-                                                            },
-                                                            pressed && { opacity: 0.8 }
-                                                        ]}
-                                                    >
-                                                        <View style={{ flex: 1, marginRight: 12 }}>
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                                <Text style={{ ...TYPOGRAPHY.body, fontSize: 18, fontWeight: '700', color: '#000' }}>
+                                            <Pressable
+                                                onPress={() => {
+                                                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                                    toggleGroup(group.category);
+                                                }}
+                                                android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false, radius: 200 }}
+                                                style={({ pressed }) => [
+                                                    pressed && { opacity: 0.8 }
+                                                ]}
+                                            >
+                                                <View style={{
+                                                    paddingLeft: 28,
+                                                    paddingRight: 20,
+                                                    paddingVertical: 18,
+                                                    flexDirection: 'row',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                }}>
+                                                <View style={{ flex: 1, marginRight: 12 }}>
+                                                    {group.isCollapsed ? (
+                                                        <>
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                                                <Text style={{ ...TYPOGRAPHY.body, fontSize: 18, fontWeight: '700', color: COLORS.textPrimary }}>
                                                                     {group.category}
                                                                 </Text>
-                                                            </View>
-                                                        </View>
-                                                        <View style={{ alignItems: 'flex-end', flexShrink: 1 }}>
-                                                            <Text style={{ fontSize: 20, fontWeight: '800', color: '#000' }}>
-                                                                {group.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(group.totalBalance).toLocaleString()}
-                                                            </Text>
-                                                        </View>
-                                                    </Pressable>
-                                                </View>
-                                            ) : (
-                                                <View style={[{ borderRadius: 20, backgroundColor: COLORS.card }, SHADOWS.sm]}>
-                                                    <View style={{ borderRadius: 20, overflow: 'hidden' }}>
-                                                        <Pressable
-                                                            onPress={() => {
-                                                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                                toggleGroup(group.category);
-                                                            }}
-                                                            android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false, radius: 200 }}
-                                                            style={({ pressed }) => [
-                                                                {
-                                                                    paddingHorizontal: 20,
-                                                                    paddingVertical: 18,
-                                                                    flexDirection: 'row',
-                                                                    justifyContent: 'space-between',
-                                                                    alignItems: 'center',
-                                                                    borderRadius: 20,
-                                                                },
-                                                                pressed && { opacity: 0.8 }
-                                                            ]}
-                                                        >
-                                                            <View style={{ flex: 1, marginRight: 12 }}>
-                                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                                                    <Text style={{ ...TYPOGRAPHY.body, fontSize: 18, fontWeight: '700', color: COLORS.textPrimary }}>
-                                                                        {group.category}
-                                                                    </Text>
-                                                                    {group.accounts.length > 0 && (
-                                                                        <View style={{ backgroundColor: color + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                                                                            <Text style={{ fontSize: 10, color: color, fontWeight: '700' }}>
-                                                                                {group.accounts.length} 筆資產
-                                                                            </Text>
-                                                                        </View>
-                                                                    )}
-                                                                </View>
                                                                 {group.accounts.length > 0 && (
-                                                                    <Text style={{ color: COLORS.textMuted, fontSize: 12 }} numberOfLines={1}>
-                                                                        {Array.from(new Set(group.accounts.map(a => a.originalCategory))).join('、')}
-                                                                    </Text>
-                                                                )}
-                                                            </View>
-                                                            <View style={{ alignItems: 'flex-end', flexShrink: 1 }}>
-                                                                <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.textPrimary }}>
-                                                                    {group.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(group.totalBalance).toLocaleString()}
-                                                                </Text>
-                                                            </View>
-                                                        </Pressable>
-                                                    </View>
-                                                </View>
-                                            )}
-
-                                            {/* Middle Tier (Categories) List */}
-                                            {!group.isCollapsed && group.subGroups.length > 0 && (
-                                                <View style={{ paddingTop: 16, gap: 14 }}>
-                                                    {group.subGroups.map(sub => {
-                                                        const subId = `${group.category}-${sub.name}`;
-                                                        const isSubExpanded = expandedSubGroups[subId];
-
-                                                        return (
-                                                            <View key={subId} style={[{ borderRadius: 16, backgroundColor: COLORS.card }, SHADOWS.sm]}>
-                                                                <Pressable
-                                                                    onPress={() => {
-                                                                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                                        toggleSubGroup(subId);
-                                                                    }}
-                                                                    android_ripple={{ color: 'rgba(0,0,0,0.05)', borderless: false }}
-                                                                    style={({ pressed }) => [
-                                                                        {
-                                                                            paddingHorizontal: 20,
-                                                                            paddingVertical: 18,
-                                                                            flexDirection: 'row',
-                                                                            justifyContent: 'space-between',
-                                                                        },
-                                                                        pressed && { backgroundColor: COLORS.bg }
-                                                                    ]}
-                                                                >
-                                                                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-                                                                        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color + '15', justifyContent: 'center', alignItems: 'center' }}>
-                                                                            <Ionicons name="wallet-outline" size={18} color={color} />
-                                                                        </View>
-                                                                        <View style={{ flex: 1, marginRight: 8 }}>
-                                                                            <Text style={{ color: color, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
-                                                                                {sub.name}
-                                                                            </Text>
-                                                                            {!isSubExpanded && (
-                                                                                <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4 }} numberOfLines={1}>
-                                                                                    {sub.accounts.length > 0 ? sub.accounts.map(a => a.name).join('、') : '無帳戶'}
-                                                                                </Text>
-                                                                            )}
-                                                                        </View>
-                                                                    </View>
-                                                                    <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                                                                        <Text style={{ fontSize: 17, fontWeight: '800', color: color }}>
-                                                                            {sub.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(sub.totalBalance).toLocaleString()}
+                                                                    <View style={{ backgroundColor: color + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                                        <Text style={{ fontSize: 10, color: color, fontWeight: '700' }}>
+                                                                            {group.accounts.length} 筆資產
                                                                         </Text>
                                                                     </View>
-                                                                </Pressable>
-
-                                                                {/* Bottom Tier (Accounts) List */}
-                                                                {
-                                                                    isSubExpanded && (
-                                                                        <View style={{ paddingHorizontal: 20, paddingBottom: 20, paddingTop: 6, gap: 12 }}>
-                                                                            <View style={{ height: 1, backgroundColor: COLORS.divider, marginBottom: 8 }} />
-                                                                            {sub.accounts.map(acc => (
-                                                                                <Pressable
-                                                                                    key={acc.name}
-                                                                                    onPress={() => handleAccountClick(acc.name)}
-                                                                                    style={({ pressed }) => [{
-                                                                                        flexDirection: 'row',
-                                                                                        justifyContent: 'space-between',
-                                                                                        alignItems: 'center',
-                                                                                        paddingVertical: 10,
-                                                                                        opacity: pressed ? 0.7 : 1
-                                                                                    }]}
-                                                                                >
-                                                                                    <View style={{ flex: 1, marginRight: 12 }}>
-                                                                                        <Text style={{ color: COLORS.textPrimary, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
-                                                                                            {acc.name}
-                                                                                        </Text>
-                                                                                    </View>
-                                                                                    <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                                                                                        <Text style={{ fontSize: 16, fontWeight: '800', color: acc.balance >= 0 ? COLORS.green : COLORS.red }}>
-                                                                                            {acc.balance < 0 ? '-' : ''}{Math.abs(acc.balance).toLocaleString()}
-                                                                                        </Text>
-                                                                                    </View>
-                                                                                </Pressable>
-                                                                            ))}
-                                                                        </View>
-                                                                    )
-                                                                }
+                                                                )}
                                                             </View>
-                                                        );
-                                                    })}
+                                                            {group.accounts.length > 0 && (
+                                                                <Text style={{ color: COLORS.textMuted, fontSize: 12 }} numberOfLines={1}>
+                                                                    {Array.from(new Set(group.accounts.map(a => a.originalCategory))).join('、')}
+                                                                </Text>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                            <Text style={{ ...TYPOGRAPHY.body, fontSize: 18, fontWeight: '700', color: '#000' }}>
+                                                                {group.category}
+                                                            </Text>
+                                                        </View>
+                                                    )}
                                                 </View>
-                                            )}
+                                                <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+                                                    <Text style={{ fontSize: 22, fontWeight: '800', color: group.isCollapsed ? COLORS.textPrimary : '#000', letterSpacing: -0.5 }}>
+                                                        {group.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(group.totalBalance).toLocaleString()}
+                                                    </Text>
+                                                </View>
+                                                </View>
+                                            </Pressable>
                                         </View>
+
+                                        {/* Middle Tier (Categories) List */}
+                                        {!group.isCollapsed && group.subGroups.length > 0 && (
+                                            <View style={{ paddingTop: 12, gap: 12 }}>
+                                                {group.subGroups.map(sub => {
+                                                    const subId = `${group.category}-${sub.name}`;
+                                                    const isSubExpanded = expandedSubGroups[subId];
+
+                                                    return (
+                                                        <View key={subId} style={[{ borderRadius: 16, backgroundColor: COLORS.card, overflow: 'hidden' }, SHADOWS.sm]}>
+                                                            {/* Internal color accent strip */}
+                                                            <View style={{
+                                                                position: 'absolute',
+                                                                left: 0,
+                                                                top: 0,
+                                                                bottom: 0,
+                                                                width: 6,
+                                                                backgroundColor: color,
+                                                                zIndex: 1,
+                                                            }} />
+
+                                                            <Pressable
+                                                                onPress={() => {
+                                                                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                                                    toggleSubGroup(subId);
+                                                                }}
+                                                                android_ripple={{ color: 'rgba(0,0,0,0.05)', borderless: false }}
+                                                                style={({ pressed }) => [
+                                                                    pressed && { backgroundColor: COLORS.bg }
+                                                                ]}
+                                                            >
+                                                                <View style={{
+                                                                    paddingLeft: 24,
+                                                                    paddingRight: 20,
+                                                                    paddingVertical: 16,
+                                                                    flexDirection: 'row',
+                                                                    justifyContent: 'space-between',
+                                                                }}>
+                                                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
+                                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color + '15', justifyContent: 'center', alignItems: 'center' }}>
+                                                                        <Ionicons name="wallet-outline" size={18} color={color} />
+                                                                    </View>
+                                                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                                                        <Text style={{ color: color, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
+                                                                            {sub.name}
+                                                                        </Text>
+                                                                        {!isSubExpanded && (
+                                                                            <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4 }} numberOfLines={1}>
+                                                                                {sub.accounts.length > 0 ? sub.accounts.map(a => a.name).join('、') : '無帳戶'}
+                                                                            </Text>
+                                                                        )}
+                                                                    </View>
+                                                                </View>
+                                                                <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+                                                                    <Text style={{ fontSize: 17, fontWeight: '800', color: color }}>
+                                                                        {sub.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(sub.totalBalance).toLocaleString()}
+                                                                    </Text>
+                                                                </View>
+                                                                </View>
+                                                            </Pressable>
+
+                                                            {/* Bottom Tier (Accounts) List */}
+                                                            {isSubExpanded && (
+                                                                <View style={{ paddingLeft: 24, paddingRight: 20, paddingBottom: 20, paddingTop: 6, gap: 12 }}>
+                                                                    <View style={{ height: 1, backgroundColor: COLORS.divider, marginBottom: 8 }} />
+                                                                    {sub.accounts.map(acc => (
+                                                                        <Pressable
+                                                                            key={acc.name}
+                                                                            onPress={() => handleAccountClick(acc.name)}
+                                                                            style={({ pressed }) => [{
+                                                                                flexDirection: 'row',
+                                                                                justifyContent: 'space-between',
+                                                                                alignItems: 'center',
+                                                                                paddingVertical: 10,
+                                                                                opacity: pressed ? 0.7 : 1
+                                                                            }]}
+                                                                        >
+                                                                            <View style={{ flex: 1, marginRight: 12 }}>
+                                                                                <Text style={{ color: COLORS.textPrimary, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
+                                                                                    {acc.name}
+                                                                                </Text>
+                                                                            </View>
+                                                                            <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+                                                                                <Text style={{ fontSize: 16, fontWeight: '800', color: acc.balance >= 0 ? COLORS.green : COLORS.red }}>
+                                                                                    {acc.balance < 0 ? '-' : ''}{Math.abs(acc.balance).toLocaleString()}
+                                                                                </Text>
+                                                                            </View>
+                                                                        </Pressable>
+                                                                    ))}
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                    );
+                                                })}
+                                            </View>
+                                        )}
                                     </View>
                                 );
                             })}

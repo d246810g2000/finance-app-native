@@ -14,14 +14,40 @@ const WIDGET_SMALL_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
     android:background="@drawable/widget_bg"
     android:padding="12dp">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="日常預算 / Daily Budget"
-        android:textColor="#94A3B8"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="4dp"/>
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <TextView
+            android:id="@+id/btn_prev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="◀"
+            android:textColor="#94A3B8"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:paddingRight="8dp" />
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="日常預算 / Daily Budget"
+            android:textColor="#94A3B8"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/btn_next"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="▶"
+            android:textColor="#94A3B8"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:paddingLeft="8dp" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -127,30 +153,57 @@ const IC_WALLET_XML = `<?xml version="1.0" encoding="utf-8"?>
 
 const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center_vertical"
+    android:gravity="center"
     android:background="@drawable/widget_bg"
-    android:padding="12dp">
+    android:padding="8dp">
 
     <!-- Daily Budget Section (Top) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="8dp"
-        android:layout_marginBottom="8dp"
+        android:padding="6dp"
+        android:layout_marginBottom="4dp"
         android:background="@drawable/widget_inner_bg">
         
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="💡 日常可用餘額"
-            android:textColor="#94A3B8"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="4dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="2dp">
+            <TextView
+                android:id="@+id/btn_prev"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="◀"
+                android:textColor="#94A3B8"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingRight="8dp" />
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="💡 日常可用餘額"
+                android:textColor="#94A3B8"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/btn_next"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▶"
+                android:textColor="#94A3B8"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingLeft="8dp" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -163,23 +216,23 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textColor="#2DD4BF"
-                android:textSize="22sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
             <TextView
                 android:id="@+id/tv_remaining"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#4ADE80"
-                android:textSize="14sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
-                android:layout_marginBottom="2dp" />
+                android:layout_marginBottom="1dp" />
         </LinearLayout>
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="6dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="6dp">
+            android:layout_height="4dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="3dp">
             <ProgressBar
                 android:id="@+id/progress_bar"
                 style="?android:attr/progressBarStyleHorizontal"
@@ -208,7 +261,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#94A3B8"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
             <TextView
                 android:id="@+id/tv_spent_total"
                 android:layout_width="0dp"
@@ -216,7 +269,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                 android:layout_weight="1"
                 android:textColor="#94A3B8"
                 android:gravity="right"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -229,19 +282,20 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 
         <!-- Column Left: Total Fixed Budget -->
         <LinearLayout
+            android:id="@+id/btn_fixed_budget"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="horizontal"
-            android:padding="10dp"
+            android:padding="6dp"
             android:layout_marginRight="4dp"
             android:gravity="center_vertical"
             android:background="@drawable/widget_inner_bg">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:src="@drawable/ic_wallet"
-                android:layout_marginRight="8dp" />
+                android:layout_marginRight="6dp" />
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -251,7 +305,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="#FFFFFF"
-                    android:textSize="15sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
                 <TextView
                     android:id="@+id/tv_fixed_budget"
@@ -265,19 +319,20 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 
         <!-- Column Right: Next Due Item -->
         <LinearLayout
+            android:id="@+id/btn_next_due"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="horizontal"
-            android:padding="10dp"
+            android:padding="6dp"
             android:layout_marginLeft="4dp"
             android:gravity="center_vertical"
             android:background="@drawable/widget_inner_bg">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:src="@drawable/ic_schedule"
-                android:layout_marginRight="8dp" />
+                android:layout_marginRight="6dp" />
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -287,7 +342,7 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="#2DD4BF"
-                    android:textSize="15sp"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
                 <TextView
                     android:id="@+id/tv_next_due_name"
@@ -305,8 +360,21 @@ const WIDGET_LARGE_LAYOUT_XML = `<?xml version="1.0" encoding="utf-8"?>
 const WIDGET_BG_XML = `<?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#1A2332" />
-    <corners android:radius="20dp" />
+    <gradient
+        android:startColor="#1E293B"
+        android:endColor="#0F172A"
+        android:angle="270" />
+    <corners android:radius="16dp" />
+</shape>`;
+
+const WIDGET_BG_RED_XML = `<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:startColor="#2D1A22"
+        android:endColor="#0F172A"
+        android:angle="270" />
+    <corners android:radius="16dp" />
 </shape>`;
 
 const WIDGET_INNER_BG_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -396,26 +464,44 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
         }
     }
 
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        val action = intent.action
+        if (action == "com.anonymous.financeappnative.ACTION_PREV_MONTH" || action == "com.anonymous.financeappnative.ACTION_NEXT_MONTH") {
+            val prefs = context.getSharedPreferences("budget_widget_data", Context.MODE_PRIVATE)
+            val currentOffset = prefs.getInt("viewedMonthOffset", 0)
+            val newOffset = if (action == "com.anonymous.financeappnative.ACTION_PREV_MONTH") {
+                Math.max(-1, currentOffset - 1)
+            } else {
+                Math.min(1, currentOffset + 1)
+            }
+            prefs.edit().putInt("viewedMonthOffset", newOffset).apply()
+            updateAllWidgets(context)
+        }
+    }
+
     fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val prefs = context.getSharedPreferences("budget_widget_data", Context.MODE_PRIVATE)
+        val offset = prefs.getInt("viewedMonthOffset", 0)
+        val prefix = if (offset == 0) "m0_" else "m\${offset}_"
 
-        val dailyBudget = prefs.getInt("dailyBudget", 0)
-        val dailySpent = prefs.getInt("dailySpent", 0)
-        val dailyRemaining = prefs.getInt("dailyRemaining", 0)
-        val dailyAllowance = prefs.getInt("dailyAllowance", 0)
-        val dailyPercent = prefs.getInt("dailyPercent", 0)
-        val isDailyOver = prefs.getBoolean("isDailyOver", false)
+        val dailyBudget = prefs.getInt("\${prefix}dailyBudget", 0)
+        val dailySpent = prefs.getInt("\${prefix}dailySpent", 0)
+        val dailyRemaining = prefs.getInt("\${prefix}dailyRemaining", 0)
+        val dailyAllowance = prefs.getInt("\${prefix}dailyAllowance", 0)
+        val dailyPercent = prefs.getInt("\${prefix}dailyPercent", 0)
+        val isDailyOver = prefs.getBoolean("\${prefix}isDailyOver", false)
         
-        val fixedSpent = prefs.getInt("fixedSpent", 0)
-        val fixedBudget = prefs.getInt("fixedBudget", 0)
+        val fixedSpent = prefs.getInt("\${prefix}fixedSpent", 0)
+        val fixedBudget = prefs.getInt("\${prefix}fixedBudget", 0)
         
-        val nextFixedName = prefs.getString("nextFixedName", "")
-        val nextFixedDate = prefs.getString("nextFixedDate", "")
-        val nextFixedAmount = prefs.getInt("nextFixedAmount", 0)
+        val nextFixedName = prefs.getString("\${prefix}nextFixedName", "")
+        val nextFixedDate = prefs.getString("\${prefix}nextFixedDate", "")
+        val nextFixedAmount = prefs.getInt("\${prefix}nextFixedAmount", 0)
 
-        val totalSpent = prefs.getInt("totalSpent", 0)
-        val totalBudget = prefs.getInt("totalBudget", 0)
-        val remainingDays = prefs.getInt("remainingDays", 1)
+        val totalSpent = prefs.getInt("\${prefix}totalSpent", 0)
+        val totalBudget = prefs.getInt("\${prefix}totalBudget", 0)
+        val remainingDays = prefs.getInt("\${prefix}remainingDays", 1)
 
         val views = RemoteViews(context.packageName, layoutResId)
 
@@ -428,6 +514,52 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
 
         views.setTextViewText(R.id.tv_spent_total, "日常 NT$ \${String.format("%,d", dailySpent)} / \${String.format("%,d", dailyBudget)}")
         
+        // Dynamically set title based on the month label
+        val monthLabel = prefs.getString("\${prefix}monthLabel", "")
+        val titleText = if (monthLabel.isNullOrEmpty()) {
+            if (layoutResId == R.layout.widget_budget_small) "日常預算" else "💡 日常可用餘額"
+        } else {
+            if (layoutResId == R.layout.widget_budget_small) "日常預算 (\${monthLabel})" else "💡 日常可用餘額 (\${monthLabel})"
+        }
+        views.setTextViewText(R.id.tv_title, titleText)
+
+        // Show/Hide prev/next arrows based on bounds (-1 and 1)
+        if (offset <= -1) {
+            views.setViewVisibility(R.id.btn_prev, android.view.View.INVISIBLE)
+        } else {
+            views.setViewVisibility(R.id.btn_prev, android.view.View.VISIBLE)
+        }
+        if (offset >= 1) {
+            views.setViewVisibility(R.id.btn_next, android.view.View.INVISIBLE)
+        } else {
+            views.setViewVisibility(R.id.btn_next, android.view.View.VISIBLE)
+        }
+
+        // Register button actions
+        val prevIntent = Intent(context, this.javaClass).apply {
+            action = "com.anonymous.financeappnative.ACTION_PREV_MONTH"
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        }
+        val prevPI = PendingIntent.getBroadcast(
+            context,
+            appWidgetId * 10 + 1,
+            prevIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        views.setOnClickPendingIntent(R.id.btn_prev, prevPI)
+
+        val nextIntent = Intent(context, this.javaClass).apply {
+            action = "com.anonymous.financeappnative.ACTION_NEXT_MONTH"
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        }
+        val nextPI = PendingIntent.getBroadcast(
+            context,
+            appWidgetId * 10 + 2,
+            nextIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        views.setOnClickPendingIntent(R.id.btn_next, nextPI)
+
         // --- 4x1 Specific (Small) ---
         try { views.setTextViewText(R.id.tv_days_left, "剩餘 \${remainingDays} 天") } catch (e: Exception) {}
 
@@ -445,32 +577,55 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
             }
         } catch (e: Exception) {}
 
-        // Colors & Progress Bar (Daily focus)
+        // Colors, Progress Bar & Dynamic Background Gradient (Daily focus)
         if (isDailyOver) {
             views.setTextColor(R.id.tv_remaining, 0xFFEF4444.toInt()) // Red
             views.setTextColor(R.id.tv_daily, 0xFFEF4444.toInt())
             views.setViewVisibility(R.id.progress_bar, android.view.View.GONE)
             views.setViewVisibility(R.id.progress_bar_red, android.view.View.VISIBLE)
             views.setProgressBar(R.id.progress_bar_red, 100, Math.min(dailyPercent, 100), false)
+            try {
+                views.setInt(R.id.widget_container, "setBackgroundResource", R.drawable.widget_bg_red)
+            } catch (e: Exception) {}
         } else {
             views.setTextColor(R.id.tv_remaining, 0xFF4ADE80.toInt()) // Green
             views.setTextColor(R.id.tv_daily, 0xFF2DD4BF.toInt()) // Teal
             views.setViewVisibility(R.id.progress_bar, android.view.View.VISIBLE)
             views.setViewVisibility(R.id.progress_bar_red, android.view.View.GONE)
             views.setProgressBar(R.id.progress_bar, 100, Math.min(dailyPercent, 100), false)
+            try {
+                views.setInt(R.id.widget_container, "setBackgroundResource", R.drawable.widget_bg)
+            } catch (e: Exception) {}
         }
 
-        // Tap to open app
-        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        if (intent != null) {
-            val pendingIntent = PendingIntent.getActivity(
-                context, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.tv_percent, pendingIntent)
-            views.setOnClickPendingIntent(R.id.tv_daily, pendingIntent)
-            views.setOnClickPendingIntent(R.id.tv_remaining, pendingIntent)
+        // --- Partition Deep Link Tap Actions ---
+        
+        // 1. Click Top Card/Allowances -> Open App Index
+        val homeIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("finance-app-native://")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        val homePI = PendingIntent.getActivity(context, 101, homeIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        views.setOnClickPendingIntent(R.id.tv_percent, homePI)
+        views.setOnClickPendingIntent(R.id.tv_daily, homePI)
+        views.setOnClickPendingIntent(R.id.tv_remaining, homePI)
+
+        // 2. Click Left Budget Card -> Open App Budget tab
+        val budgetIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("finance-app-native://budget")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val budgetPI = PendingIntent.getActivity(context, 102, budgetIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        try {
+            views.setOnClickPendingIntent(R.id.btn_fixed_budget, budgetPI)
+        } catch (e: Exception) {}
+
+        // 3. Click Right Due Cards -> Open App Records/Schedule tab
+        val recordsIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("finance-app-native://records")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val recordsPI = PendingIntent.getActivity(context, 103, recordsIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        try {
+            views.setOnClickPendingIntent(R.id.btn_next_due, recordsPI)
+        } catch (e: Exception) {}
         
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
@@ -601,6 +756,7 @@ function withBudgetWidget(config) {
 
             // Write Drawables
             fs.writeFileSync(path.join(resRoot, 'drawable', 'widget_bg.xml'), WIDGET_BG_XML);
+            fs.writeFileSync(path.join(resRoot, 'drawable', 'widget_bg_red.xml'), WIDGET_BG_RED_XML);
             fs.writeFileSync(path.join(resRoot, 'drawable', 'widget_inner_bg.xml'), WIDGET_INNER_BG_XML);
             fs.writeFileSync(path.join(resRoot, 'drawable', 'widget_progress.xml'), WIDGET_PROGRESS_XML);
             fs.writeFileSync(path.join(resRoot, 'drawable', 'widget_progress_red.xml'), WIDGET_PROGRESS_RED_XML);

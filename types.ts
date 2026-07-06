@@ -114,5 +114,24 @@ export interface BudgetGlobalConfig {
   // 專案群組：'fixed' = 固定支出, 'daily' = 日常預算（預設 'daily'）
   projectGroups: { [project: string]: 'fixed' | 'daily' };
   isSplitEnabled?: boolean;
+  healthCheckProjects?: string[];
 }
 
+export interface CustomAccountMapping {
+  type: 'personal' | 'shared';
+  category: '現金' | '銀行' | '信用卡' | '儲值卡' | '證券戶' | '其他';
+}
+
+export interface CustomAccountMappings {
+  [accountName: string]: CustomAccountMapping;
+}
+
+export interface ExpenseSpike {
+  category: string;
+  currentSpent: number;
+  avgSpent: number;
+  ratio: number;
+  difference: number;
+  status: 'yellow' | 'red' | 'new';
+  topTransactions: TransformedRecord[];
+}

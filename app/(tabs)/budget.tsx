@@ -8,28 +8,31 @@ import { BudgetRule, BudgetGlobalConfig, TransformedRecord, BudgetStatus } from 
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
 import { BudgetProgressCard, OtherExpensesCard } from '../../components/budget/BudgetProgressCard';
 import BudgetSettingModal from '../../components/budget/BudgetSettingModal';
-import BudgetSettingsModal from '../../components/budget/BudgetSettingsModal';
+import SettingsModal from '../../components/settings/SettingsModal';
 import BatchBudgetModal from '../../components/budget/BatchBudgetModal';
 import DetailModal from '../../components/DetailModal';
-import { transformRecordsForExport } from '../../services/financeService';
+import { transformRecordsForExport, detectExpenseSpikes } from '../../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function BudgetScreen() {
-    const { records, refreshRecords } = useFinance();
+    const { 
+        records, 
+        refreshRecords,
+        budgets,
+        saveBudgets,
+        budgetConfig: config,
+        customMappings
+    } = useFinance();
     const navigation = useNavigation();
     const [refreshing, setRefreshing] = useState(false);
 
     // Budget State
-    const [budgets, setBudgets] = useState<BudgetRule[]>([]);
-    const [config, setConfig] = useState<BudgetGlobalConfig>({ includedProjects: [], splitProjects: [], projectGroups: {} });
     const [targetMonth, setTargetMonth] = useState(new Date());
 
     // Modals State
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
-    const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
 
     // Sort State
     type BudgetSortKey = 'spent_desc' | 'spent_asc' | 'limit_desc' | 'limit_asc' | 'pct_desc' | 'pct_asc' | 'remaining_desc' | 'remaining_asc' | 'name_asc' | 'name_desc';
@@ -42,25 +45,20 @@ export default function BudgetScreen() {
     const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
-        loadData();
+        setIsLoaded(true);
     }, []);
 
     const loadData = async () => {
-        const loadedBudgets = await loadBudgets();
-        const loadedConfig = await loadBudgetConfig();
-        setBudgets(loadedBudgets);
-        setConfig(loadedConfig);
         setIsLoaded(true);
-    }
+    };
 
     // Save budgets effect — also sync notification + widget
     useEffect(() => {
         if (isLoaded) {
-            saveBudgets(budgets);
             import('../../services/NotificationService').then(ns => ns.default.syncWithRecords(records));
             import('../../services/WidgetService').then(ws => ws.default.syncWidgetData(records));
         }
-    }, [budgets, isLoaded]);
+    }, [budgets, records, isLoaded]);
 
     // Reload on tab focus
     useFocusEffect(
@@ -72,7 +70,6 @@ export default function BudgetScreen() {
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
         await refreshRecords();
-        await loadData();
         setRefreshing(false);
     }, [refreshRecords]);
 
@@ -109,6 +106,28 @@ export default function BudgetScreen() {
     const dailyRemaining = disposableDailyBudget - budgetCalc.totalDailySpent;
     const hasFixedProjects = budgetCalc.fixedProjectStatuses.length > 0;
 
+    const spikes = useMemo(() => {
+        if (records.length === 0) return [];
+        const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
+        const end = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0);
+        end.setHours(23, 59, 59, 999);
+
+        const projectFilter = config.includedProjects && config.includedProjects.length > 0
+            ? config.includedProjects
+            : null;
+
+        return detectExpenseSpikes(
+            records,
+            start,
+            end,
+            null, // no account filter
+            true, // split shared accounts
+            customMappings || {},
+            projectFilter,
+            config.splitProjects
+        );
+    }, [records, targetMonth, config, customMappings]);
+
     const uniqueCategories = useMemo(() => {
         const cats = new Set<string>();
         records.forEach(r => {
@@ -138,27 +157,32 @@ export default function BudgetScreen() {
         setIsModalOpen(true);
     };
 
-    const handleSaveBudget = (category: string, limit: number, isEdit: boolean) => {
+    const handleSaveBudget = async (category: string, limit: number, isEdit: boolean) => {
+        let updated: BudgetRule[] = [];
         if (isEdit && editingId) {
-            setBudgets(prev => prev.map(b => b.id === editingId ? { ...b, category, monthlyLimit: limit } : b));
+            updated = budgets.map(b => b.id === editingId ? { ...b, category, monthlyLimit: limit } : b);
         } else {
             if (budgets.some(b => b.category === category)) {
                 Alert.alert('提示', '此類別已設定預算，請使用編輯功能。');
                 return;
             }
-            setBudgets(prev => [...prev, {
+            updated = [...budgets, {
                 id: Date.now().toString(),
                 category,
                 monthlyLimit: limit
-            }]);
+            }];
         }
+        await saveBudgets(updated);
         setIsModalOpen(false);
     };
 
     const handleDeleteBudget = (id: string) => {
         Alert.alert('刪除預算', '確定要刪除此預算設定嗎？', [
             { text: '取消', style: 'cancel' },
-            { text: '刪除', style: 'destructive', onPress: () => setBudgets(prev => prev.filter(b => b.id !== id)) }
+            { text: '刪除', style: 'destructive', onPress: async () => {
+                const updated = budgets.filter(b => b.id !== id);
+                await saveBudgets(updated);
+            }}
         ]);
     };
 
@@ -279,31 +303,12 @@ export default function BudgetScreen() {
         setIsDetailModalOpen(true);
     };
 
-    const handleBatchSave = (newBudgets: BudgetRule[]) => {
-        setBudgets(newBudgets);
-    };
-
-    const showSettingsMenu = () => setIsSettingsMenuOpen(true);
-    const hideSettingsMenu = () => setIsSettingsMenuOpen(false);
-
-    const handleSettingsOption = (action: () => void) => {
-        setIsSettingsMenuOpen(false);
-        setTimeout(action, 300);
-    };
-
     // Set header right buttons
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRightContainerStyle: { paddingRight: 16 },
             headerRight: () => (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <Pressable
-                        onPress={showSettingsMenu}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={({ pressed }) => [pressed && { opacity: 0.5 }]}
-                    >
-                        <Ionicons name="settings-outline" size={22} color={COLORS.textSecondary} />
-                    </Pressable>
                     <Pressable
                         onPress={() => openModal()}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -494,6 +499,95 @@ export default function BudgetScreen() {
                         <Text style={styles.emptyText}>尚無預算設定且無支出</Text>
                     </View>
                 )}
+
+                {/* 財務健檢 (Health Alerts) */}
+                <View style={{ marginTop: 24, marginBottom: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                        <View style={{ width: 4, height: 18, borderRadius: 2, marginRight: 10, backgroundColor: spikes.length > 0 ? COLORS.red : COLORS.green }} />
+                        <Text style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 }}>財務健檢</Text>
+                    </View>
+                    
+                    {spikes.length === 0 ? (
+                        <Animated.View entering={FadeInDown.duration(400).springify()} style={[styles.healthCard, { borderColor: COLORS.green + '30', backgroundColor: COLORS.green + '05', borderWidth: 1.5, padding: 16, borderRadius: 20 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                <Ionicons name="checkmark-circle-outline" size={24} color={COLORS.green} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ color: COLORS.textPrimary, fontSize: 15, fontWeight: '700' }}>本月消費控制良好</Text>
+                                    <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4 }}>未發現異常超支的消費分類，請繼續保持！</Text>
+                                </View>
+                            </View>
+                        </Animated.View>
+                    ) : (
+                        <View style={{ gap: 12 }}>
+                            {spikes.map((spike, idx) => {
+                                const isRed = spike.status === 'red';
+                                const isNew = spike.status === 'new';
+                                const badgeColor = isRed ? COLORS.red : isNew ? COLORS.accent : COLORS.yellow;
+                                const cardBg = isRed ? COLORS.red + '05' : isNew ? COLORS.accent + '05' : COLORS.yellow + '05';
+                                const cardBorder = isRed ? COLORS.red + '30' : isNew ? COLORS.accent + '30' : COLORS.yellow + '30';
+
+                                const description = isNew 
+                                    ? `本月新增支出達 $${spike.currentSpent.toLocaleString()}，過去 3 期無此項支出。`
+                                    : `本月花費 $${spike.currentSpent.toLocaleString()}，已達歷史平均 ($${spike.avgSpent.toLocaleString()}) 的 ${Math.round(spike.ratio * 100)}%，超額 $${spike.difference.toLocaleString()}。`;
+
+                                return (
+                                    <Animated.View 
+                                        key={spike.category} 
+                                        entering={FadeInDown.delay(idx * 100).duration(400).springify()}
+                                    >
+                                        <Pressable
+                                            onPress={() => {
+                                                setDetailModalTitle(`${spike.category} 異常消費明細 (Top 5)`);
+                                                setDetailModalData(spike.topTransactions);
+                                                setIsDetailModalOpen(true);
+                                            }}
+                                            style={({ pressed }) => [
+                                                styles.healthCard, 
+                                                { 
+                                                    borderColor: cardBorder, 
+                                                    backgroundColor: cardBg,
+                                                    borderWidth: 1.5,
+                                                    padding: 16,
+                                                    borderRadius: 20,
+                                                    opacity: pressed ? 0.8 : 1 
+                                                }
+                                            ]}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                                                <View style={{ marginTop: 2 }}>
+                                                    <Ionicons 
+                                                        name={isRed ? "alert-circle" : isNew ? "sparkles" : "warning"} 
+                                                        size={22} 
+                                                        color={badgeColor} 
+                                                    />
+                                                </View>
+                                                <View style={{ flex: 1 }}>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' }}>
+                                                            {spike.category}
+                                                        </Text>
+                                                        <Text style={{ color: badgeColor, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>
+                                                            {isNew ? '🆕 全新類別' : isRed ? '🔴 嚴重超支' : '🟡 輕微超支'}
+                                                        </Text>
+                                                    </View>
+                                                    
+                                                    <Text style={{ color: COLORS.textSecondary, fontSize: 13, marginTop: 6, lineHeight: 18 }}>
+                                                        {description}
+                                                    </Text>
+                                                    
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
+                                                        <Text style={{ color: badgeColor, fontSize: 11, fontWeight: '600' }}>點擊查看大額明細</Text>
+                                                        <Ionicons name="chevron-forward" size={12} color={badgeColor} />
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        </Pressable>
+                                    </Animated.View>
+                                );
+                            })}
+                        </View>
+                    )}
+                </View>
             </ScrollView>
 
             {/* Modals */}
@@ -508,76 +602,12 @@ export default function BudgetScreen() {
                 allRawRecords={records}
             />
 
-            <BudgetSettingsModal
-                isOpen={isSettingsOpen}
-                onClose={() => setIsSettingsOpen(false)}
-                config={config}
-                onSave={(newConfig) => {
-                    setConfig(newConfig);
-                    saveBudgetConfig(newConfig);
-                }}
-                allRawRecords={records}
-            />
-
-            <BatchBudgetModal
-                isOpen={isBatchEditOpen}
-                onClose={() => setIsBatchEditOpen(false)}
-                currentBudgets={budgets}
-                onSave={handleBatchSave}
-                uniqueCategories={uniqueCategories}
-                allRawRecords={records}
-                config={config}
-            />
-
             <DetailModal
                 visible={isDetailModalOpen}
                 onClose={() => setIsDetailModalOpen(false)}
                 title={detailModalTitle}
                 records={detailModalData}
             />
-
-            {/* Settings Quick Menu */}
-            <Modal visible={isSettingsMenuOpen} transparent animationType="fade" onRequestClose={hideSettingsMenu}>
-                <View style={styles.menuOverlay}>
-                    <Pressable style={StyleSheet.absoluteFill} onPress={hideSettingsMenu} />
-                    <View style={styles.menuCard}>
-                        <View style={styles.menuHandle} />
-                        <Text style={styles.menuTitle}>預算設定</Text>
-
-                        <TouchableOpacity
-                            style={styles.menuOption}
-                            activeOpacity={0.7}
-                            onPress={() => handleSettingsOption(() => setIsSettingsOpen(true))}
-                        >
-                            <View style={[styles.menuIconWrap, { backgroundColor: '#EEF2FF' }]}>
-                                <Ionicons name="options-outline" size={20} color={COLORS.accent} />
-                            </View>
-                            <View style={styles.menuOptionTextWrap}>
-                                <Text style={styles.menuOptionTitle}>預算計算設定</Text>
-                                <Text style={styles.menuOptionDesc}>設定專案群組、分帳規則</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
-                        </TouchableOpacity>
-
-                        <View style={styles.menuDivider} />
-
-                        <TouchableOpacity
-                            style={styles.menuOption}
-                            activeOpacity={0.7}
-                            onPress={() => handleSettingsOption(() => setIsBatchEditOpen(true))}
-                        >
-                            <View style={[styles.menuIconWrap, { backgroundColor: '#EFF6FF' }]}>
-                                <Ionicons name="grid-outline" size={20} color={COLORS.blue} />
-                            </View>
-                            <View style={styles.menuOptionTextWrap}>
-                                <Text style={styles.menuOptionTitle}>批次編輯預算</Text>
-                                <Text style={styles.menuOptionDesc}>一次設定所有類別的月預算額</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
         </View>
     );
 }
@@ -692,4 +722,14 @@ const styles = StyleSheet.create({
     menuOptionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 3 },
     menuOptionDesc: { fontSize: 13, color: COLORS.textMuted, lineHeight: 17 },
     menuDivider: { height: 1, backgroundColor: COLORS.divider, marginVertical: 4, marginHorizontal: 8 },
+    healthCard: {
+        padding: 16,
+        borderRadius: 20,
+        borderWidth: 1.5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
 });

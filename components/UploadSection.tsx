@@ -3,18 +3,18 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFinance } from '../context/FinanceContext';
-import { readFileContent, parseCsvData } from '../services/financeService';
-import { RawRecord } from '../types';
+import { readFileContent, parseCsvData, findUnmappedAccounts } from '../services/financeService';
+import { RawRecord, CustomAccountMappings } from '../types';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import AccountMappingModal from './account/AccountMappingModal';
 
 interface UploadSectionProps {
     onUploadSuccess?: () => void;
 }
 
 export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
-    // @ts-ignore
-    const { loadRecords, clearRecords, records, isLoading } = useFinance();
+    const { loadRecords, clearRecords, records, isLoading, customMappings, saveCustomMappings } = useFinance();
     const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
     const [selectedFileUri, setSelectedFileUri] = useState<string | null>(null);
     const [selectedFileObj, setSelectedFileObj] = useState<any>(null); // Store the actual file object for Web support
@@ -22,6 +22,8 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successCount, setSuccessCount] = useState<number | null>(null);
+    const [unmappedList, setUnmappedList] = useState<string[]>([]);
+    const [isMappingModalVisible, setIsMappingModalVisible] = useState(false);
 
     const handlePickFile = useCallback(async () => {
         setError(null);
@@ -54,21 +56,35 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
         try {
             // Pass the whole object if available (web), otherwise just the uri (native)
             const csvText = await readFileContent(targetFile, encoding);
-            const records: RawRecord[] = parseCsvData(csvText);
-            if (records.length === 0) {
+            const parsedRecords: RawRecord[] = parseCsvData(csvText);
+            if (parsedRecords.length === 0) {
                 setError('未讀取到任何記錄，請確認 CSV 格式是否正確');
                 setLoading(false);
                 return;
             }
             clearRecords();
-            loadRecords(records);
-            setSuccessCount(records.length);
-            if (onUploadSuccess) setTimeout(() => onUploadSuccess(), 1200);
+            loadRecords(parsedRecords);
+            setSuccessCount(parsedRecords.length);
+
+            // 檢查是否有未分類的帳戶
+            const unmapped = findUnmappedAccounts(parsedRecords, customMappings);
+            if (unmapped.length > 0) {
+                setUnmappedList(unmapped);
+                setIsMappingModalVisible(true);
+            } else {
+                if (onUploadSuccess) setTimeout(() => onUploadSuccess(), 1200);
+            }
         } catch (e: any) {
             setError(`解析失敗：${e.message || '未知錯誤'}`);
         }
         setLoading(false);
-    }, [selectedFileUri, selectedFileObj, encoding, clearRecords, loadRecords, onUploadSuccess]);
+    }, [selectedFileUri, selectedFileObj, encoding, clearRecords, loadRecords, onUploadSuccess, customMappings]);
+
+    const handleSaveMappings = async (newMappings: CustomAccountMappings) => {
+        await saveCustomMappings(newMappings);
+        setIsMappingModalVisible(false);
+        if (onUploadSuccess) onUploadSuccess();
+    };
 
     return (
         <View style={styles.container}>
@@ -153,6 +169,13 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </Animated.View>
                 ) : null}
             </Animated.View>
+            <AccountMappingModal
+                visible={isMappingModalVisible}
+                onClose={() => setIsMappingModalVisible(false)}
+                unmappedAccounts={unmappedList}
+                onSave={handleSaveMappings}
+                existingMappings={customMappings}
+            />
         </View>
     );
 }

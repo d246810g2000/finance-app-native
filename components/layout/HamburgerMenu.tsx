@@ -6,6 +6,8 @@ import { SHADOWS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import NotificationService from '../../services/NotificationService';
 import { useFinance, SearchFilters } from '../../context/FinanceContext';
+import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS } from '../../constants';
+import SettingsModal from '../settings/SettingsModal';
 
 const { width } = Dimensions.get('window');
 const MENU_WIDTH = width * 0.75;
@@ -18,7 +20,7 @@ interface HamburgerMenuProps {
 export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) {
     const router = useRouter();
     const { colors, typography, theme, setTheme } = useAppTheme();
-    const { records, globalExcludeTravel, setGlobalExcludeTravel, setSearchFilters, searchModalVisible, setSearchModalVisible, menuVisible: propVisible, setMenuVisible } = useFinance();
+    const { records, globalExcludeTravel, setGlobalExcludeTravel, setSearchFilters, searchModalVisible, setSearchModalVisible, menuVisible: propVisible, setMenuVisible, customMappings, saveCustomMappings } = useFinance();
 
     // Resolve which visibility to use
     const actualVisible = visible !== undefined ? visible : propVisible;
@@ -29,6 +31,25 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
     const [isAnimating, setIsAnimating] = useState(false);
     const [notificationEnabled, setNotificationEnabled] = useState(false);
+    const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+
+    // 計算所有需要設定或已經設定對照分類的帳戶
+    const allCustomAndUnmappedAccounts = useMemo(() => {
+        const set = new Set<string>();
+        // 加入已自訂的對照
+        Object.keys(customMappings).forEach(acc => set.add(acc));
+        // 掃描現有交易紀錄的帳戶
+        records.forEach(r => {
+            if (r['收款(轉入)']) set.add(r['收款(轉入)'].trim());
+            if (r['付款(轉出)']) set.add(r['付款(轉出)'].trim());
+        });
+        // 排除系統字眼
+        set.delete('代付');
+        set.delete('轉帳');
+        set.delete('');
+
+        return Array.from(set).sort();
+    }, [customMappings, records]);
 
     useEffect(() => {
         NotificationService.isEnabled().then(setNotificationEnabled);
@@ -129,39 +150,24 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                             <Text style={styles.menuText}>資料匯入</Text>
                         </TouchableOpacity>
 
-                        <View style={styles.divider} />
-
-                        <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
+                        <TouchableOpacity style={styles.menuItem} onPress={() => {
+                            setIsSettingsVisible(true);
+                        }}>
                             <View style={styles.iconContainer}>
-                                <Ionicons name={theme === 'dark' ? 'moon' : theme === 'light' ? 'sunny' : 'contrast'} size={24} color={colors.textPrimary} />
+                                <Ionicons name="settings-outline" size={24} color={colors.textPrimary} />
                             </View>
-                            <Text style={styles.menuText}>
-                                主題：{theme === 'dark' ? '深色' : theme === 'light' ? '淺色' : '跟隨系統'}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={toggleNotification}>
-                            <View style={styles.iconContainer}>
-                                <Ionicons name={notificationEnabled ? "notifications" : "notifications-outline"} size={24} color={notificationEnabled ? colors.accent : colors.textPrimary} />
-                            </View>
-                            <Text style={[styles.menuText, { flex: 1 }]}>預算常駐通知</Text>
-                            <View style={[styles.switchContainer, notificationEnabled && styles.switchEnabled]}>
-                                <View style={[styles.switchKnob, notificationEnabled && styles.switchKnobEnabled]} />
-                            </View>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={() => setGlobalExcludeTravel(!globalExcludeTravel)}>
-                            <View style={styles.iconContainer}>
-                                <Ionicons name={globalExcludeTravel ? "airplane" : "airplane-outline"} size={24} color={globalExcludeTravel ? colors.accent : colors.textPrimary} />
-                            </View>
-                            <Text style={[styles.menuText, { flex: 1 }]}>排除旅遊專案</Text>
-                            <View style={[styles.switchContainer, globalExcludeTravel && styles.switchEnabled]}>
-                                <View style={[styles.switchKnob, globalExcludeTravel && styles.switchKnobEnabled]} />
-                            </View>
+                            <Text style={styles.menuText}>系統設定</Text>
                         </TouchableOpacity>
                     </View>
                 </Animated.View>
             </View>
+            <SettingsModal
+                visible={isSettingsVisible}
+                onClose={() => {
+                    setIsSettingsVisible(false);
+                    actualOnClose();
+                }}
+            />
         </Modal>
     );
 }
