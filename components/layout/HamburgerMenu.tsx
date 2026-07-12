@@ -1,16 +1,55 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, Dimensions, Alert } from 'react-native';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, Pressable, Animated, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SHADOWS } from '../../theme';
+import { RADIUS, SCREEN_EDGE_MIN, SHADOWS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
-import NotificationService from '../../services/NotificationService';
-import { useFinance, SearchFilters } from '../../context/FinanceContext';
-import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS } from '../../constants';
+import { useFinance } from '../../context/FinanceContext';
 import SettingsModal from '../settings/SettingsModal';
 
-const { width } = Dimensions.get('window');
-const MENU_WIDTH = width * 0.75;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const MENU_WIDTH = Math.min(SCREEN_WIDTH * 0.8, 320);
+
+type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+
+interface MenuRowProps {
+    icon: IoniconsName;
+    label: string;
+    subtitle?: string;
+    iconColor: string;
+    iconBg: string;
+    onPress: () => void;
+    colors: ReturnType<typeof useAppTheme>['colors'];
+    styles: ReturnType<typeof createStyles>;
+    showDivider?: boolean;
+}
+
+function MenuRow({ icon, label, subtitle, iconColor, iconBg, onPress, colors, styles, showDivider }: MenuRowProps) {
+    return (
+        <>
+            <Pressable
+                onPress={onPress}
+                android_ripple={{ color: colors.accent + '20' }}
+                style={({ pressed }) => [styles.menuItemPressable, pressed && styles.menuItemPressed]}
+            >
+                <View style={styles.menuItemRow}>
+                    <View style={[styles.menuIconCircle, { backgroundColor: iconBg }]}>
+                        <Ionicons name={icon} size={20} color={iconColor} />
+                    </View>
+                    <View style={styles.menuLabelWrap}>
+                        <Text style={styles.menuText} numberOfLines={1}>{label}</Text>
+                        {subtitle ? (
+                            <Text style={styles.menuSubtext} numberOfLines={1}>{subtitle}</Text>
+                        ) : null}
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={styles.menuChevron} />
+                </View>
+            </Pressable>
+            {showDivider ? <View style={styles.itemDivider} /> : null}
+        </>
+    );
+}
 
 interface HamburgerMenuProps {
     visible: boolean;
@@ -19,247 +58,293 @@ interface HamburgerMenuProps {
 
 export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) {
     const router = useRouter();
-    const { colors, typography, theme, setTheme } = useAppTheme();
-    const { records, globalExcludeTravel, setGlobalExcludeTravel, setSearchFilters, searchModalVisible, setSearchModalVisible, menuVisible: propVisible, setMenuVisible, customMappings, saveCustomMappings } = useFinance();
+    const { colors } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const { setSearchModalVisible, menuVisible: propVisible, setMenuVisible } = useFinance();
 
-    // Resolve which visibility to use
     const actualVisible = visible !== undefined ? visible : propVisible;
     const actualOnClose = onClose || (() => setMenuVisible(false));
 
-    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
+    const styles = useMemo(() => createStyles(colors), [colors]);
+    const edgeH = Math.max(insets.left, SCREEN_EDGE_MIN);
 
     const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
     const [isAnimating, setIsAnimating] = useState(false);
-    const [notificationEnabled, setNotificationEnabled] = useState(false);
     const [isSettingsVisible, setIsSettingsVisible] = useState(false);
-
-    // 計算所有需要設定或已經設定對照分類的帳戶
-    const allCustomAndUnmappedAccounts = useMemo(() => {
-        const set = new Set<string>();
-        // 加入已自訂的對照
-        Object.keys(customMappings).forEach(acc => set.add(acc));
-        // 掃描現有交易紀錄的帳戶
-        records.forEach(r => {
-            if (r['收款(轉入)']) set.add(r['收款(轉入)'].trim());
-            if (r['付款(轉出)']) set.add(r['付款(轉出)'].trim());
-        });
-        // 排除系統字眼
-        set.delete('代付');
-        set.delete('轉帳');
-        set.delete('');
-
-        return Array.from(set).sort();
-    }, [customMappings, records]);
-
-    useEffect(() => {
-        NotificationService.isEnabled().then(setNotificationEnabled);
-    }, []);
-
-
-
-    const toggleNotification = async () => {
-        if (!NotificationService.isSupported()) {
-            Alert.alert(
-                "不支援的環境",
-                "由於您目前正在使用 Expo Go，無法執行原生常駐通知的模組 (@notifee/react-native)。\n\n欲測試此功能，請編譯原生的 Android 應用程式 (使用指令 npx expo run:android)。",
-                [{ text: "了解" }]
-            );
-            return;
-        }
-
-        const newValue = !notificationEnabled;
-        if (newValue) {
-            const hasPermission = await NotificationService.requestPermissions();
-            if (!hasPermission) return;
-        }
-        await NotificationService.setEnabled(newValue);
-        setNotificationEnabled(newValue);
-        if (newValue) {
-            NotificationService.syncWithRecords(records);
-        }
-    };
 
     useEffect(() => {
         if (actualVisible) {
             setIsAnimating(true);
             Animated.timing(slideAnim, {
                 toValue: 0,
-                duration: 300,
+                duration: 280,
                 useNativeDriver: true,
             }).start(() => setIsAnimating(false));
         } else {
             setIsAnimating(true);
             Animated.timing(slideAnim, {
                 toValue: -MENU_WIDTH,
-                duration: 300,
+                duration: 280,
                 useNativeDriver: true,
             }).start(() => setIsAnimating(false));
         }
-    }, [actualVisible]);
+    }, [actualVisible, slideAnim]);
 
-    if (!actualVisible && !isAnimating) return null;
+    if (!actualVisible && !isAnimating && !isSettingsVisible) return null;
 
     const navigateTo = (path: string) => {
-        onClose();
-        setTimeout(() => {
-            router.push(path as any);
-        }, 300);
+        actualOnClose();
+        setTimeout(() => router.push(path as any), 280);
     };
 
-    const toggleTheme = () => {
-        if (theme === 'light') setTheme('dark');
-        else if (theme === 'dark') setTheme('system');
-        else setTheme('light');
+    const openSettings = () => {
+        actualOnClose();
+        setTimeout(() => setIsSettingsVisible(true), 300);
     };
 
-    const handleApplySearch = (filters: SearchFilters) => {
-        setSearchFilters(filters);
-        navigateTo('/records');
+    const openSearch = () => {
+        actualOnClose();
+        setTimeout(() => setSearchModalVisible(true), 280);
     };
 
     return (
-        <Modal transparent visible={actualVisible || isAnimating} onRequestClose={actualOnClose} animationType="none">
-            <View style={styles.overlay}>
-                <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={actualOnClose} />
-                <Animated.View style={[styles.menuContainer, { transform: [{ translateX: slideAnim }] }]}>
-                    <View style={styles.header}>
-                        <Text style={typography.h2}>設定選單</Text>
-                        <TouchableOpacity onPress={actualOnClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="close" size={28} color={colors.textPrimary} />
-                        </TouchableOpacity>
-                    </View>
+        <>
+            <Modal
+                transparent
+                visible={actualVisible || isAnimating}
+                onRequestClose={actualOnClose}
+                animationType="none"
+                statusBarTranslucent
+            >
+                <View style={styles.overlay}>
+                    <Pressable
+                        style={styles.backdrop}
+                        onPress={actualOnClose}
+                        accessibilityRole="button"
+                        accessibilityLabel="關閉選單"
+                    />
 
-                    <View style={styles.content}>
-                        <TouchableOpacity style={styles.searchItem} onPress={() => {
-                            // 立即開啟搜尋視窗並關閉選單，達成無縫銜接
-                            setMenuVisible(false);
-                            setSearchModalVisible(true);
-                        }}>
-                            <View style={styles.searchIconContainer}>
-                                <Ionicons name="search" size={20} color={colors.textSecondary} />
+                    <Animated.View style={[styles.drawerShell, { transform: [{ translateX: slideAnim }] }]}>
+                        <View
+                            style={[
+                                styles.drawerBody,
+                                {
+                                    paddingTop: insets.top + 8,
+                                    paddingBottom: insets.bottom + 12,
+                                    paddingHorizontal: edgeH,
+                                },
+                            ]}
+                        >
+                            <View style={styles.header}>
+                                <View>
+                                    <Text style={styles.headerTitle}>選單</Text>
+                                    <Text style={styles.headerSubtitle}>快速導覽與設定</Text>
+                                </View>
+                                <Pressable
+                                    onPress={actualOnClose}
+                                    hitSlop={12}
+                                    style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="關閉選單"
+                                >
+                                    <Ionicons name="close" size={20} color={colors.textSecondary} />
+                                </Pressable>
                             </View>
-                            <Text style={styles.searchText}>搜尋關鍵字、類別...</Text>
-                        </TouchableOpacity>
 
-                        <View style={styles.divider} />
+                            <Text style={styles.sectionLabel}>功能</Text>
+                            <View style={styles.menuCard}>
+                                <Pressable
+                                    onPress={openSearch}
+                                    android_ripple={{ color: colors.accent + '20' }}
+                                    style={({ pressed }) => [styles.menuItemPressable, pressed && styles.menuItemPressed]}
+                                >
+                                    <View style={styles.menuItemRow}>
+                                        <View style={[styles.menuIconCircle, { backgroundColor: colors.accentLight }]}>
+                                            <Ionicons name="search" size={20} color={colors.accent} />
+                                        </View>
+                                        <View style={styles.menuLabelWrap}>
+                                            <Text style={styles.menuText}>搜尋記錄</Text>
+                                            <Text style={styles.menuSubtext} numberOfLines={1}>
+                                                關鍵字、類別、帳戶...
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                                    </View>
+                                </Pressable>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('/upload')}>
-                            <View style={styles.iconContainer}>
-                                <Ionicons name="cloud-upload-outline" size={24} color={colors.textPrimary} />
+                                <View style={styles.itemDivider} />
+
+                                <MenuRow
+                                    icon="cloud-upload-outline"
+                                    label="資料匯入"
+                                    subtitle="從 CSV 匯入交易紀錄"
+                                    iconColor={colors.accent}
+                                    iconBg={colors.accentLight}
+                                    onPress={() => navigateTo('/upload')}
+                                    colors={colors}
+                                    styles={styles}
+                                    showDivider
+                                />
+                                <MenuRow
+                                    icon="settings-outline"
+                                    label="系統設定"
+                                    subtitle="帳戶、預算與外觀主題"
+                                    iconColor={colors.green}
+                                    iconBg={colors.greenLight}
+                                    onPress={openSettings}
+                                    colors={colors}
+                                    styles={styles}
+                                />
                             </View>
-                            <Text style={styles.menuText}>資料匯入</Text>
-                        </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={() => {
-                            setIsSettingsVisible(true);
-                        }}>
-                            <View style={styles.iconContainer}>
-                                <Ionicons name="settings-outline" size={24} color={colors.textPrimary} />
+                            <View style={styles.footer}>
+                                <Text style={styles.footerText}>個人財務管理</Text>
                             </View>
-                            <Text style={styles.menuText}>系統設定</Text>
-                        </TouchableOpacity>
-                    </View>
-                </Animated.View>
-            </View>
+                        </View>
+                    </Animated.View>
+                </View>
+            </Modal>
+
             <SettingsModal
                 visible={isSettingsVisible}
-                onClose={() => {
-                    setIsSettingsVisible(false);
-                    actualOnClose();
-                }}
+                onClose={() => setIsSettingsVisible(false)}
             />
-        </Modal>
+        </>
     );
 }
 
-const createStyles = (colors: any, typography: any) => StyleSheet.create({
-    overlay: {
-        flex: 1,
-        flexDirection: 'row',
-    },
-    backdrop: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: colors.blackOverlay,
-    },
-    menuContainer: {
-        width: MENU_WIDTH,
-        height: '100%',
-        backgroundColor: colors.card,
-        ...SHADOWS.lg,
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingTop: 60,
-        paddingHorizontal: 24,
-        paddingBottom: 24,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.divider,
-    },
-    content: {
-        flex: 1,
-        paddingTop: 8,
-    },
-    searchItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.bg,
-        marginHorizontal: 16,
-        marginTop: 8,
-        marginBottom: 16,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: colors.divider,
-    },
-    searchIconContainer: {
-        marginRight: 8,
-    },
-    searchText: {
-        ...typography.bodySm,
-        color: colors.textMuted,
-    },
-    menuItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 16,
-        paddingHorizontal: 24,
-    },
-    iconContainer: {
-        width: 32,
-        alignItems: 'center',
-    },
-    menuText: {
-        ...typography.subtitle,
-        marginLeft: 16,
-    },
-    switchContainer: {
-        width: 44,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: colors.border,
-        justifyContent: 'center',
-        padding: 2,
-    },
-    switchEnabled: {
-        backgroundColor: colors.green,
-    },
-    switchKnob: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: colors.card,
-        ...SHADOWS.sm,
-    },
-    switchKnobEnabled: {
-        transform: [{ translateX: 20 }],
-    },
-    divider: {
-        height: 1,
-        backgroundColor: colors.divider,
-        marginVertical: 16,
-        marginHorizontal: 24,
-    }
-});
+const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
+    StyleSheet.create({
+        overlay: {
+            flex: 1,
+        },
+        backdrop: {
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: colors.blackOverlay,
+        },
+        drawerShell: {
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: MENU_WIDTH,
+            elevation: 24,
+            shadowColor: '#000',
+            shadowOffset: { width: 4, height: 0 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+        },
+        drawerBody: {
+            flex: 1,
+            width: MENU_WIDTH,
+            backgroundColor: colors.bg,
+        },
+        header: {
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: 20,
+        },
+        headerTitle: {
+            fontSize: 24,
+            fontWeight: '800',
+            color: colors.textPrimary,
+            letterSpacing: -0.4,
+            includeFontPadding: false,
+        },
+        headerSubtitle: {
+            fontSize: 13,
+            color: colors.textMuted,
+            marginTop: 4,
+            includeFontPadding: false,
+        },
+        closeBtn: {
+            width: 40,
+            height: 40,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 20,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.cardBorder,
+        },
+        closeBtnPressed: {
+            opacity: 0.8,
+            transform: [{ scale: 0.96 }],
+        },
+        sectionLabel: {
+            fontSize: 12,
+            fontWeight: '800',
+            color: colors.textMuted,
+            letterSpacing: 0.4,
+            marginBottom: 10,
+            marginLeft: 2,
+            includeFontPadding: false,
+        },
+        menuCard: {
+            backgroundColor: colors.card,
+            borderRadius: RADIUS.lg,
+            borderWidth: 1,
+            borderColor: colors.cardBorder,
+            overflow: 'hidden',
+            ...SHADOWS.sm,
+        },
+        menuItemPressable: {
+            width: '100%',
+        },
+        menuItemPressed: {
+            backgroundColor: colors.accent + '10',
+        },
+        menuItemRow: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: 14,
+            paddingHorizontal: 14,
+            width: '100%',
+        },
+        menuIconCircle: {
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+        },
+        menuLabelWrap: {
+            flex: 1,
+            minWidth: 0,
+            marginLeft: 12,
+            marginRight: 8,
+            justifyContent: 'center',
+        },
+        menuText: {
+            fontSize: 15,
+            fontWeight: '700',
+            color: colors.textPrimary,
+            includeFontPadding: false,
+        },
+        menuSubtext: {
+            fontSize: 12,
+            color: colors.textMuted,
+            marginTop: 3,
+            lineHeight: 16,
+            includeFontPadding: false,
+        },
+        menuChevron: {
+            flexShrink: 0,
+        },
+        itemDivider: {
+            height: StyleSheet.hairlineWidth,
+            backgroundColor: colors.divider,
+            marginLeft: 66,
+        },
+        footer: {
+            marginTop: 28,
+            paddingHorizontal: 2,
+        },
+        footerText: {
+            fontSize: 12,
+            color: colors.textMuted,
+            includeFontPadding: false,
+        },
+    });

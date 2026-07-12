@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView, Platform, Pressable, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Modal, TextInput, ScrollView, Pressable, Animated, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../context/ThemeContext';
 import { useFinance, SearchFilters } from '../context/FinanceContext';
-import { transformRecordsForExport } from '../services/financeService';
-import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
+import { AppColors, RADIUS, SCREEN_EDGE_MIN, SHADOWS, withContinuousRadius } from '../theme';
+import HeaderMenuButton from './layout/HeaderMenuButton';
 
 interface SearchModalProps {
     visible: boolean;
@@ -76,12 +77,12 @@ function DrumDatePicker({ initialDate, onConfirm, onCancel, colors, styles }: an
                 <Wheel data={days} selectedValue={selectedDay} onValueChange={setSelectedDay} />
             </View>
             <View style={styles.drumFooter}>
-                <TouchableOpacity onPress={onCancel} style={styles.drumButton}>
+                <Pressable onPress={onCancel} style={({ pressed }) => [styles.drumButton, pressed && { opacity: 0.7 }]}>
                     <Text style={styles.drumCancelText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => onConfirm(new Date(selectedYear, selectedMonth - 1, selectedDay))} style={styles.drumButton}>
+                </Pressable>
+                <Pressable onPress={() => onConfirm(new Date(selectedYear, selectedMonth - 1, selectedDay))} style={({ pressed }) => [styles.drumButton, pressed && { opacity: 0.7 }]}>
                     <Text style={styles.drumConfirmText}>確定</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </View>
     );
@@ -89,10 +90,12 @@ function DrumDatePicker({ initialDate, onConfirm, onCancel, colors, styles }: an
 
 export default function SearchModal({ visible, onClose, onApply }: SearchModalProps) {
     const { colors, typography } = useAppTheme();
-    const { records, searchFilters, setSearchModalVisible, setMenuVisible, searchMetadata: metadata } = useFinance();
-    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
+    const insets = useSafeAreaInsets();
+    const { searchFilters, searchMetadata: metadata } = useFinance();
+    const edgeH = Math.max(insets.left, insets.right, SCREEN_EDGE_MIN);
+    const styles = useMemo(() => createStyles(colors, typography, edgeH), [colors, typography, edgeH]);
 
-    const slideAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
+    const slideAnim = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [isRendering, setIsRendering] = useState(false);
 
@@ -114,8 +117,8 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
         } else {
             Animated.parallel([
                 Animated.timing(slideAnim, {
-                    toValue: SCREEN_WIDTH,
-                    duration: 300,
+                    toValue: -SCREEN_WIDTH,
+                    duration: 280,
                     useNativeDriver: true,
                 }),
                 Animated.timing(fadeAnim, {
@@ -184,10 +187,12 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
         setPickerType(null);
     };
 
-    const renderFilterRow = (icon: string, label: string, value: string, type: typeof pickerType, placeholder: string = '全部') => (
-        <TouchableOpacity style={styles.filterRow} activeOpacity={0.7} onPress={() => openPicker(type)}>
+    const renderFilterRow = (icon: React.ComponentProps<typeof Ionicons>['name'], label: string, value: string, type: typeof pickerType, placeholder: string = '全部') => (
+        <Pressable style={({ pressed }) => [styles.filterRow, pressed && { opacity: 0.7 }]} onPress={() => openPicker(type)}>
             <View style={styles.filterIconLabel}>
-                <Text style={styles.rowEmoji}>{icon}</Text>
+                <View style={styles.filterIconBg}>
+                    <Ionicons name={icon} size={18} color={colors.accent} />
+                </View>
                 <Text style={styles.rowLabel}>{label}</Text>
             </View>
             <View style={styles.filterValueContainer}>
@@ -196,7 +201,7 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                 </Text>
                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
             </View>
-        </TouchableOpacity>
+        </Pressable>
     );
 
     const formatDateInput = (date: Date | null) => {
@@ -217,79 +222,86 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                 </Animated.View>
 
                 <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <TouchableOpacity
-                            onPress={handleClose}
-                            style={styles.headerButton}
+                    <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+                        <HeaderMenuButton icon="back" onPress={handleClose} accessibilityLabel="返回" />
+                        <Text style={styles.headerTitle}>搜尋記錄</Text>
+                        <Pressable
+                            onPress={handleReset}
+                            hitSlop={8}
+                            style={({ pressed }) => [styles.resetBtn, pressed && { opacity: 0.7 }]}
                         >
-                            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-                        </TouchableOpacity>
-                        <Text style={styles.headerTitle}>搜尋</Text>
-                        <TouchableOpacity onPress={handleReset} style={styles.headerButton}>
                             <Text style={styles.resetText}>重設</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
 
-                    <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-                        {/* Keyword Input */}
-                        <View style={styles.inputSection}>
+                    <ScrollView
+                        style={styles.content}
+                        contentContainerStyle={styles.contentInner}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Text style={styles.sectionLabel}>關鍵字</Text>
+                        <View style={styles.card}>
                             <TextInput
                                 style={styles.keywordInput}
-                                placeholder="關鍵字"
+                                placeholder="商家、描述、類別..."
                                 placeholderTextColor={colors.textMuted}
                                 value={filters.keyword}
                                 onChangeText={(text) => setFilters(prev => ({ ...prev, keyword: text }))}
                             />
                         </View>
 
-                        {/* Filter List */}
-                        <View style={styles.filterSection}>
-                            {renderFilterRow('🛒', '類別', filters.category, 'category')}
+                        <Text style={styles.sectionLabel}>篩選條件</Text>
+                        <View style={styles.card}>
+                            {renderFilterRow('pricetag-outline', '類別', filters.category, 'category')}
                             <View style={styles.divider} />
 
                             {/* Date Selection */}
                             <View style={styles.filterRow}>
                                 <View style={styles.filterIconLabel}>
-                                    <Text style={styles.rowEmoji}>📅</Text>
+                                    <View style={styles.filterIconBg}>
+                                        <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                                    </View>
                                     <Text style={styles.rowLabel}>日期</Text>
                                 </View>
-                                <TouchableOpacity onPress={() => {
+                                <Pressable onPress={() => {
                                     setFilters(prev => ({ ...prev, startDate: null, endDate: null }));
                                 }}>
                                     <Text style={styles.resetTextSmall}>清除日期</Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
 
                             <View style={styles.datePickerContainer}>
-                                <TouchableOpacity
-                                    style={styles.dateBox}
+                                <Pressable
+                                    style={({ pressed }) => [styles.dateBox, pressed && { opacity: 0.85 }]}
                                     onPress={() => { setPickerType('date'); setTempDateType('start'); }}
                                 >
                                     <Text style={styles.dateLabel}>起始日期</Text>
                                     <Text style={[styles.dateValue, !filters.startDate && styles.rowPlaceholder]}>
                                         {formatDateInput(filters.startDate)}
                                     </Text>
-                                </TouchableOpacity>
+                                </Pressable>
 
                                 <View style={styles.dateSeparator} />
 
-                                <TouchableOpacity
-                                    style={styles.dateBox}
+                                <Pressable
+                                    style={({ pressed }) => [styles.dateBox, pressed && { opacity: 0.85 }]}
                                     onPress={() => { setPickerType('date'); setTempDateType('end'); }}
                                 >
                                     <Text style={styles.dateLabel}>結束日期</Text>
                                     <Text style={[styles.dateValue, !filters.endDate && styles.rowPlaceholder]}>
                                         {formatDateInput(filters.endDate)}
                                     </Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
 
                             <View style={styles.divider} />
                             {/* Amount Range UI */}
                             <View style={styles.filterRow}>
                                 <View style={styles.filterIconLabel}>
-                                    <Text style={styles.rowEmoji}>💰</Text>
+                                    <View style={styles.filterIconBg}>
+                                        <Ionicons name="cash-outline" size={18} color={colors.accent} />
+                                    </View>
                                     <Text style={styles.rowLabel}>金額區間</Text>
                                 </View>
                             </View>
@@ -318,10 +330,9 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                             </View>
 
                             <View style={styles.divider} />
-                            {renderFilterRow('🏦', '帳戶', filters.account, 'account')}
+                            {renderFilterRow('card-outline', '帳戶', filters.account, 'account')}
                             <View style={styles.divider} />
-                            {renderFilterRow('📁', '專案', filters.project, 'project')}
-
+                            {renderFilterRow('folder-outline', '專案', filters.project, 'project')}
                         </View>
                     </ScrollView>
 
@@ -329,16 +340,16 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                     <Modal visible={!!pickerType} animationType="fade" transparent onRequestClose={() => setPickerType(null)}>
                         <View style={styles.pickerOverlay}>
                             <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerType(null)} />
-                            <View style={styles.pickerContent}>
+                            <View style={[styles.pickerContent, { paddingBottom: insets.bottom + 16 }]}>
                                 <View style={styles.pickerHeader}>
                                     <Text style={styles.pickerTitle}>
                                         {pickerType === 'category' ? '選擇類別' :
                                             pickerType === 'account' ? '選擇帳戶' :
                                                 pickerType === 'project' ? '選擇專案' : '選擇日期'}
                                     </Text>
-                                    <TouchableOpacity onPress={() => setPickerType(null)}>
+                                    <Pressable onPress={() => setPickerType(null)} hitSlop={8}>
                                         <Ionicons name="close" size={24} color={colors.textPrimary} />
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 </View>
 
                                 {pickerType === 'date' ? (
@@ -355,13 +366,13 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                                     />
                                 ) : (
                                     <ScrollView style={styles.pickerList}>
-                                        <TouchableOpacity style={styles.pickerItem} onPress={() => selectValue('')}>
+                                        <Pressable style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.bg }]} onPress={() => selectValue('')}>
                                             <Text style={[styles.pickerItemText, { color: colors.accent }]}>全部</Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
                                         {(metadata as any)[pickerType === 'category' ? 'categories' : pickerType === 'account' ? 'accounts' : 'projects'].map((item: string) => (
-                                            <TouchableOpacity key={item} style={styles.pickerItem} onPress={() => selectValue(item)}>
+                                            <Pressable key={item} style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.bg }]} onPress={() => selectValue(item)}>
                                                 <Text style={styles.pickerItemText}>{item}</Text>
-                                            </TouchableOpacity>
+                                            </Pressable>
                                         ))}
                                     </ScrollView>
                                 )}
@@ -369,14 +380,19 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                         </View>
                     </Modal>
 
-                    {/* Footer Buttons */}
-                    <View style={styles.footer}>
-                        <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                    <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+                        <Pressable
+                            style={({ pressed }) => [styles.footerBtn, styles.cancelButton, pressed && styles.footerBtnPressed]}
+                            onPress={onClose}
+                        >
                             <Text style={styles.cancelButtonText}>取消</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm}>
-                            <Text style={styles.confirmButtonText}>確定</Text>
-                        </TouchableOpacity>
+                        </Pressable>
+                        <Pressable
+                            style={({ pressed }) => [styles.footerBtn, styles.confirmButton, pressed && styles.footerBtnPressed]}
+                            onPress={handleConfirm}
+                        >
+                            <Text style={styles.confirmButtonText}>搜尋</Text>
+                        </Pressable>
                     </View>
                 </Animated.View>
             </View>
@@ -384,10 +400,10 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
     );
 }
 
-const createStyles = (colors: any, typography: any) => StyleSheet.create({
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography'], edgeH: number) => StyleSheet.create({
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: colors.blackOverlay || 'rgba(0,0,0,0.5)',
+        backgroundColor: colors.blackOverlay,
     },
     container: {
         flex: 1,
@@ -399,116 +415,155 @@ const createStyles = (colors: any, typography: any) => StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingTop: Platform.OS === 'ios' ? 60 : 20,
-        paddingHorizontal: 16,
-        paddingBottom: 16,
-        backgroundColor: colors.card,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.divider,
+        paddingHorizontal: edgeH,
+        paddingBottom: 12,
+        backgroundColor: colors.headerBg,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.cardBorder,
+        gap: 8,
     },
-    headerButton: { minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-    headerTitle: { ...typography.h3, flex: 1, textAlign: 'center' },
-    resetText: { color: colors.accent, fontWeight: '600' },
+    headerTitle: {
+        ...typography.h3,
+        flex: 1,
+        textAlign: 'center',
+        includeFontPadding: false,
+    },
+    resetBtn: {
+        minWidth: 44,
+        minHeight: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 4,
+    },
+    resetText: { color: colors.accent, fontWeight: '700', fontSize: 14, includeFontPadding: false },
     content: { flex: 1 },
-    inputSection: { padding: 16, backgroundColor: colors.card, marginTop: 12 },
+    contentInner: {
+        paddingHorizontal: edgeH,
+        paddingTop: 16,
+        paddingBottom: 24,
+    },
+    sectionLabel: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: colors.textMuted,
+        letterSpacing: 0.4,
+        marginBottom: 8,
+        marginLeft: 2,
+        includeFontPadding: false,
+    },
+    card: {
+        backgroundColor: colors.card,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        overflow: 'hidden',
+        marginBottom: 20,
+        ...SHADOWS.sm,
+    },
     keywordInput: {
         height: 48,
+        margin: 14,
         backgroundColor: colors.bg,
-        borderRadius: 8,
-        paddingHorizontal: 16,
+        borderRadius: RADIUS.sm,
+        paddingHorizontal: 14,
         fontSize: 16,
         color: colors.textPrimary,
+        borderWidth: 1,
+        borderColor: colors.divider,
+        includeFontPadding: false,
     },
-    filterSection: { marginTop: 12, backgroundColor: colors.card, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.divider },
     filterRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingVertical: 16,
-        paddingHorizontal: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 14,
     },
-    filterIconLabel: { flexDirection: 'row', alignItems: 'center' },
-    rowEmoji: { fontSize: 22, marginRight: 12 },
-    rowLabel: { fontSize: 16, color: colors.textPrimary, fontWeight: '500' },
-    filterValueContainer: { flexDirection: 'row', alignItems: 'center' },
-    rowValue: { fontSize: 15, color: colors.textPrimary, marginRight: 4 },
-    rowPlaceholder: { color: colors.textMuted },
-    divider: { height: 1, backgroundColor: colors.divider, marginLeft: 50 },
-    resetTextSmall: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    filterIconLabel: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+    filterIconBg: {
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        backgroundColor: colors.accentLight,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+        flexShrink: 0,
+    },
+    rowLabel: { fontSize: 15, color: colors.textPrimary, fontWeight: '600', includeFontPadding: false },
+    filterValueContainer: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+    rowValue: { fontSize: 14, color: colors.textSecondary, marginRight: 4, fontWeight: '600', includeFontPadding: false },
+    rowPlaceholder: { color: colors.textMuted, fontWeight: '500' },
+    divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 62 },
+    resetTextSmall: { color: colors.accent, fontSize: 12, fontWeight: '700', includeFontPadding: false },
 
-    // Date Selection UI
     datePickerContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingBottom: 16,
-        gap: 12,
+        paddingHorizontal: 14,
+        paddingBottom: 14,
+        gap: 10,
     },
     dateBox: {
         flex: 1,
         backgroundColor: colors.bg,
-        borderRadius: 12,
+        borderRadius: RADIUS.sm,
         padding: 12,
         borderWidth: 1,
         borderColor: colors.divider,
     },
-    dateLabel: { fontSize: 12, color: colors.textMuted, marginBottom: 4 },
-    dateValue: { fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
-    currencyLabel: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
-    dateSeparator: { width: 10, height: 1, backgroundColor: colors.divider },
+    dateLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 4, includeFontPadding: false },
+    dateValue: { fontSize: 14, color: colors.textPrimary, fontWeight: '700', includeFontPadding: false },
+    dateSeparator: { width: 8, height: 1, backgroundColor: colors.divider },
 
-    // Amount Range UI
     amountRangeContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingBottom: 20,
-        gap: 12,
+        paddingHorizontal: 14,
+        paddingBottom: 14,
+        gap: 10,
     },
     amountInputWrapper: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.bg,
-        borderRadius: 12,
-        paddingHorizontal: 12,
-        height: 48,
+        borderRadius: RADIUS.sm,
+        paddingHorizontal: 10,
+        height: 44,
         borderWidth: 1,
         borderColor: colors.divider,
     },
-    amountPrefix: { fontSize: 12, color: colors.textMuted, marginRight: 4 },
-    amountInput: { flex: 1, fontSize: 15, color: colors.textPrimary, fontWeight: '600' },
-    amountSeparator: { fontSize: 16, color: colors.textMuted },
+    amountPrefix: { fontSize: 11, color: colors.textMuted, marginRight: 4, includeFontPadding: false },
+    amountInput: { flex: 1, fontSize: 14, color: colors.textPrimary, fontWeight: '600', includeFontPadding: false },
+    amountSeparator: { fontSize: 14, color: colors.textMuted },
 
-    // Selection Pickers
-    pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    pickerOverlay: { flex: 1, backgroundColor: colors.blackOverlay, justifyContent: 'flex-end' },
     pickerContent: {
         backgroundColor: colors.card,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        borderTopLeftRadius: RADIUS.xl,
+        borderTopRightRadius: RADIUS.xl,
         maxHeight: '70%',
-        paddingBottom: Platform.OS === 'ios' ? 40 : 20
+        paddingBottom: 20,
     },
     pickerHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: 20,
-        borderBottomWidth: 1,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.divider,
     },
-    pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+    pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, includeFontPadding: false },
     pickerList: { maxHeight: 400 },
-    dateList: { padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     pickerItem: {
-        paddingVertical: 16,
+        paddingVertical: 14,
         paddingHorizontal: 20,
-        borderBottomWidth: 1,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.divider,
     },
-    pickerItemText: { fontSize: 16, color: colors.textPrimary },
+    pickerItemText: { fontSize: 16, color: colors.textPrimary, includeFontPadding: false },
 
-    // Drum Picker
     drumContainer: { backgroundColor: colors.card, padding: 16 },
     drumPickerRow: { flexDirection: 'row', alignItems: 'center', height: 132 },
     wheelSelectionLine: { position: 'absolute', left: 0, right: 0, height: 1 },
@@ -521,14 +576,30 @@ const createStyles = (colors: any, typography: any) => StyleSheet.create({
 
     footer: {
         flexDirection: 'row',
-        padding: 16,
-        paddingBottom: Platform.OS === 'ios' ? 40 : 16,
-        borderTopWidth: 1,
+        gap: 12,
+        paddingHorizontal: edgeH,
+        paddingTop: 12,
+        borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.divider,
         backgroundColor: colors.card,
+        ...SHADOWS.md,
     },
-    cancelButton: { flex: 1, height: 48, justifyContent: 'center', alignItems: 'center' },
-    cancelButtonText: { color: colors.green, fontSize: 16, fontWeight: '600' },
-    confirmButton: { flex: 1, height: 48, justifyContent: 'center', alignItems: 'center' },
-    confirmButtonText: { color: colors.green, fontSize: 16, fontWeight: '600' },
+    footerBtn: {
+        flex: 1,
+        height: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...withContinuousRadius(RADIUS.md),
+    },
+    footerBtnPressed: { opacity: 0.88, transform: [{ scale: 0.98 }] },
+    cancelButton: {
+        backgroundColor: colors.bg,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+    },
+    cancelButtonText: { color: colors.textSecondary, fontSize: 15, fontWeight: '700', includeFontPadding: false },
+    confirmButton: {
+        backgroundColor: colors.accent,
+    },
+    confirmButtonText: { color: colors.textWhite, fontSize: 15, fontWeight: '700', includeFontPadding: false },
 });

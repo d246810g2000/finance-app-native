@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Switch } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
+import { AppColors, SHADOWS } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
+import ModalBackdrop from '../ui/ModalBackdrop';
 import { ACCOUNT_CATEGORIES } from '../../constants';
 
 interface AccountSettingsModalProps {
@@ -14,6 +16,9 @@ interface AccountSettingsModalProps {
 }
 
 export default function AccountSettingsModal({ visible, onClose, excludedAccounts, onSave }: AccountSettingsModalProps) {
+    const { colors, typography } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const [localExcluded, setLocalExcluded] = useState<Set<string>>(new Set(excludedAccounts));
 
     // Reset local state when modal opens
@@ -42,7 +47,7 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
 
     return (
         <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen">
-            <BlurView intensity={30} tint="dark" style={styles.overlay}>
+            <ModalBackdrop colors={colors}>
                 <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
                 <Animated.View entering={FadeInDown.springify()} style={styles.modalContent}>
@@ -58,7 +63,7 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
                         </Pressable>
                     </View>
 
-                    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+                    <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}>
                         {Object.entries(ACCOUNT_CATEGORIES).map(([category, accounts]) => {
                             if (accounts.length === 0) return null;
 
@@ -78,9 +83,9 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
                                                     <Switch
                                                         value={!isExcluded}
                                                         onValueChange={() => toggleAccount(account)}
-                                                        trackColor={{ false: COLORS.border, true: COLORS.green }}
+                                                        trackColor={{ false: colors.border, true: colors.green }}
                                                         thumbColor="#fff"
-                                                        ios_backgroundColor={COLORS.border}
+                                                        ios_backgroundColor={colors.border}
                                                     />
                                                 </View>
                                             );
@@ -91,18 +96,18 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
                         })}
                     </ScrollView>
                 </Animated.View>
-            </BlurView>
+            </ModalBackdrop>
         </Modal>
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         height: '85%',
@@ -111,7 +116,7 @@ const styles = StyleSheet.create({
     dragHandle: {
         width: 40,
         height: 5,
-        backgroundColor: COLORS.border,
+        backgroundColor: colors.border,
         borderRadius: 3,
         alignSelf: 'center',
         marginTop: 12,
@@ -124,25 +129,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.divider,
+        borderBottomColor: colors.divider,
     },
     title: {
-        ...TYPOGRAPHY.h3,
+        ...typography.h3,
         letterSpacing: -0.3,
         marginBottom: 4,
     },
     subtitle: {
-        ...TYPOGRAPHY.caption,
-        color: COLORS.textSecondary,
+        ...typography.caption,
+        color: colors.textSecondary,
     },
     saveBtn: {
         paddingHorizontal: 16,
         paddingVertical: 8,
-        backgroundColor: COLORS.accentLight,
+        backgroundColor: colors.accentLight,
         borderRadius: 16,
     },
     saveBtnText: {
-        color: COLORS.accent,
+        color: colors.accent,
         fontWeight: '700',
         fontSize: 14,
     },
@@ -151,7 +156,6 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 16,
-        paddingBottom: 40,
     },
     categoryBlock: {
         marginBottom: 24,
@@ -159,15 +163,15 @@ const styles = StyleSheet.create({
     categoryTitle: {
         fontSize: 14,
         fontWeight: '700',
-        color: COLORS.textMuted,
+        color: colors.textMuted,
         marginBottom: 8,
         marginLeft: 8,
     },
     accountList: {
-        backgroundColor: COLORS.card,
+        backgroundColor: colors.card,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
         overflow: 'hidden',
     },
     accountRow: {
@@ -179,15 +183,15 @@ const styles = StyleSheet.create({
     },
     borderBottom: {
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.divider,
+        borderBottomColor: colors.divider,
     },
     accountName: {
         fontSize: 16,
         fontWeight: '500',
-        color: COLORS.textPrimary,
+        color: colors.textPrimary,
     },
     accountNameExcluded: {
-        color: COLORS.textMuted,
+        color: colors.textMuted,
         textDecorationLine: 'line-through',
     },
 });

@@ -1,29 +1,39 @@
 import React, { useState, useEffect, useMemo, useCallback, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Alert, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Alert, Modal, Platform } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
 import { loadBudgets, saveBudgets, loadBudgetConfig, saveBudgetConfig, calculateBudgetStatus } from '../../services/budgetService';
 import { BudgetRule, BudgetGlobalConfig, TransformedRecord, BudgetStatus } from '../../types';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
+import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import { BudgetProgressCard, OtherExpensesCard } from '../../components/budget/BudgetProgressCard';
+import HealthCheckCard from '../../components/budget/HealthCheckCard';
 import BudgetSettingModal from '../../components/budget/BudgetSettingModal';
 import SettingsModal from '../../components/settings/SettingsModal';
 import BatchBudgetModal from '../../components/budget/BatchBudgetModal';
 import DetailModal from '../../components/DetailModal';
 import { transformRecordsForExport, detectExpenseSpikes } from '../../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
+import ModalBackdrop from '../../components/ui/ModalBackdrop';
+import EmptyState from '../../components/ui/EmptyState';
+import SortChips from '../../components/ui/SortChips';
+import SectionHeader from '../../components/ui/SectionHeader';
+import PageChrome from '../../components/layout/PageChrome';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function BudgetScreen() {
+    const { colors, typography, isDark } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const { 
         records, 
         refreshRecords,
         budgets,
         saveBudgets,
         budgetConfig: config,
-        customMappings
+        customMappings,
     } = useFinance();
     const navigation = useNavigation();
     const [refreshing, setRefreshing] = useState(false);
@@ -33,6 +43,8 @@ export default function BudgetScreen() {
 
     // Modals State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showMonthPicker, setShowMonthPicker] = useState(false);
+    const [pickerYear, setPickerYear] = useState(() => new Date().getFullYear());
 
     // Sort State
     type BudgetSortKey = 'spent_desc' | 'spent_asc' | 'limit_desc' | 'limit_asc' | 'pct_desc' | 'pct_asc' | 'remaining_desc' | 'remaining_asc' | 'name_asc' | 'name_desc';
@@ -105,6 +117,8 @@ export default function BudgetScreen() {
     const disposableDailyBudget = totalBudget - budgetCalc.totalFixedSpent;
     const dailyRemaining = disposableDailyBudget - budgetCalc.totalDailySpent;
     const hasFixedProjects = budgetCalc.fixedProjectStatuses.length > 0;
+    const fixedColor = colors.textSecondary;
+    const dailyColor = colors.accent;
 
     const spikes = useMemo(() => {
         if (records.length === 0) return [];
@@ -142,6 +156,11 @@ export default function BudgetScreen() {
         const newDate = new Date(targetMonth);
         newDate.setMonth(newDate.getMonth() + offset);
         setTargetMonth(newDate);
+    };
+
+    const handleSelectMonth = (monthIndex: number) => {
+        setTargetMonth(new Date(pickerYear, monthIndex, 1));
+        setShowMonthPicker(false);
     };
 
     const openModal = (rule?: BudgetRule) => {
@@ -306,33 +325,35 @@ export default function BudgetScreen() {
     // Set header right buttons
     useLayoutEffect(() => {
         navigation.setOptions({
-            headerRightContainerStyle: { paddingRight: 16 },
             headerRight: () => (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <Pressable
-                        onPress={() => openModal()}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={({ pressed }) => [styles.headerAddBtn, pressed && { opacity: 0.6, transform: [{ scale: 0.9 }] }]}
-                    >
-                        <Text style={styles.headerAddBtnText}>+</Text>
-                    </Pressable>
-                </View>
+                <Pressable
+                    onPress={() => openModal()}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={({ pressed }) => [styles.headerAddBtn, pressed && styles.headerAddBtnPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="新增預算"
+                >
+                    <Ionicons name="add" size={26} color={colors.textPrimary} />
+                </Pressable>
             ),
         });
-    }, [navigation]);
+    }, [navigation, colors.textPrimary]);
 
     return (
         <View style={styles.container}>
             {/* Header / Month Navigator */}
-            <View style={styles.header}>
+            <PageChrome>
                 <UnifiedDateNavigator
                     dateLabel={`${targetMonth.getFullYear()}年 ${targetMonth.getMonth() + 1}月`}
                     subLabel={`總預算 $${totalBudget.toLocaleString()}`}
                     onPrev={() => handleMonthChange(-1)}
                     onNext={() => handleMonthChange(1)}
-                    onCenterPress={() => { }}
+                    onCenterPress={() => {
+                        setPickerYear(targetMonth.getFullYear());
+                        setShowMonthPicker(true);
+                    }}
                 />
-            </View>
+            </PageChrome>
 
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
@@ -340,6 +361,12 @@ export default function BudgetScreen() {
             >
                 {/* ══ Unified Summary Card ══ */}
                 <View style={styles.summaryCard}>
+                    <LinearGradient
+                        colors={colors.accentGradientShape as [string, string]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.summaryCardAccent}
+                    />
                     {/* Segmented Progress Bar */}
                     <View style={styles.segBarContainer}>
                         <View style={styles.segBarTrack}>
@@ -348,13 +375,13 @@ export default function BudgetScreen() {
                                     {/* Fixed segment (blue-gray) */}
                                     <View style={[styles.segBarFill, {
                                         width: `${Math.min((budgetCalc.totalFixedSpent / totalBudget) * 100, 100)}%`,
-                                        backgroundColor: '#64748B',
+                                        backgroundColor: fixedColor,
                                         borderTopLeftRadius: 4, borderBottomLeftRadius: 4,
                                     }]} />
                                     {/* Daily segment (indigo) */}
                                     <View style={[styles.segBarFill, {
                                         width: `${Math.min((budgetCalc.totalDailySpent / totalBudget) * 100, Math.max(0, 100 - (budgetCalc.totalFixedSpent / totalBudget) * 100))}%`,
-                                        backgroundColor: '#6366F1',
+                                        backgroundColor: dailyColor,
                                     }]} />
                                 </>
                             )}
@@ -362,15 +389,15 @@ export default function BudgetScreen() {
                         {/* Legend chips */}
                         <View style={styles.segLegendRow}>
                             <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: '#64748B' }]} />
+                                <View style={[styles.segLegendDot, { backgroundColor: fixedColor }]} />
                                 <Text style={styles.segLegendText}>固定</Text>
                             </View>
                             <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: '#6366F1' }]} />
+                                <View style={[styles.segLegendDot, { backgroundColor: dailyColor }]} />
                                 <Text style={styles.segLegendText}>日常</Text>
                             </View>
                             <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: COLORS.divider }]} />
+                                <View style={[styles.segLegendDot, { backgroundColor: colors.divider }]} />
                                 <Text style={styles.segLegendText}>剩餘</Text>
                             </View>
                         </View>
@@ -379,23 +406,32 @@ export default function BudgetScreen() {
                     {/* Key Metrics Grid */}
                     <View style={styles.metricsGrid}>
                         <View style={styles.metricItem}>
-                            <Text style={styles.metricLabel}>📌 固定支出</Text>
-                            <Text style={[styles.metricValue, { color: '#64748B' }]}>
+                            <View style={styles.metricLabelRow}>
+                                <Ionicons name="pin-outline" size={14} color={fixedColor} />
+                                <Text style={styles.metricLabel}>固定支出</Text>
+                            </View>
+                            <Text style={[styles.metricValue, { color: fixedColor }]}>
                                 ${budgetCalc.totalFixedSpent.toLocaleString()}
                             </Text>
                         </View>
                         <View style={styles.metricDividerV} />
                         <View style={styles.metricItem}>
-                            <Text style={styles.metricLabel}>💰 日常已支出</Text>
-                            <Text style={[styles.metricValue, { color: budgetCalc.totalDailySpent > disposableDailyBudget ? COLORS.red : '#6366F1' }]}>
+                            <View style={styles.metricLabelRow}>
+                                <Ionicons name="wallet-outline" size={14} color={dailyColor} />
+                                <Text style={styles.metricLabel}>日常已支出</Text>
+                            </View>
+                            <Text style={[styles.metricValue, { color: budgetCalc.totalDailySpent > disposableDailyBudget ? colors.red : dailyColor }]}>
                                 ${budgetCalc.totalDailySpent.toLocaleString()}
                             </Text>
                         </View>
                         <View style={styles.metricDividerV} />
                         <View style={styles.metricItem}>
-                            <Text style={styles.metricLabel}>{dailyRemaining >= 0 ? '✨ 可用餘額' : '⚠️ 超支'}</Text>
+                            <View style={styles.metricLabelRow}>
+                                <Ionicons name={dailyRemaining >= 0 ? 'sparkles-outline' : 'warning-outline'} size={14} color={dailyRemaining >= 0 ? colors.green : colors.red} />
+                                <Text style={styles.metricLabel}>{dailyRemaining >= 0 ? '可用餘額' : '超支'}</Text>
+                            </View>
                             <Text style={[styles.metricValue, {
-                                color: dailyRemaining >= 0 ? COLORS.green : COLORS.red,
+                                color: dailyRemaining >= 0 ? colors.green : colors.red,
                             }]}>
                                 ${Math.abs(dailyRemaining).toLocaleString()}
                             </Text>
@@ -407,10 +443,13 @@ export default function BudgetScreen() {
                 {/* ════════════════ 固定支出區 ════════════════ */}
                 {hasFixedProjects && (
                     <View style={styles.groupSection}>
-                        <View style={[styles.groupHeader, { borderLeftColor: '#64748B' }]}>
-                            <Text style={styles.groupTitle}>📌 固定支出</Text>
+                        <View style={[styles.groupHeader, { borderLeftColor: fixedColor }]}>
+                            <View style={styles.groupTitleRow}>
+                                <Ionicons name="pin-outline" size={16} color={fixedColor} />
+                                <Text style={styles.groupTitle}>固定支出</Text>
+                            </View>
                             <Text style={styles.groupSubtitle}>
-                                合計 <Text style={{ color: '#64748B', fontWeight: '800' }}>${budgetCalc.totalFixedSpent.toLocaleString()}</Text>
+                                合計 <Text style={{ color: fixedColor, fontWeight: '800' }}>${budgetCalc.totalFixedSpent.toLocaleString()}</Text>
                             </Text>
                         </View>
                         {budgetCalc.fixedProjectStatuses.map(ps => (
@@ -422,10 +461,10 @@ export default function BudgetScreen() {
                                     pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
                                 ]}
                             >
-                                <View style={styles.fixedProjectStrip} />
+                                <View style={[styles.fixedProjectStrip, { backgroundColor: fixedColor }]} />
                                 <View style={styles.fixedProjectContent}>
                                     <Text style={styles.fixedProjectName}>{ps.project || '(無專案)'}</Text>
-                                    <Text style={styles.fixedProjectAmount}>
+                                    <Text style={[styles.fixedProjectAmount, { color: fixedColor }]}>
                                         ${ps.spent.toLocaleString()}
                                     </Text>
                                 </View>
@@ -436,46 +475,34 @@ export default function BudgetScreen() {
 
                 {/* ════════════════ 日常預算區 ════════════════ */}
                 <View style={styles.groupSection}>
-                    <View style={[styles.groupHeader, { borderLeftColor: '#10B981' }]}>
-                        <Text style={styles.groupTitle}>💰 日常預算</Text>
+                    <View style={[styles.groupHeader, { borderLeftColor: colors.green }]}>
+                        <View style={styles.groupTitleRow}>
+                            <Ionicons name="wallet-outline" size={16} color={colors.green} />
+                            <Text style={styles.groupTitle}>日常預算</Text>
+                        </View>
                         <Text style={styles.groupSubtitle}>
                             {dailyRemaining >= 0 ? '剩餘 ' : '超支 '}
-                            <Text style={{ color: dailyRemaining >= 0 ? COLORS.green : COLORS.red, fontWeight: '800' }}>
+                            <Text style={{ color: dailyRemaining >= 0 ? colors.green : colors.red, fontWeight: '800' }}>
                                 ${Math.abs(dailyRemaining).toLocaleString()}
                             </Text>
                         </Text>
                     </View>
 
                     {/* Sort Chips (only for daily) */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow} style={styles.sortContainer}>
-                        {([
-                            { baseKey: 'pct', label: '使用率' },
-                            { baseKey: 'spent', label: '已支出' },
-                            { baseKey: 'remaining', label: '剩餘' },
-                            { baseKey: 'limit', label: '預算額' },
-                            { baseKey: 'name', label: '名稱' },
-                        ] as { baseKey: string; label: string }[]).map(opt => {
-                            const isActive = sortKey.startsWith(opt.baseKey);
-                            const isAsc = sortKey === `${opt.baseKey}_asc`;
-                            return (
-                                <Pressable
-                                    key={opt.baseKey}
-                                    onPress={() => {
-                                        if (isActive) {
-                                            setSortKey(`${opt.baseKey}_${isAsc ? 'desc' : 'asc'}` as any);
-                                        } else {
-                                            setSortKey(`${opt.baseKey}_desc` as any);
-                                        }
-                                    }}
-                                    style={[styles.sortChip, isActive ? styles.sortChipActive : null]}
-                                >
-                                    <Text style={[styles.sortChipText, isActive ? styles.sortChipTextActive : null]}>
-                                        {opt.label}{isActive && (isAsc ? ' ▴' : ' ▾')}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                    </ScrollView>
+                    <View style={styles.sortContainer}>
+                        <SortChips
+                            options={[
+                                { key: 'pct', label: '使用率' },
+                                { key: 'spent', label: '已支出' },
+                                { key: 'remaining', label: '剩餘' },
+                                { key: 'limit', label: '預算額' },
+                                { key: 'name', label: '名稱' },
+                            ]}
+                            activeKey={sortKey.replace(/_(asc|desc)$/, '')}
+                            direction={sortKey.endsWith('_asc') ? 'asc' : 'desc'}
+                            onChange={(key, direction) => setSortKey(`${key}_${direction}` as BudgetSortKey)}
+                        />
+                    </View>
 
                     {/* Daily Budget Cards */}
                     <View style={styles.listContainer}>
@@ -495,93 +522,61 @@ export default function BudgetScreen() {
                 </View>
 
                 {budgetCalc.dailyStatuses.length === 0 && budgetCalc.fixedProjectStatuses.length === 0 && budgetCalc.dailyUnbudgetedSpent === 0 && (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyText}>尚無預算設定且無支出</Text>
-                    </View>
+                    <EmptyState
+                        icon="wallet-outline"
+                        title="尚無預算設定且無支出"
+                        description="點擊右上角 + 新增預算規則"
+                    />
                 )}
 
                 {/* 財務健檢 (Health Alerts) */}
-                <View style={{ marginTop: 24, marginBottom: 10 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                        <View style={{ width: 4, height: 18, borderRadius: 2, marginRight: 10, backgroundColor: spikes.length > 0 ? COLORS.red : COLORS.green }} />
-                        <Text style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 }}>財務健檢</Text>
-                    </View>
-                    
+                <View style={styles.healthSection}>
+                    <SectionHeader
+                        title="財務健檢"
+                        accent={spikes.length > 0 ? colors.red : colors.green}
+                        trailing={spikes.length > 0 ? (
+                            <Text style={[styles.healthAlertCount, { color: colors.red }]}>
+                                {spikes.length} 項異常
+                            </Text>
+                        ) : undefined}
+                    />
+
                     {spikes.length === 0 ? (
-                        <Animated.View entering={FadeInDown.duration(400).springify()} style={[styles.healthCard, { borderColor: COLORS.green + '30', backgroundColor: COLORS.green + '05', borderWidth: 1.5, padding: 16, borderRadius: 20 }]}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                <Ionicons name="checkmark-circle-outline" size={24} color={COLORS.green} />
-                                <View style={{ flex: 1 }}>
-                                    <Text style={{ color: COLORS.textPrimary, fontSize: 15, fontWeight: '700' }}>本月消費控制良好</Text>
-                                    <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 4 }}>未發現異常超支的消費分類，請繼續保持！</Text>
-                                </View>
-                            </View>
+                        <Animated.View entering={FadeInDown.duration(400).springify()}>
+                            <HealthCheckCard
+                                variant="success"
+                                title="本月消費控制良好"
+                                description="未發現異常超支的消費分類，請繼續保持！"
+                            />
                         </Animated.View>
                     ) : (
-                        <View style={{ gap: 12 }}>
+                        <View style={styles.healthAlertList}>
                             {spikes.map((spike, idx) => {
                                 const isRed = spike.status === 'red';
                                 const isNew = spike.status === 'new';
-                                const badgeColor = isRed ? COLORS.red : isNew ? COLORS.accent : COLORS.yellow;
-                                const cardBg = isRed ? COLORS.red + '05' : isNew ? COLORS.accent + '05' : COLORS.yellow + '05';
-                                const cardBorder = isRed ? COLORS.red + '30' : isNew ? COLORS.accent + '30' : COLORS.yellow + '30';
+                                const variant = isRed ? 'red' : isNew ? 'new' : 'yellow';
+                                const badge = isNew ? '全新類別' : isRed ? '嚴重超支' : '輕微超支';
 
-                                const description = isNew 
-                                    ? `本月新增支出達 $${spike.currentSpent.toLocaleString()}，過去 3 期無此項支出。`
-                                    : `本月花費 $${spike.currentSpent.toLocaleString()}，已達歷史平均 ($${spike.avgSpent.toLocaleString()}) 的 ${Math.round(spike.ratio * 100)}%，超額 $${spike.difference.toLocaleString()}。`;
+                                const description = isNew
+                                    ? `本月新增支出 $${spike.currentSpent.toLocaleString()}，過去 3 期無此項支出。`
+                                    : `本月 $${spike.currentSpent.toLocaleString()}，為歷史平均 $${spike.avgSpent.toLocaleString()} 的 ${Math.round(spike.ratio * 100)}%，超額 $${spike.difference.toLocaleString()}。`;
 
                                 return (
-                                    <Animated.View 
-                                        key={spike.category} 
-                                        entering={FadeInDown.delay(idx * 100).duration(400).springify()}
+                                    <Animated.View
+                                        key={spike.category}
+                                        entering={FadeInDown.delay(idx * 80).duration(400).springify()}
                                     >
-                                        <Pressable
+                                        <HealthCheckCard
+                                            variant={variant}
+                                            title={spike.category}
+                                            description={description}
+                                            badge={badge}
                                             onPress={() => {
                                                 setDetailModalTitle(`${spike.category} 異常消費明細 (Top 5)`);
                                                 setDetailModalData(spike.topTransactions);
                                                 setIsDetailModalOpen(true);
                                             }}
-                                            style={({ pressed }) => [
-                                                styles.healthCard, 
-                                                { 
-                                                    borderColor: cardBorder, 
-                                                    backgroundColor: cardBg,
-                                                    borderWidth: 1.5,
-                                                    padding: 16,
-                                                    borderRadius: 20,
-                                                    opacity: pressed ? 0.8 : 1 
-                                                }
-                                            ]}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                                                <View style={{ marginTop: 2 }}>
-                                                    <Ionicons 
-                                                        name={isRed ? "alert-circle" : isNew ? "sparkles" : "warning"} 
-                                                        size={22} 
-                                                        color={badgeColor} 
-                                                    />
-                                                </View>
-                                                <View style={{ flex: 1 }}>
-                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <Text style={{ color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' }}>
-                                                            {spike.category}
-                                                        </Text>
-                                                        <Text style={{ color: badgeColor, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>
-                                                            {isNew ? '🆕 全新類別' : isRed ? '🔴 嚴重超支' : '🟡 輕微超支'}
-                                                        </Text>
-                                                    </View>
-                                                    
-                                                    <Text style={{ color: COLORS.textSecondary, fontSize: 13, marginTop: 6, lineHeight: 18 }}>
-                                                        {description}
-                                                    </Text>
-                                                    
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 }}>
-                                                        <Text style={{ color: badgeColor, fontSize: 11, fontWeight: '600' }}>點擊查看大額明細</Text>
-                                                        <Ionicons name="chevron-forward" size={12} color={badgeColor} />
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        </Pressable>
+                                        />
                                     </Animated.View>
                                 );
                             })}
@@ -592,7 +587,7 @@ export default function BudgetScreen() {
 
             {/* Modals */}
             <BudgetSettingModal
-                isOpen={isModalOpen}
+                visible={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 onSave={handleSaveBudget}
                 editingId={editingId}
@@ -601,6 +596,42 @@ export default function BudgetScreen() {
                 uniqueCategories={uniqueCategories}
                 allRawRecords={records}
             />
+
+            <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
+                <ModalBackdrop colors={colors} placement="center" isDark={isDark}>
+                    <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowMonthPicker(false)} />
+                    <View style={styles.monthPickerContent}>
+                        <View style={styles.monthPickerHeader}>
+                            <Pressable onPress={() => setPickerYear(y => y - 1)} hitSlop={8} accessibilityLabel="上一年">
+                                <Ionicons name="chevron-back" size={24} color={colors.accent} />
+                            </Pressable>
+                            <Text style={styles.monthPickerTitle}>{pickerYear} 年</Text>
+                            <Pressable onPress={() => setPickerYear(y => y + 1)} hitSlop={8} accessibilityLabel="下一年">
+                                <Ionicons name="chevron-forward" size={24} color={colors.accent} />
+                            </Pressable>
+                        </View>
+                        <View style={styles.monthGrid}>
+                            {Array.from({ length: 12 }, (_, i) => (
+                                <Pressable
+                                    key={i}
+                                    style={[
+                                        styles.monthCell,
+                                        targetMonth.getFullYear() === pickerYear && targetMonth.getMonth() === i && styles.monthCellActive,
+                                    ]}
+                                    onPress={() => handleSelectMonth(i)}
+                                >
+                                    <Text style={[
+                                        styles.monthCellText,
+                                        targetMonth.getFullYear() === pickerYear && targetMonth.getMonth() === i && styles.monthCellTextActive,
+                                    ]}>
+                                        {i + 1}月
+                                    </Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    </View>
+                </ModalBackdrop>
+            </Modal>
 
             <DetailModal
                 visible={isDetailModalOpen}
@@ -612,39 +643,38 @@ export default function BudgetScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.bg },
-    header: {
-        paddingHorizontal: 16, paddingVertical: 10, backgroundColor: COLORS.headerBg,
-        borderBottomWidth: 1, borderBottomColor: COLORS.divider, ...SHADOWS.sm, zIndex: 10,
-    },
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
     scrollContent: { paddingVertical: 12, paddingHorizontal: 16, paddingBottom: 40 },
 
     // ── Unified Summary Card ──
     summaryCard: {
-        backgroundColor: COLORS.card, borderRadius: 16, padding: 16,
-        borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: 6, ...SHADOWS.sm,
+        backgroundColor: colors.card, ...withContinuousRadius(RADIUS.lg), padding: 16,
+        borderWidth: 1, borderColor: colors.cardBorder, marginBottom: 6, ...SHADOWS.md,
+        overflow: 'hidden',
     },
+    summaryCardAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
     segBarContainer: { marginBottom: 14 },
     segBarTrack: {
-        flexDirection: 'row', height: 10, backgroundColor: 'rgba(0,0,0,0.06)',
+        flexDirection: 'row', height: 10, backgroundColor: colors.divider,
         borderRadius: 5, overflow: 'hidden',
     },
     segBarFill: { height: '100%' },
     segLegendRow: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8 },
     segLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     segLegendDot: { width: 8, height: 8, borderRadius: 4 },
-    segLegendText: { fontSize: 11, fontWeight: '600', color: COLORS.textMuted },
+    segLegendText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
 
     // ── Metrics Grid ──
     metricsGrid: {
         flexDirection: 'row', alignItems: 'center',
-        borderTopWidth: 1, borderTopColor: COLORS.divider, paddingTop: 12,
+        borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 12,
     },
     metricItem: { flex: 1, alignItems: 'center' },
-    metricLabel: { fontSize: 11, fontWeight: '600', color: COLORS.textMuted, marginBottom: 4, letterSpacing: -0.2 },
+    metricLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: -0.2 },
+    metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
     metricValue: { fontSize: 17, fontWeight: '800', letterSpacing: -0.5 },
-    metricDividerV: { width: 1, height: 32, backgroundColor: COLORS.divider },
+    metricDividerV: { width: 1, height: 32, backgroundColor: colors.divider },
 
     // ── Group Sections ──
     groupSection: { marginTop: 14 },
@@ -652,62 +682,61 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         borderLeftWidth: 3, paddingLeft: 10, marginBottom: 10,
     },
-    groupTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.2 },
-    groupSubtitle: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+    groupTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.2 },
+    groupTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    groupSubtitle: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
 
     // ── Fixed Project Card ──
     fixedProjectCard: {
-        flexDirection: 'row', borderRadius: 14, marginBottom: 8, borderWidth: 1,
-        overflow: 'hidden', backgroundColor: COLORS.card,
-        borderColor: 'rgba(100, 116, 139, 0.18)', ...SHADOWS.sm,
+        flexDirection: 'row', ...withContinuousRadius(RADIUS.md), marginBottom: 8, borderWidth: 1,
+        overflow: 'hidden', backgroundColor: colors.card,
+        borderColor: colors.textSecondary + '30', ...SHADOWS.sm,
     },
-    fixedProjectStrip: { width: 4, backgroundColor: '#64748B' },
+    fixedProjectStrip: { width: 4 },
     fixedProjectContent: {
         flex: 1, paddingVertical: 14, paddingHorizontal: 14,
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     },
-    fixedProjectName: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3 },
-    fixedProjectAmount: { fontSize: 16, fontWeight: '800', color: '#64748B', letterSpacing: -0.3 },
+    fixedProjectName: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.3 },
+    fixedProjectAmount: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
 
     // ── Sort Chips ──
-    sortContainer: { marginBottom: 8 },
-    sortRow: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
-    sortChip: {
-        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-        backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.cardBorder, ...SHADOWS.sm,
-    },
-    sortChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-    sortChipText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '700' },
-    sortChipTextActive: { color: '#fff' },
+    sortContainer: { marginHorizontal: -16, marginBottom: 8 },
 
     listContainer: { },
 
     // ── Header Add Button ──
     headerAddBtn: {
-        width: 32, height: 32, borderRadius: 16,
-        backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center',
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        ...withContinuousRadius(20),
+        ...Platform.select({
+            android: { elevation: 1 },
+            default: {},
+        }),
     },
-    headerAddBtnText: { color: '#0F172A', fontSize: 24, fontWeight: '700', lineHeight: 26 },
-
-    // ── Empty State ──
-    emptyState: {
-        padding: 40, alignItems: 'center', width: '100%', backgroundColor: COLORS.card,
-        borderRadius: 20, borderWidth: 1, borderColor: COLORS.divider, marginTop: 20,
+    headerAddBtnPressed: {
+        opacity: 0.8,
+        transform: [{ scale: 0.96 }],
     },
-    emptyText: { ...TYPOGRAPHY.body, textAlign: 'center' },
 
     // ── Settings Quick Menu ──
     menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     menuCard: {
-        backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+        backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
         paddingTop: 12, paddingBottom: 40, paddingHorizontal: 24, ...SHADOWS.lg,
     },
     menuHandle: {
-        width: 36, height: 4, borderRadius: 2, backgroundColor: COLORS.border,
+        width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border,
         alignSelf: 'center', marginBottom: 16,
     },
     menuTitle: {
-        fontSize: 18, fontWeight: '700', color: COLORS.textPrimary,
+        fontSize: 18, fontWeight: '700', color: colors.textPrimary,
         marginBottom: 20, letterSpacing: -0.3,
     },
     menuOption: {
@@ -719,17 +748,37 @@ const styles = StyleSheet.create({
         width: 40, height: 40, borderRadius: 12,
         alignItems: 'center', justifyContent: 'center', marginRight: 14,
     },
-    menuOptionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 3 },
-    menuOptionDesc: { fontSize: 13, color: COLORS.textMuted, lineHeight: 17 },
-    menuDivider: { height: 1, backgroundColor: COLORS.divider, marginVertical: 4, marginHorizontal: 8 },
-    healthCard: {
-        padding: 16,
-        borderRadius: 20,
-        borderWidth: 1.5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
+    menuOptionTitle: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, marginBottom: 3 },
+    menuOptionDesc: { fontSize: 13, color: colors.textMuted, lineHeight: 17 },
+    menuDivider: { height: 1, backgroundColor: colors.divider, marginVertical: 4, marginHorizontal: 8 },
+
+    healthSection: { marginTop: 24, marginBottom: 8 },
+    healthAlertList: { gap: 10 },
+    healthAlertCount: { fontSize: 12, fontWeight: '800', letterSpacing: 0.2 },
+
+    // Month picker
+    monthPickerContent: {
+        backgroundColor: colors.card,
+        borderRadius: RADIUS.md,
+        padding: 20,
+        width: '100%',
+        maxWidth: 340,
+        alignSelf: 'center',
+        ...SHADOWS.lg,
     },
+    monthPickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+    monthPickerTitle: { ...typography.h3 },
+    monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
+    monthCell: {
+        width: '30%',
+        paddingVertical: 12,
+        alignItems: 'center',
+        borderRadius: RADIUS.sm,
+        backgroundColor: colors.bg,
+        borderWidth: 1,
+        borderColor: colors.divider,
+    },
+    monthCellActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    monthCellText: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
+    monthCellTextActive: { color: colors.textWhite, fontWeight: '700' },
 });

@@ -1,9 +1,12 @@
 import { Tabs } from 'expo-router';
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SCREEN_EDGE_MIN } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import HamburgerMenu from '../../components/layout/HamburgerMenu';
+import HeaderMenuButton from '../../components/layout/HeaderMenuButton';
 import SearchModal from '../../components/SearchModal';
 import { useFinance, SearchFilters } from '../../context/FinanceContext';
 import { useRouter } from 'expo-router';
@@ -20,9 +23,11 @@ const TAB_ICONS: Record<string, { focused: IoniconsName, default: IoniconsName }
 
 export default function TabLayout() {
     const router = useRouter();
-    const { colors, typography } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const { colors, isDark } = useAppTheme();
     const { menuVisible, setMenuVisible, searchModalVisible, setSearchModalVisible, setSearchFilters } = useFinance();
-    const styles = useMemo(() => createStyles(colors), [colors]);
+    const edgeH = Math.max(insets.left, insets.right, SCREEN_EDGE_MIN);
+    const styles = useMemo(() => createStyles(colors, insets.bottom, isDark, edgeH), [colors, insets.bottom, isDark, edgeH]);
 
     const handleApplySearch = (filters: SearchFilters) => {
         setSearchFilters(filters);
@@ -35,7 +40,7 @@ export default function TabLayout() {
             <Tabs
                 initialRouteName="index"
                 screenOptions={({ route }) => ({
-                    tabBarIcon: ({ focused, color, size }) => {
+                    tabBarIcon: ({ focused, color }) => {
                         const iconSet = TAB_ICONS[route.name];
                         if (!iconSet) return null;
                         const iconName = focused ? iconSet.focused : iconSet.default;
@@ -45,17 +50,14 @@ export default function TabLayout() {
                     tabBarInactiveTintColor: colors.tabInactive,
                     tabBarLabelStyle: styles.tabLabel,
                     tabBarStyle: styles.tabBar,
+                    sceneContainerStyle: styles.sceneContainer,
                     headerStyle: styles.header,
                     headerTitleStyle: styles.headerTitle,
                     headerTintColor: colors.textPrimary,
+                    headerLeftContainerStyle: styles.headerLeftContainer,
+                    headerRightContainerStyle: styles.headerRightContainer,
                     headerLeft: () => (
-                        <TouchableOpacity
-                            onPress={() => setMenuVisible(true)}
-                            style={{ marginLeft: 16 }}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                            <Ionicons name="menu-outline" size={28} color={colors.textPrimary} />
-                        </TouchableOpacity>
+                        <HeaderMenuButton onPress={() => setMenuVisible(true)} />
                     ),
                 })}
             >
@@ -97,38 +99,73 @@ export default function TabLayout() {
     );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useAppTheme>['colors'], bottomInset: number, isDark: boolean, edgeH: number) => StyleSheet.create({
+    sceneContainer: {
+        flex: 1,
+        backgroundColor: colors.bg,
+        paddingHorizontal: edgeH,
+    },
     tabBar: {
         backgroundColor: colors.tabBg,
-        borderTopWidth: 1,
-        borderTopColor: colors.divider,
-        elevation: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        height: 88,
-        paddingTop: 8,
-        paddingBottom: 28,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: isDark ? colors.divider : colors.cardBorder,
+        height: 56 + bottomInset,
+        paddingTop: 6,
+        paddingBottom: Math.max(bottomInset, 8),
+        paddingHorizontal: edgeH,
+        ...Platform.select({
+            android: {
+                elevation: 8,
+            },
+            ios: {
+                shadowColor: '#0F172A',
+                shadowOffset: { width: 0, height: -4 },
+                shadowOpacity: 0.06,
+                shadowRadius: 12,
+            },
+            default: {},
+        }),
     },
     tabLabel: {
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '600',
         marginTop: 2,
+        ...Platform.select({
+            android: { includeFontPadding: false },
+            default: {},
+        }),
     },
     header: {
         backgroundColor: colors.headerBg,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 3,
-        elevation: 2,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.divider,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.cardBorder,
+        ...Platform.select({
+            android: {
+                elevation: 3,
+            },
+            ios: {
+                shadowColor: '#0F172A',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.04,
+                shadowRadius: 4,
+            },
+            default: {},
+        }),
     },
     headerTitle: {
         color: colors.textPrimary,
         fontWeight: '700',
-        fontSize: 17,
+        fontSize: 18,
+        letterSpacing: 0,
+        ...Platform.select({
+            android: { includeFontPadding: false },
+            default: { letterSpacing: -0.3 },
+        }),
+    },
+    headerLeftContainer: {
+        paddingLeft: edgeH,
+    },
+    headerRightContainer: {
+        paddingRight: edgeH,
     },
 });

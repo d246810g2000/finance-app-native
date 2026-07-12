@@ -1,12 +1,13 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFinance } from '../context/FinanceContext';
 import { readFileContent, parseCsvData, findUnmappedAccounts } from '../services/financeService';
 import { RawRecord, CustomAccountMappings } from '../types';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { AppColors, SHADOWS } from '../theme';
+import { useAppTheme } from '../context/ThemeContext';
 import AccountMappingModal from './account/AccountMappingModal';
 
 interface UploadSectionProps {
@@ -14,6 +15,8 @@ interface UploadSectionProps {
 }
 
 export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const { loadRecords, clearRecords, records, isLoading, customMappings, saveCustomMappings } = useFinance();
     const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
     const [selectedFileUri, setSelectedFileUri] = useState<string | null>(null);
@@ -146,7 +149,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                         disabled={!selectedFileUri || loading}
                     >
                         {loading ? (
-                            <ActivityIndicator color="#fff" size="small" />
+                            <ActivityIndicator color={colors.textWhite} size="small" />
                         ) : (
                             <Text style={[styles.uploadBtnText, (!selectedFileUri || loading) && styles.uploadBtnTextDisabled]}>
                                 {records.length > 0 ? '🔄 重新載入資料' : '🚀 載入資料'}
@@ -180,37 +183,37 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.bg, padding: 24, justifyContent: 'flex-start', paddingTop: 40 },
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg, padding: 24, justifyContent: 'flex-start', paddingTop: 40 },
     // Upload Area
-    uploadArea: { backgroundColor: COLORS.card, borderWidth: 2, borderColor: COLORS.accentBorder, borderStyle: 'dashed', borderRadius: 24, paddingVertical: 60, alignItems: 'center', ...SHADOWS.md },
+    uploadArea: { backgroundColor: colors.card, borderWidth: 2, borderColor: colors.accentBorder, borderStyle: 'dashed', borderRadius: 24, paddingVertical: 60, alignItems: 'center', ...SHADOWS.md },
     uploadIcon: { fontSize: 64, marginBottom: 20 },
-    uploadTitle: { ...TYPOGRAPHY.h2, marginBottom: 8 },
-    uploadSubtitle: { ...TYPOGRAPHY.body, color: COLORS.textMuted },
+    uploadTitle: { ...typography.h2, marginBottom: 8 },
+    uploadSubtitle: { ...typography.body, color: colors.textMuted },
     // File Info
-    fileInfo: { flexDirection: 'row', alignItems: 'center', marginTop: 24, backgroundColor: COLORS.accentLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.accentBorder, ...SHADOWS.sm },
+    fileInfo: { flexDirection: 'row', alignItems: 'center', marginTop: 24, backgroundColor: colors.accentLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
     fileIcon: { fontSize: 24, marginRight: 12 },
-    fileName: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textPrimary, flex: 1 },
-    fileRemove: { color: COLORS.textMuted, fontSize: 18, padding: 8, fontWeight: '800' },
+    fileName: { ...typography.body, fontWeight: '600', color: colors.textPrimary, flex: 1 },
+    fileRemove: { color: colors.textMuted, fontSize: 18, padding: 8, fontWeight: '800' },
     // Encoding
     encodingSection: { marginTop: 32 },
-    encodingLabel: { ...TYPOGRAPHY.body, fontWeight: '700', marginBottom: 12 },
-    encodingToggle: { flexDirection: 'row', backgroundColor: COLORS.bg, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.cardBorder, ...SHADOWS.sm },
+    encodingLabel: { ...typography.body, fontWeight: '700', marginBottom: 12 },
+    encodingToggle: { flexDirection: 'row', backgroundColor: colors.bg, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
     encodingBtn: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-    encodingBtnActive: { backgroundColor: COLORS.accent, borderRadius: 14, margin: 2, ...SHADOWS.sm },
-    encodingBtnText: { ...TYPOGRAPHY.body, fontWeight: '600', color: COLORS.textMuted },
-    encodingBtnTextActive: { color: '#fff' },
+    encodingBtnActive: { backgroundColor: colors.accent, borderRadius: 14, margin: 2, ...SHADOWS.sm },
+    encodingBtnText: { ...typography.body, fontWeight: '600', color: colors.textMuted },
+    encodingBtnTextActive: { color: colors.textWhite },
     // Upload Button
-    uploadBtn: { backgroundColor: COLORS.accent, padding: 20, borderRadius: 20, alignItems: 'center', marginTop: 40, ...SHADOWS.lg },
-    uploadBtnDisabled: { backgroundColor: 'rgba(226, 232, 240, 0.4)', shadowOpacity: 0, borderWidth: 1, borderColor: COLORS.cardBorder },
-    uploadBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
-    uploadBtnTextDisabled: { color: COLORS.textSecondary },
+    uploadBtn: { backgroundColor: colors.accent, padding: 20, borderRadius: 20, alignItems: 'center', marginTop: 40, ...SHADOWS.lg },
+    uploadBtnDisabled: { backgroundColor: 'rgba(226, 232, 240, 0.4)', shadowOpacity: 0, borderWidth: 1, borderColor: colors.cardBorder },
+    uploadBtnText: { color: colors.textWhite, fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+    uploadBtnTextDisabled: { color: colors.textSecondary },
     // Messages
-    errorCard: { marginTop: 24, backgroundColor: COLORS.redLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.red, ...SHADOWS.sm },
-    errorText: { ...TYPOGRAPHY.body, color: COLORS.red, fontWeight: '600' },
-    successCard: { marginTop: 24, backgroundColor: COLORS.greenLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.green, ...SHADOWS.sm },
-    successText: { ...TYPOGRAPHY.body, color: COLORS.green, fontWeight: '700' },
+    errorCard: { marginTop: 24, backgroundColor: colors.redLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.red, ...SHADOWS.sm },
+    errorText: { ...typography.body, color: colors.red, fontWeight: '600' },
+    successCard: { marginTop: 24, backgroundColor: colors.greenLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.green, ...SHADOWS.sm },
+    successText: { ...typography.body, color: colors.green, fontWeight: '700' },
     // Existing Data Info
-    existingDataCard: { marginTop: 24, backgroundColor: '#EFF6FF', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#BFDBFE', ...SHADOWS.sm },
-    existingDataText: { ...TYPOGRAPHY.body, color: '#1E3A8A', fontWeight: '700', textAlign: 'center' },
+    existingDataCard: { marginTop: 24, backgroundColor: colors.blueLight, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
+    existingDataText: { ...typography.body, color: colors.accent, fontWeight: '700', textAlign: 'center' },
 });

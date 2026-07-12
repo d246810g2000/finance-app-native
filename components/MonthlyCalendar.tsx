@@ -3,7 +3,8 @@ import { View, Text, Pressable, StyleSheet, Dimensions } from 'react-native';
 import { RawRecord } from '../types';
 import { transformRecordsForExport, filterAndSortRecords } from '../services/financeService';
 import { TransformedRecord } from '../types';
-import { COLORS, SHADOWS } from '../theme';
+import { AppColors, SHADOWS } from '../theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { EXCHANGE_RATES } from '../constants';
 import { parseFormattedDate } from '../utils/dateUtils';
 
@@ -21,6 +22,8 @@ interface MonthlyCalendarProps {
 const WEEK_DAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
 export default function MonthlyCalendar({ records, accountFilter, currentMonthStr, selectedDate, onDateClick }: MonthlyCalendarProps) {
+    const { colors } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
     const [year, month] = useMemo(() => {
         const parts = currentMonthStr.split('/');
         return [parseInt(parts[0]), parseInt(parts[1]) - 1];
@@ -96,10 +99,10 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
 
     const getDotColor = useCallback((amount: number) => {
         const ratio = amount / maxDailyExpense;
-        if (ratio < 0.2) return COLORS.green;
+        if (ratio < 0.2) return colors.green;
         if (ratio < 0.5) return '#F59E0B';
-        return COLORS.red;
-    }, [maxDailyExpense]);
+        return colors.red;
+    }, [maxDailyExpense, colors]);
 
     const handleDayClick = useCallback((day: number) => {
         const date = new Date(year, month, day);
@@ -143,7 +146,7 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
                     return (
                         <Pressable
                             key={day}
-                            style={[styles.dayCell, isWeekend ? { backgroundColor: '#F8FAFC' } : null]}
+                            style={[styles.dayCell, isWeekend ? { backgroundColor: colors.bg } : null]}
                             onPress={() => handleDayClick(day)}
                         >
                             <View style={styles.dayHeader}>
@@ -153,7 +156,7 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
                                 ]}>
                                     <Text style={[
                                         styles.dayText,
-                                        (isSelected(day) || todayHighlight) ? { color: '#fff' } : isWeekend ? { color: COLORS.textMuted } : null
+                                        (isSelected(day) || todayHighlight) ? { color: colors.textWhite } : isWeekend ? { color: colors.textMuted } : null
                                     ]}>{day}</Text>
                                 </View>
                                 {expense > 0 ? (
@@ -173,28 +176,28 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
     );
 }
 
-const styles = StyleSheet.create({
-    container: { backgroundColor: COLORS.card, marginHorizontal: 16, marginTop: 16, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: COLORS.cardBorder, ...SHADOWS.sm },
+const createStyles = (colors: AppColors) => StyleSheet.create({
+    container: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 16, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
     headerLeft: { flex: 1 },
-    headerTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
-    headerTotal: { fontSize: 12, color: COLORS.textSecondary, marginTop: 4 },
+    headerTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+    headerTotal: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
     navButtons: { flexDirection: 'row', gap: 6 },
-    navBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.cardBorder },
-    navBtnText: { color: COLORS.accent, fontSize: 12, fontWeight: '600' },
+    navBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
+    navBtnText: { color: colors.accent, fontSize: 12, fontWeight: '600' },
     // Week
-    weekRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: COLORS.divider },
+    weekRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.divider },
     weekCell: { flex: 1, alignItems: 'center', paddingVertical: 6 },
-    weekText: { fontSize: 12, fontWeight: '600', color: COLORS.textMuted },
+    weekText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
     // Grid
     grid: { flexDirection: 'row', flexWrap: 'wrap' },
-    emptyCell: { width: `${100 / 7}%` as any, minHeight: 60, backgroundColor: '#F8FAFC' },
-    dayCell: { width: `${100 / 7}%` as any, minHeight: 60, padding: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.divider },
+    emptyCell: { width: `${100 / 7}%` as any, minHeight: 60, backgroundColor: colors.bg },
+    dayCell: { width: `${100 / 7}%` as any, minHeight: 60, padding: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.divider },
     dayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     dayNumber: { width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-    todayCircle: { backgroundColor: COLORS.accent },
-    selectedCircle: { backgroundColor: COLORS.red },
-    dayText: { fontSize: 12, fontWeight: '500', color: COLORS.textPrimary },
+    todayCircle: { backgroundColor: colors.accent },
+    selectedCircle: { backgroundColor: colors.red },
+    dayText: { fontSize: 12, fontWeight: '500', color: colors.textPrimary },
     dot: { width: 6, height: 6, borderRadius: 3 },
-    expenseText: { fontSize: 9, color: COLORS.red, fontWeight: '700', marginTop: 2, textAlign: 'right' },
+    expenseText: { fontSize: 9, color: colors.red, fontWeight: '700', marginTop: 2, textAlign: 'right' },
 });

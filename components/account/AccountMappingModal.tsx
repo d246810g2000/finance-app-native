@@ -1,8 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TouchableOpacity } from 'react-native';
-import { BlurView } from 'expo-blur';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, Pressable, TouchableWithoutFeedback } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { AppColors, SHADOWS } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
+import ModalBackdrop from '../ui/ModalBackdrop';
+import SegmentedControl from '../ui/SegmentedControl';
+import { useBottomSheetSwipe } from '../ui/useBottomSheetSwipe';
+import BottomSheetGestureWrapper from '../ui/BottomSheetGestureWrapper';
 import { CustomAccountMappings, CustomAccountMapping } from '../../types';
 import { SHARED_ACCOUNTS, ACCOUNT_CATEGORIES } from '../../constants';
 
@@ -17,6 +23,10 @@ interface AccountMappingModalProps {
 const CATEGORIES: ('現金' | '銀行' | '信用卡' | '儲值卡' | '證券戶' | '其他')[] = ['現金', '銀行', '信用卡', '儲值卡', '證券戶', '其他'];
 
 export default function AccountMappingModal({ visible, onClose, unmappedAccounts, onSave, existingMappings }: AccountMappingModalProps) {
+    const { colors, typography } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
+    const swipe = useBottomSheetSwipe(onClose, visible);
     const [localMappings, setLocalMappings] = useState<CustomAccountMappings>({});
 
     useEffect(() => {
@@ -65,14 +75,20 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
     const hasUnmapped = unmappedAccounts.length > 0;
 
     return (
-        <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen">
-            <BlurView intensity={30} tint="dark" style={styles.overlay}>
-                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Modal visible={visible} animationType="none" transparent presentationStyle="overFullScreen">
+            <ModalBackdrop colors={colors}>
+                <TouchableWithoutFeedback onPress={onClose}>
+                    <View style={styles.dismissArea} />
+                </TouchableWithoutFeedback>
 
-                <Animated.View entering={FadeInDown.springify()} style={styles.modalContent}>
-                    <View style={styles.dragHandle} />
+                <BottomSheetGestureWrapper
+                    swipe={swipe}
+                    style={[styles.modalContent, { paddingBottom: insets.bottom + 8 }]}
+                    header={(
+                        <>
+                            <View style={styles.dragHandle} />
 
-                    <View style={styles.header}>
+                            <View style={styles.header}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.title}>
                                 {hasUnmapped ? '新增帳戶分類設定' : '帳戶分類設定'}
@@ -87,47 +103,44 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
                             </Text>
                         </Pressable>
                     </View>
-
+                        </>
+                    )}
+                >
                     {!hasUnmapped ? (
                         <View style={{ flex: 1, paddingVertical: 60, alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ fontSize: 54, marginBottom: 16 }}>🎉</Text>
-                            <Text style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: '800' }}>所有帳戶分類完成</Text>
-                            <Text style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 40, lineHeight: 20 }}>
+                            <Ionicons name="checkmark-circle" size={54} color={colors.green} style={{ marginBottom: 16 }} />
+                            <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}>所有帳戶分類完成</Text>
+                            <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 40, lineHeight: 20 }}>
                                 目前沒有從 CSV 檔案中偵測到未分類的新帳戶。當您匯入包含新信用卡或銀行帳號的 CSV 時，系統會自動引導您在此處進行分類。
                             </Text>
                         </View>
                     ) : (
-                        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+                        <ScrollView
+                            style={styles.scrollView}
+                            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+                            onScroll={swipe.handleScroll}
+                            scrollEventThrottle={swipe.scrollEventThrottle}
+                        >
                             {unmappedAccounts.map(account => {
                                 const mapping = localMappings[account] || { type: 'personal', category: '銀行' };
 
                                 return (
                                     <View key={account} style={styles.accountCard}>
                                         <View style={styles.cardHeader}>
-                                            <Text style={styles.accountName}>💳 {account}</Text>
+                                            <Text style={styles.accountName}>{account}</Text>
                                         </View>
 
                                         {/* Type Selection */}
                                         <View style={styles.selectorRow}>
                                             <Text style={styles.label}>帳戶歸屬</Text>
-                                            <View style={styles.buttonGroup}>
-                                                <TouchableOpacity
-                                                    style={[styles.groupBtn, mapping.type === 'personal' && styles.groupBtnActive]}
-                                                    onPress={() => handleUpdateMapping(account, 'type', 'personal')}
-                                                >
-                                                    <Text style={[styles.groupBtnText, mapping.type === 'personal' && styles.groupBtnTextActive]}>
-                                                        個人
-                                                    </Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity
-                                                    style={[styles.groupBtn, mapping.type === 'shared' && styles.groupBtnActive]}
-                                                    onPress={() => handleUpdateMapping(account, 'type', 'shared')}
-                                                >
-                                                    <Text style={[styles.groupBtnText, mapping.type === 'shared' && styles.groupBtnTextActive]}>
-                                                        共用
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            </View>
+                                            <SegmentedControl
+                                                options={[
+                                                    { value: 'personal', label: '個人' },
+                                                    { value: 'shared', label: '共用' },
+                                                ]}
+                                                value={mapping.type}
+                                                onChange={(v) => handleUpdateMapping(account, 'type', v)}
+                                            />
                                         </View>
 
                                         {/* Category Selection */}
@@ -137,15 +150,15 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
                                                 {CATEGORIES.map(cat => {
                                                     const isActive = mapping.category === cat;
                                                     return (
-                                                        <TouchableOpacity
+                                                        <Pressable
                                                             key={cat}
-                                                            style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                                                            style={({ pressed }) => [styles.categoryChip, isActive && styles.categoryChipActive, pressed && { opacity: 0.85 }]}
                                                             onPress={() => handleUpdateMapping(account, 'category', cat)}
                                                         >
                                                             <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
                                                                 {cat}
                                                             </Text>
-                                                        </TouchableOpacity>
+                                                        </Pressable>
                                                     );
                                                 })}
                                             </ScrollView>
@@ -155,19 +168,20 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
                             })}
                         </ScrollView>
                     )}
-                </Animated.View>
-            </BlurView>
+                </BottomSheetGestureWrapper>
+            </ModalBackdrop>
         </Modal>
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
     },
+    dismissArea: { flex: 1, width: '100%' },
     modalContent: {
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         height: '75%',
@@ -176,7 +190,7 @@ const styles = StyleSheet.create({
     dragHandle: {
         width: 40,
         height: 5,
-        backgroundColor: COLORS.border,
+        backgroundColor: colors.border,
         borderRadius: 3,
         alignSelf: 'center',
         marginTop: 12,
@@ -189,25 +203,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.divider,
+        borderBottomColor: colors.divider,
     },
     title: {
-        ...TYPOGRAPHY.h3,
+        ...typography.h3,
         letterSpacing: -0.3,
         marginBottom: 4,
     },
     subtitle: {
-        ...TYPOGRAPHY.caption,
-        color: COLORS.textSecondary,
+        ...typography.caption,
+        color: colors.textSecondary,
     },
     saveBtn: {
         paddingHorizontal: 18,
         paddingVertical: 8,
-        backgroundColor: COLORS.accent,
+        backgroundColor: colors.accent,
         borderRadius: 16,
     },
     saveBtnText: {
-        color: '#FFF',
+        color: colors.textWhite,
         fontWeight: '700',
         fontSize: 14,
     },
@@ -216,13 +230,12 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 16,
-        paddingBottom: 40,
     },
     accountCard: {
-        backgroundColor: COLORS.card,
+        backgroundColor: colors.card,
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
         padding: 16,
         marginBottom: 16,
         ...SHADOWS.sm,
@@ -233,7 +246,7 @@ const styles = StyleSheet.create({
     accountName: {
         fontSize: 16,
         fontWeight: '700',
-        color: COLORS.textPrimary,
+        color: colors.textPrimary,
     },
     selectorRow: {
         flexDirection: 'row',
@@ -243,16 +256,16 @@ const styles = StyleSheet.create({
     },
     label: {
         fontSize: 13,
-        color: COLORS.textSecondary,
+        color: colors.textSecondary,
         fontWeight: '600',
     },
     buttonGroup: {
         flexDirection: 'row',
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         borderRadius: 10,
         padding: 2,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
     },
     groupBtn: {
         paddingHorizontal: 16,
@@ -260,16 +273,16 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     groupBtnActive: {
-        backgroundColor: COLORS.card,
+        backgroundColor: colors.card,
         ...SHADOWS.sm,
     },
     groupBtnText: {
         fontSize: 12,
         fontWeight: '600',
-        color: COLORS.textMuted,
+        color: colors.textMuted,
     },
     groupBtnTextActive: {
-        color: COLORS.accent,
+        color: colors.accent,
         fontWeight: '700',
     },
     categoryContainer: {
@@ -282,21 +295,21 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 10,
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
     },
     categoryChipActive: {
-        backgroundColor: COLORS.accentLight,
-        borderColor: COLORS.accentBorder,
+        backgroundColor: colors.accentLight,
+        borderColor: colors.accentBorder,
     },
     categoryChipText: {
         fontSize: 12,
         fontWeight: '600',
-        color: COLORS.textSecondary,
+        color: colors.textSecondary,
     },
     categoryChipTextActive: {
-        color: COLORS.accent,
+        color: colors.accent,
         fontWeight: '700',
     },
 });

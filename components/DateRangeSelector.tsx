@@ -1,8 +1,9 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../theme';
+import { useAppTheme } from '../context/ThemeContext';
 import UnifiedDateNavigator from './layout/UnifiedDateNavigator';
+import ModalBackdrop from './ui/ModalBackdrop';
 
 interface DateRangeSelectorProps {
     startDate: Date;
@@ -12,6 +13,8 @@ interface DateRangeSelectorProps {
 }
 
 export default function DateRangeSelector({ startDate, endDate, onDateChange, subLabel }: DateRangeSelectorProps) {
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const [showModal, setShowModal] = useState(false);
 
     const durationInDays = useMemo(() => {
@@ -31,7 +34,6 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
 
     const dateDisplay = `${startDate.toLocaleDateString('zh-TW')} - ${endDate.toLocaleDateString('zh-TW')}`;
 
-    // Preset ranges
     const setPresetRange = useCallback((days: number) => {
         const end = new Date();
         end.setHours(23, 59, 59, 999);
@@ -61,9 +63,8 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
                 onCenterPress={() => setShowModal(true)}
             />
 
-            {/* Preset Modal */}
             <Modal visible={showModal} animationType="fade" transparent>
-                <BlurView intensity={30} tint="dark" style={styles.overlay}>
+                <ModalBackdrop colors={colors} style={styles.overlay}>
                     <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowModal(false)} />
                     <View style={[styles.modalCard, SHADOWS.lg]}>
                         <Text style={styles.modalTitle}>選擇日期範圍</Text>
@@ -118,36 +119,34 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
                             <Text style={styles.cancelBtnText}>取消</Text>
                         </Pressable>
                     </View>
-                </BlurView>
+                </ModalBackdrop>
             </Modal>
         </>
     );
 }
 
-const styles = StyleSheet.create({
-    // Modal
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: COLORS.blackOverlay,
     },
     modalCard: {
-        backgroundColor: COLORS.card,
-        borderRadius: 24, // Rounder corners for premium feel
+        backgroundColor: colors.card,
+        ...withContinuousRadius(RADIUS.xl),
         padding: 24,
         width: '85%',
         maxWidth: 400,
         ...SHADOWS.lg,
     },
     modalTitle: {
-        ...TYPOGRAPHY.h3,
+        ...typography.h3,
         textAlign: 'center',
         marginBottom: 24,
         letterSpacing: -0.3,
     },
     sectionLabel: {
-        ...TYPOGRAPHY.caption,
+        ...typography.caption,
         marginBottom: 10,
         marginTop: 8,
     },
@@ -160,30 +159,30 @@ const styles = StyleSheet.create({
     presetBtn: {
         paddingHorizontal: 16,
         paddingVertical: 12,
-        backgroundColor: COLORS.bg,
-        borderRadius: 12,
+        backgroundColor: colors.bg,
+        ...withContinuousRadius(RADIUS.md),
         borderWidth: 1.5,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
     },
     presetBtnPressed: {
-        backgroundColor: COLORS.accentLight,
-        borderColor: COLORS.accentBorder,
+        backgroundColor: colors.accentLight,
+        borderColor: colors.accentBorder,
         transform: [{ scale: 0.96 }],
     },
     presetBtnText: {
-        ...TYPOGRAPHY.body,
+        ...typography.body,
         fontWeight: '600',
-        color: COLORS.textPrimary,
+        color: colors.textPrimary,
     },
     cancelBtn: {
         marginTop: 12,
         paddingVertical: 14,
         alignItems: 'center',
-        borderRadius: 12,
-        backgroundColor: COLORS.bg,
+        ...withContinuousRadius(RADIUS.md),
+        backgroundColor: colors.bg,
     },
     cancelBtnText: {
-        ...TYPOGRAPHY.subtitle,
-        color: COLORS.textSecondary,
+        ...typography.subtitle,
+        color: colors.textSecondary,
     },
 });

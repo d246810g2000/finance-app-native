@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
+import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
 
 interface UnifiedDateNavigatorProps {
     dateLabel: string;
@@ -22,6 +23,9 @@ export default function UnifiedDateNavigator({
     leftNode,
     rightNode
 }: UnifiedDateNavigatorProps) {
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
+
     return (
         <View style={styles.outerContainer}>
             {leftNode && <View style={styles.sideNodeLeft}>{leftNode}</View>}
@@ -29,8 +33,9 @@ export default function UnifiedDateNavigator({
                 <Pressable
                     style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.9 }] }]}
                     onPress={onPrev}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 >
-                    <Ionicons name="chevron-back" size={20} color={COLORS.accent} />
+                    <Ionicons name="chevron-back" size={20} color={colors.accent} />
                 </Pressable>
 
                 <Pressable
@@ -46,8 +51,9 @@ export default function UnifiedDateNavigator({
                 <Pressable
                     style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.9 }] }]}
                     onPress={onNext}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 >
-                    <Ionicons name="chevron-forward" size={20} color={COLORS.accent} />
+                    <Ionicons name="chevron-forward" size={20} color={colors.accent} />
                 </Pressable>
             </View>
             {rightNode && <View style={styles.sideNodeRight}>{rightNode}</View>}
@@ -55,7 +61,7 @@ export default function UnifiedDateNavigator({
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     outerContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -75,18 +81,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: COLORS.card,
-        borderRadius: 12,
+        backgroundColor: colors.card,
+        ...withContinuousRadius(RADIUS.md),
         borderWidth: 1,
-        borderColor: COLORS.cardBorder,
+        borderColor: colors.cardBorder,
         paddingHorizontal: 4,
         paddingVertical: 4,
         ...SHADOWS.sm,
     },
     arrowBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 8,
+        minWidth: 44,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        ...withContinuousRadius(RADIUS.sm),
     },
     dateDisplay: {
         flex: 1,
@@ -94,7 +103,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         paddingVertical: 6,
         paddingHorizontal: 8,
-        borderRadius: 8,
+        ...withContinuousRadius(RADIUS.sm),
     },
     centerTextContainer: {
         alignItems: 'center',
@@ -103,10 +112,10 @@ const styles = StyleSheet.create({
     dateText: {
         fontSize: 14,
         fontWeight: '700',
-        color: COLORS.textPrimary,
+        color: colors.textPrimary,
     },
     subText: {
-        ...TYPOGRAPHY.caption,
+        ...typography.caption,
         marginTop: 2,
     }
 });

@@ -1,13 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, TextInput, Alert, ScrollView } from 'react-native';
 import { RawRecord } from '../../types';
 import { getCategoryAverage } from '../../services/financeService';
 import { loadBudgetConfig } from '../../services/budgetService';
-import { COLORS } from '../../theme';
+import { AppColors, SHADOWS, RADIUS } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
+import ModalBackdrop from '../ui/ModalBackdrop';
 
 interface BudgetSettingModalProps {
-    isOpen: boolean;
+    visible: boolean;
     onClose: () => void;
     onSave: (category: string, limit: number, isEdit: boolean) => void;
     editingId: string | null;
@@ -18,8 +20,10 @@ interface BudgetSettingModalProps {
 }
 
 const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
-    isOpen, onClose, onSave, editingId, initialCategory, initialLimit, uniqueCategories, allRawRecords
+    visible, onClose, onSave, editingId, initialCategory, initialLimit, uniqueCategories, allRawRecords
 }) => {
+    const { colors, isDark } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
     const [formCategory, setFormCategory] = useState(initialCategory);
     const [formLimit, setFormLimit] = useState(initialLimit);
     const [suggestion, setSuggestion] = useState<number | null>(null);
@@ -27,11 +31,11 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
     useEffect(() => {
         setFormCategory(initialCategory);
         setFormLimit(initialLimit);
-    }, [initialCategory, initialLimit, isOpen]);
+    }, [initialCategory, initialLimit, visible]);
 
     useEffect(() => {
         const fetchSuggestion = async () => {
-            if (formCategory && isOpen) {
+            if (formCategory && visible) {
                 const config = await loadBudgetConfig();
                 const avg = getCategoryAverage(allRawRecords, formCategory, config);
                 setSuggestion(avg);
@@ -40,7 +44,7 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
             }
         }
         fetchSuggestion();
-    }, [formCategory, allRawRecords, isOpen]);
+    }, [formCategory, allRawRecords, visible]);
 
     const handleSave = () => {
         if (!formCategory || !formLimit) return;
@@ -53,8 +57,9 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
     };
 
     return (
-        <Modal visible={isOpen} transparent animationType="slide" onRequestClose={onClose}>
-            <Pressable style={styles.overlay} onPress={onClose}>
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} presentationStyle="overFullScreen">
+            <ModalBackdrop colors={colors} placement="center" isDark={isDark}>
+                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
                 <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
                     <Text style={styles.title}>{editingId ? '編輯預算' : '新增預算'}</Text>
 
@@ -78,7 +83,7 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                                 <TextInput
                                     style={styles.input}
                                     placeholder="或輸入自訂類別"
-                                    placeholderTextColor={COLORS.textMuted}
+                                    placeholderTextColor={colors.textMuted}
                                     value={formCategory}
                                     onChangeText={setFormCategory}
                                 />
@@ -96,21 +101,21 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                                 onChangeText={setFormLimit}
                                 keyboardType="numeric"
                                 placeholder="0"
-                                placeholderTextColor={COLORS.textMuted}
+                                placeholderTextColor={colors.textMuted}
                             />
                         </View>
 
                         {suggestion !== null && suggestion > 0 && (
                             <Pressable onPress={() => setFormLimit(suggestion.toString())} style={styles.suggestionBox}>
                                 <Text style={styles.suggestionText}>
-                                    💡 智慧建議 (3個月平均): <Text style={{ fontWeight: 'bold' }}>${suggestion.toLocaleString()}</Text> - 點此套用
+                                    智慧建議 (3個月平均): <Text style={{ fontWeight: 'bold' }}>${suggestion.toLocaleString()}</Text> - 點此套用
                                 </Text>
                             </Pressable>
                         )}
                         {suggestion === 0 && (
                             <View style={styles.suggestionBoxGray}>
                                 <Text style={styles.suggestionTextGray}>
-                                    💡 過去3個月在目前的設定下無此類別開銷。
+                                    過去3個月在目前的設定下無此類別開銷。
                                 </Text>
                             </View>
                         )}
@@ -132,37 +137,36 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                         </Pressable>
                     </View>
                 </Pressable>
-            </Pressable>
+            </ModalBackdrop>
         </Modal>
     );
 };
 
-const styles = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-    modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, maxHeight: '85%', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
-    title: { fontSize: 20, fontWeight: '700', marginBottom: 24, color: COLORS.textPrimary },
+const createStyles = (colors: AppColors) => StyleSheet.create({
+    modalContent: { backgroundColor: colors.card, borderRadius: RADIUS.md, padding: 24, maxHeight: '85%', ...SHADOWS.lg },
+    title: { fontSize: 20, fontWeight: '700', marginBottom: 24, color: colors.textPrimary },
     formGroup: { marginBottom: 20 },
-    label: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 8 },
-    input: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, padding: 12, fontSize: 16, color: COLORS.textPrimary, backgroundColor: COLORS.bg },
-    disabledInput: { backgroundColor: COLORS.bg, color: COLORS.textMuted },
-    amountInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 12, backgroundColor: COLORS.bg },
-    currencySymbol: { fontSize: 18, color: COLORS.textSecondary, marginRight: 4 },
-    amountInput: { flex: 1, paddingVertical: 12, fontSize: 18, color: COLORS.textPrimary },
+    label: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 },
+    input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, fontSize: 16, color: colors.textPrimary, backgroundColor: colors.bg },
+    disabledInput: { backgroundColor: colors.bg, color: colors.textMuted },
+    amountInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.bg },
+    currencySymbol: { fontSize: 18, color: colors.textSecondary, marginRight: 4 },
+    amountInput: { flex: 1, paddingVertical: 12, fontSize: 18, color: colors.textPrimary },
     footer: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 10 },
-    btnCancel: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' },
-    btnSave: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, backgroundColor: COLORS.accent },
-    btnSaveDisabled: { backgroundColor: COLORS.accentBorder },
-    btnTextCancel: { color: COLORS.textSecondary, fontWeight: '600', fontSize: 16 },
-    btnTextSave: { color: '#fff', fontWeight: '600', fontSize: 16 },
-    suggestionBox: { marginTop: 12, padding: 12, backgroundColor: COLORS.accentLight, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
-    suggestionText: { fontSize: 13, color: COLORS.accent },
-    suggestionBoxGray: { marginTop: 12, padding: 12, backgroundColor: COLORS.bg, borderRadius: 8 },
-    suggestionTextGray: { fontSize: 13, color: COLORS.textSecondary },
+    btnCancel: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+    btnSave: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, backgroundColor: colors.accent },
+    btnSaveDisabled: { backgroundColor: colors.accentBorder },
+    btnTextCancel: { color: colors.textSecondary, fontWeight: '600', fontSize: 16 },
+    btnTextSave: { color: colors.textWhite, fontWeight: '600', fontSize: 16 },
+    suggestionBox: { marginTop: 12, padding: 12, backgroundColor: colors.accentLight, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
+    suggestionText: { fontSize: 13, color: colors.accent },
+    suggestionBoxGray: { marginTop: 12, padding: 12, backgroundColor: colors.bg, borderRadius: 8 },
+    suggestionTextGray: { fontSize: 13, color: colors.textSecondary },
     chipContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: COLORS.divider, backgroundColor: COLORS.bg },
-    chipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-    chipText: { fontSize: 14, color: COLORS.textSecondary },
-    chipTextActive: { color: '#fff', fontWeight: 'bold' },
+    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.bg },
+    chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    chipText: { fontSize: 14, color: colors.textSecondary },
+    chipTextActive: { color: colors.textWhite, fontWeight: 'bold' },
 });
 
 export default BudgetSettingModal;

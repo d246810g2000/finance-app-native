@@ -1,18 +1,26 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useFinance } from '../../context/FinanceContext';
 import { filterAndSortRecords, transformRecordsForExport } from '../../services/financeService';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
+import { AppColors } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import DateRangeSelector from '../../components/DateRangeSelector';
 import DetailModal from '../../components/DetailModal';
+import EmptyState from '../../components/ui/EmptyState';
+import SortChips from '../../components/ui/SortChips';
+import AccentListCard from '../../components/ui/AccentListCard';
+import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
+import PageChrome from '../../components/layout/PageChrome';
 import { TransformedRecord } from '../../types';
 import { TRAVEL_PROJECT_REGEX, ProjectData } from '../../services/shared';
 
 type SortKey = 'expense_desc' | 'expense_asc' | 'count_desc' | 'count_asc' | 'avg_desc' | 'avg_asc' | 'name_asc' | 'name_desc';
 
 export default function ProjectScreen() {
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
     const { records, globalExcludeTravel } = useFinance();
 
     const [startDate, setStartDate] = useState(() => {
@@ -82,85 +90,57 @@ export default function ProjectScreen() {
 
     const renderItem = useCallback(({ item }: { item: ProjectData }) => {
         return (
-            <Pressable
+            <AccentListCard
                 onPress={() => handleProjectClick(item.name)}
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            >
-                {/* Left accent strip — same as travel cards */}
-                <View style={styles.accentStrip} />
-                <View style={styles.cardContent}>
-                    {/* Top row: name + total — same as travel */}
-                    <View style={styles.topRow}>
-                        <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
-                        <Text style={styles.totalAmount}>${item.totalExpense.toLocaleString()}</Text>
-                    </View>
-                    {/* Bottom row: meta info — same pattern as travel */}
-                    <View style={styles.bottomRow}>
-                        <Text style={styles.metaText}>📋 {item.recordCount} 筆</Text>
-                        <Text style={styles.metaText}>📊 平均 ${item.avgPerRecord.toLocaleString()}</Text>
-                    </View>
-                </View>
-            </Pressable>
+                title={item.name}
+                amount={`$${item.totalExpense.toLocaleString()}`}
+                meta={[
+                    { icon: 'documents-outline', text: `${item.recordCount} 筆` },
+                    { icon: 'analytics-outline', text: `平均 $${item.avgPerRecord.toLocaleString()}` },
+                ]}
+                accessibilityLabel={`專案 ${item.name}，總花費 ${item.totalExpense} 元`}
+            />
         );
     }, [handleProjectClick]);
 
     // ── ListHeaderComponent: matches budget page's scrollContent structure ──
     const listHeader = useMemo(() => (
         <View style={styles.listHeaderWrapper}>
-            {/* Compact Summary Row — uses negative margins to bleed full-width, identical to budget page */}
-            <View style={styles.compactSummaryRow}>
-                <Text style={styles.compactSummaryText}>
-                    總花費 <Text style={styles.compactSummaryValue}>${totalExpenseAll.toLocaleString()}</Text>
-                </Text>
-                <Text style={styles.compactSummaryDivider}>|</Text>
-                <Text style={styles.compactSummaryText}>
-                    平均 <Text style={styles.compactSummaryValue}>${projectsData.length > 0 ? Math.round(totalExpenseAll / projectsData.length).toLocaleString() : '0'}</Text>
-                </Text>
-            </View>
+            <CompactSummaryBar
+                items={[
+                    { label: '總花費', value: `$${totalExpenseAll.toLocaleString()}` },
+                    { label: '平均', value: `$${projectsData.length > 0 ? Math.round(totalExpenseAll / projectsData.length).toLocaleString() : '0'}` },
+                ]}
+            />
 
-            {/* Sort Chips — uses negative horizontal margin to bleed then re-pad, identical to budget page */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow} style={styles.sortContainer}>
-                {([
-                    { baseKey: 'expense', label: '總花費' },
-                    { baseKey: 'count', label: '記錄數' },
-                    { baseKey: 'avg', label: '單筆平均' },
-                    { baseKey: 'name', label: '名稱' },
-                ] as { baseKey: string; label: string }[]).map(opt => {
-                    const isActive = sortKey.startsWith(opt.baseKey);
-                    const isAsc = sortKey === `${opt.baseKey}_asc`;
-                    return (
-                        <Pressable
-                            key={opt.baseKey}
-                            onPress={() => {
-                                if (isActive) {
-                                    setSortKey(`${opt.baseKey}_${isAsc ? 'desc' : 'asc'}` as SortKey);
-                                } else {
-                                    setSortKey(`${opt.baseKey}_desc` as SortKey);
-                                }
-                            }}
-                            style={[styles.sortChip, isActive ? styles.sortChipActive : null]}
-                        >
-                            <Text style={[styles.sortChipText, isActive ? styles.sortChipTextActive : null]}>
-                                {opt.label}{isActive && (isAsc ? ' ▴' : ' ▾')}
-                            </Text>
-                        </Pressable>
-                    );
-                })}
-            </ScrollView>
+            {/* Sort Chips */}
+            <View style={styles.sortContainer}>
+                <SortChips
+                    options={[
+                        { key: 'expense', label: '總花費' },
+                        { key: 'count', label: '記錄數' },
+                        { key: 'avg', label: '單筆平均' },
+                        { key: 'name', label: '名稱' },
+                    ]}
+                    activeKey={sortKey.replace(/_(asc|desc)$/, '')}
+                    direction={sortKey.endsWith('_asc') ? 'asc' : 'desc'}
+                    onChange={(key, direction) => setSortKey(`${key}_${direction}` as SortKey)}
+                />
+            </View>
         </View>
     ), [projectsData.length, totalExpenseAll, sortKey]);
 
     return (
         <View style={styles.container}>
-            {/* Fixed header — mirrors budget's <View style={styles.header}> */}
-            <View style={styles.dateHeader}>
+            {/* Fixed header */}
+            <PageChrome>
                 <DateRangeSelector
                     startDate={startDate}
                     endDate={endDate}
                     onDateChange={handleDateChange}
                     subLabel={`${projectsData.length} 個專案`}
                 />
-            </View>
+            </PageChrome>
 
             {/* FlashList with paddingHorizontal:16 — mirrors budget's scrollContent paddingHorizontal */}
             <FlashList
@@ -170,11 +150,11 @@ export default function ProjectScreen() {
                 keyExtractor={(item: ProjectData) => item.name}
                 ListHeaderComponent={listHeader}
                 ListEmptyComponent={
-                    <View style={styles.emptyView}>
-                        <Text style={{ fontSize: 40, marginBottom: 8 }}>📁</Text>
-                        <Text style={styles.emptyText}>該期間無專案數據</Text>
-                        <Text style={styles.emptySubtext}>請試著切換右上角日期區間</Text>
-                    </View>
+                    <EmptyState
+                        icon="folder-open-outline"
+                        title="該期間無專案數據"
+                        description="請試著切換頂部日期區間"
+                    />
                 }
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
                 // @ts-ignore
@@ -191,40 +171,11 @@ export default function ProjectScreen() {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.bg },
-    // Fixed date header — mirrors budget's styles.header
-    dateHeader: { backgroundColor: COLORS.headerBg, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.divider, ...SHADOWS.sm, zIndex: 10 },
-
-    // ListHeaderComponent wrapper — uses negative margins to bleed past paddingHorizontal:16 (mirrors budget compactSummaryRow: marginHorizontal:-16)
+const createStyles = (colors: AppColors) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    // ListHeaderComponent wrapper — negative margin bleeds past FlashList paddingHorizontal:16
     listHeaderWrapper: { marginHorizontal: -16 },
 
-    // Compact Summary Row — identical to budget page styles
-    compactSummaryRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.headerBg, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
-    compactSummaryText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-    compactSummaryValue: { color: COLORS.textPrimary, fontWeight: '800', fontSize: 15 },
-    compactSummaryDivider: { color: COLORS.divider, marginHorizontal: 14, fontSize: 12 },
-
-    // Sort Chips — sortRow uses paddingHorizontal:16 to re-indent after negative margin
+    // Sort Chips
     sortContainer: { marginTop: 14, marginBottom: 0 },
-    sortRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 8, paddingBottom: 4, alignItems: 'center' },
-    sortChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.cardBorder, ...SHADOWS.sm },
-    sortChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-    sortChipText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '700' },
-    sortChipTextActive: { color: '#fff' },
-
-    // Cards — identical to travel page style
-    card: { flexDirection: 'row', borderRadius: 14, marginBottom: 10, marginTop: 10, borderWidth: 1, borderColor: COLORS.cardBorder, overflow: 'hidden', backgroundColor: COLORS.card, ...SHADOWS.sm },
-    cardPressed: { opacity: 0.88, transform: [{ scale: 0.98 }] },
-    accentStrip: { width: 4, backgroundColor: COLORS.accent },
-    cardContent: { flex: 1, paddingVertical: 14, paddingHorizontal: 14, paddingLeft: 12 },
-    topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    cardTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3, flex: 1 },
-    totalAmount: { fontSize: 15, fontWeight: '800', color: COLORS.accent, letterSpacing: -0.3 },
-    bottomRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-    metaText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
-
-    emptyView: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
-    emptyText: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 4 },
-    emptySubtext: { color: COLORS.textMuted, fontSize: 13 },
 });

@@ -33,14 +33,14 @@ export type AppColors = {
 };
 
 export const LIGHT_COLORS: AppColors = {
-    bg: '#F8FAFC',
+    bg: '#F5F5F5',
     card: '#FFFFFF',
-    cardBorder: '#E2E8F0',
-    headerBg: 'rgba(255, 255, 255, 0.85)',
-    accent: '#6366F1',
-    accentLight: '#EEF2FF',
-    accentBorder: '#C7D2FE',
-    accentGradientShape: ['#6366F1', '#4F46E5'],
+    cardBorder: '#E0E0E0',
+    headerBg: '#FFFFFF',
+    accent: '#5B5BD6',
+    accentLight: '#EDEDFC',
+    accentBorder: '#C4C4F0',
+    accentGradientShape: ['#7C7CE0', '#5B5BD6'],
     green: '#10B981',
     greenLight: '#D1FAE5',
     greenGradient: ['#34D399', '#10B981'],
@@ -58,44 +58,42 @@ export const LIGHT_COLORS: AppColors = {
     divider: '#E2E8F0',
     border: '#CBD5E1',
     tabBg: '#FFFFFF',
-    tabActive: '#6366F1',
-    tabInactive: '#94A3B8',
-    glassBg: 'rgba(255, 255, 255, 0.7)',
-    blackOverlay: 'rgba(15, 23, 42, 0.4)',
+    tabActive: '#5B5BD6',
+    tabInactive: '#757575',
+    glassBg: 'rgba(255, 255, 255, 0.92)',
+    blackOverlay: 'rgba(0, 0, 0, 0.5)',
 };
 
 export const DARK_COLORS: AppColors = {
-    // True black background for OLED
-    bg: '#000000',
-    // Dark gray cards (Moze 4.0 style)
-    card: '#1C1C1E',
-    cardBorder: '#2C2C2E',
-    headerBg: 'rgba(0, 0, 0, 0.85)',
-    accent: '#818CF8', // indigo-400
-    accentLight: 'rgba(99, 102, 241, 0.15)',
-    accentBorder: '#4F46E5',
-    accentGradientShape: ['#818CF8', '#6366F1'],
-    green: '#34D399', // emerald-400
+    bg: '#121212',
+    card: '#1E1E1E',
+    cardBorder: '#2C2C2C',
+    headerBg: '#1E1E1E',
+    accent: '#9B9BF5',
+    accentLight: 'rgba(91, 91, 214, 0.2)',
+    accentBorder: '#5B5BD6',
+    accentGradientShape: ['#9B9BF5', '#5B5BD6'],
+    green: '#34D399',
     greenLight: 'rgba(16, 185, 129, 0.15)',
     greenGradient: ['#6EE7B7', '#34D399'],
-    red: '#FB7185', // rose-400
+    red: '#FB7185',
     redLight: 'rgba(244, 63, 94, 0.15)',
     redGradient: ['#FDA4AF', '#FB7185'],
-    yellow: '#FBBF24', // amber-400
+    yellow: '#FBBF24',
     yellowLight: 'rgba(245, 158, 11, 0.15)',
-    blue: '#60A5FA', // blue-400
+    blue: '#60A5FA',
     blueLight: 'rgba(59, 130, 246, 0.15)',
-    textPrimary: '#FFFFFF', // pure white text
-    textSecondary: '#A1A1AA', // zinc-400
-    textMuted: '#71717A', // zinc-500
+    textPrimary: '#FFFFFF',
+    textSecondary: '#B0B0B0',
+    textMuted: '#808080',
     textWhite: '#FFFFFF',
-    divider: '#2C2C2E', // Matches card borders
-    border: '#3F3F46',
-    tabBg: '#0F0F0F', // very dark tab bar
-    tabActive: '#818CF8',
-    tabInactive: '#71717A',
-    glassBg: 'rgba(28, 28, 30, 0.7)',
-    blackOverlay: 'rgba(0, 0, 0, 0.8)',
+    divider: '#2C2C2C',
+    border: '#3A3A3A',
+    tabBg: '#1E1E1E',
+    tabActive: '#9B9BF5',
+    tabInactive: '#808080',
+    glassBg: 'rgba(30, 30, 30, 0.92)',
+    blackOverlay: 'rgba(0, 0, 0, 0.7)',
 };
 
 /**
@@ -103,6 +101,25 @@ export const DARK_COLORS: AppColors = {
  * 建議後續透過 ThemeContext 來動態獲取 colors。
  */
 export const COLORS = LIGHT_COLORS;
+
+/** 曲面螢幕左右最小留白（safe area 回報 0 時的後備值） */
+export const SCREEN_EDGE_MIN = 16;
+
+/** 圓角常數 — 搭配 borderCurve: 'continuous' 使用（Vercel RN styling 建議） */
+export const RADIUS = {
+    xs: 3,
+    input: 8,
+    sm: 10,
+    md: 16,
+    lg: 20,
+    chip: 20,
+    xl: 24,
+} as const;
+
+export const withContinuousRadius = (radius: number) => ({
+    borderRadius: radius,
+    borderCurve: 'continuous' as const,
+});
 
 export const CATEGORY_COLORS = [
     '#4F46E5', '#10B981', '#F59E0B', '#EF4444',
@@ -112,32 +129,36 @@ export const CATEGORY_COLORS = [
 
 export const SHADOWS = StyleSheet.create({
     sm: {
-        shadowColor: '#000000',
+        shadowColor: '#0F172A',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
         elevation: 2,
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
     },
     md: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.08,
+        shadowRadius: 14,
         elevation: 4,
+        boxShadow: '0 6px 14px rgba(15, 23, 42, 0.08)',
     },
     lg: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 15,
-        elevation: 6,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.12,
+        shadowRadius: 24,
+        elevation: 8,
+        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.12)',
     },
     hover: {
-        shadowColor: '#4F46E5',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 10,
+        shadowColor: '#5B5BD6',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 14,
         elevation: 4,
+        boxShadow: '0 6px 14px rgba(91, 91, 214, 0.18)',
     }
 });
 
@@ -145,13 +166,20 @@ export const SHADOWS = StyleSheet.create({
  * Typography 的顏色也會隨著主題改變，因此我們匯出一個產生函數
  */
 export const getTypography = (colors: AppColors) => StyleSheet.create({
-    h1: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.5 },
-    h2: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.5 },
-    h3: { fontSize: 20, fontWeight: '600', color: colors.textPrimary },
-    subtitle: { fontSize: 16, fontWeight: '500', color: colors.textSecondary },
+    h1: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.8 },
+    h2: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.6 },
+    h3: { fontSize: 20, fontWeight: '600', color: colors.textPrimary, letterSpacing: -0.3 },
+    display: { fontSize: 32, fontWeight: '800', color: colors.textPrimary, letterSpacing: -1 },
+    subtitle: { fontSize: 16, fontWeight: '500', color: colors.textSecondary, letterSpacing: -0.2 },
     body: { fontSize: 15, fontWeight: '400', color: colors.textSecondary, lineHeight: 22 },
-    bodySm: { fontSize: 13, fontWeight: '400', color: colors.textMuted },
-    caption: { fontSize: 11, fontWeight: '500', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' },
+    bodySm: { fontSize: 13, fontWeight: '400', color: colors.textMuted, letterSpacing: -0.1 },
+    caption: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.8, textTransform: 'uppercase' },
+    // 收斂常見的卡片 / 金額 / 排序 chip / 區塊標題字級
+    cardTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.3 },
+    amount: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
+    amountLg: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+    chip: { fontSize: 13, fontWeight: '700' },
+    sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
 });
 
 // 提供原本靜態的版本以避免立刻報錯，但顏色只會是 Light Theme 的。

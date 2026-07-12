@@ -1,25 +1,98 @@
-import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect } from 'react';
-import { View, Text, TextInput, Modal, Pressable, StyleSheet, SectionList, RefreshControl, Platform, LayoutAnimation, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useMemo, useCallback, useLayoutEffect, memo } from 'react';
+import { View, Text, Modal, Pressable, StyleSheet, RefreshControl, LayoutAnimation } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useNavigation } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
 import { transformRecordsForExport } from '../../services/financeService';
 import { TransformedRecord } from '../../types';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../../theme';
-import { zeroPadDate, parseFormattedDate, getStartOfWeek, getEndOfWeek, addDays, addWeeks, addMonths, addYears } from '../../utils/dateUtils';
+import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { useAppTheme } from '../../context/ThemeContext';
+import { zeroPadDate, parseFormattedDate, getStartOfWeek, getEndOfWeek } from '../../utils/dateUtils';
 import MonthlyCalendar from '../../components/MonthlyCalendar';
-import { BlurView } from 'expo-blur';
+import DetailModal from '../../components/DetailModal';
+import EmptyState from '../../components/ui/EmptyState';
+import SortChips from '../../components/ui/SortChips';
+import AccentListCard, { MetaEntry } from '../../components/ui/AccentListCard';
+import PageChrome from '../../components/layout/PageChrome';
+import HeaderMenuButton from '../../components/layout/HeaderMenuButton';
 import { Ionicons } from '@expo/vector-icons';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
+import ModalBackdrop from '../../components/ui/ModalBackdrop';
 
 type SortKey = '日期' | '主類別' | '金額';
 type SortDirection = 'asc' | 'desc';
 
-const TYPE_COLORS: Record<string, string> = {
-    '支出': COLORS.red, '收入': COLORS.green, '轉帳': COLORS.blue,
-    '轉出': COLORS.red, '轉入': COLORS.green,
-};
+type ListRow =
+    | { kind: 'header'; key: string; title: string }
+    | { kind: 'record'; key: string; item: TransformedRecord };
+
+type RecordStyles = ReturnType<typeof createStyles>;
+
+const getTypeColors = (colors: AppColors): Record<string, string> => ({
+    '支出': colors.red, '收入': colors.green, '轉帳': colors.blue,
+    '轉出': colors.red, '轉入': colors.green,
+});
+
+const RecordListItem = memo(({ item, colors, typeColors, styles, onPress }: {
+    item: TransformedRecord;
+    colors: AppColors;
+    typeColors: Record<string, string>;
+    styles: RecordStyles;
+    onPress: (item: TransformedRecord) => void;
+}) => {
+    const isTransfer = item['記錄類型'] === '轉帳';
+    const typeColor = isTransfer ? colors.blue : (typeColors[item['記錄類型']] || colors.textMuted);
+
+    if (isTransfer) {
+        const fromAccount = item['帳戶'];
+        const toAccount = item['描述'];
+        const meta: MetaEntry[] = [];
+        if (item['時間'] !== '09:00') meta.push({ icon: 'time-outline', text: item['時間'] });
+        if (item['專案']) meta.push({ icon: 'folder-outline', text: item['專案'] });
+        return (
+            <AccentListCard
+                onPress={() => onPress(item)}
+                accentColor={colors.blue}
+                title={`${fromAccount} » ${toAccount}`}
+                titleBadge={(
+                    <View style={[styles.categoryBadge, { backgroundColor: colors.blueLight, borderColor: colors.accentBorder }]}>
+                        <Text style={[styles.categoryBadgeText, { color: colors.blue }]}>轉帳</Text>
+                    </View>
+                )}
+                amount={`$${item['金額'].toLocaleString()}`}
+                amountColor={colors.blue}
+                meta={meta}
+            />
+        );
+    }
+
+    const meta: MetaEntry[] = [];
+    if (item['時間'] !== '09:00') meta.push({ icon: 'time-outline', text: item['時間'] });
+    if (item['帳戶']) meta.push({ icon: 'card-outline', text: item['帳戶'] });
+    if (item['專案']) meta.push({ icon: 'folder-outline', text: item['專案'] });
+
+    return (
+        <AccentListCard
+            onPress={() => onPress(item)}
+            accentColor={typeColor}
+            title={item['商家'] || item['名稱'] || '未命名'}
+            titleBadge={(
+                <View style={styles.categoryBadge}>
+                    <Text style={styles.categoryBadgeText}>{item['主類別']}</Text>
+                </View>
+            )}
+            amount={item['金額'].toLocaleString()}
+            amountColor={item['金額'] >= 0 ? colors.green : colors.red}
+            meta={meta}
+            metaTrailing={item['描述'] ? <Text style={styles.metaDesc} numberOfLines={1}>{item['描述']}</Text> : undefined}
+        />
+    );
+});
 
 export default function CalendarScreen() {
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
+    const typeColors = useMemo(() => getTypeColors(colors), [colors]);
     const { records, deleteRecord, refreshRecords, searchFilters, setSearchFilters, searchModalVisible, setSearchModalVisible, setMenuVisible } = useFinance();
     const [refreshing, setRefreshing] = useState(false);
 
@@ -34,6 +107,7 @@ export default function CalendarScreen() {
     // Default sort by date desc
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: '日期', direction: 'desc' });
     const [selectedRecord, setSelectedRecord] = useState<TransformedRecord | null>(null);
+    const [detailTitle, setDetailTitle] = useState('記錄詳情');
     const navigation = useNavigation();
 
     useLayoutEffect(() => {
@@ -46,6 +120,8 @@ export default function CalendarScreen() {
                         setShowModePicker(!showModePicker);
                     }}
                     style={styles.headerTitleContainer}
+                    accessibilityRole="button"
+                    accessibilityLabel="切換檢視模式"
                 >
                     <Text style={styles.headerTitleText}>{searchFilters ? '搜尋結果' : '記錄'}</Text>
                     {!searchFilters && (
@@ -53,29 +129,27 @@ export default function CalendarScreen() {
                             <Text style={styles.modeBadgeText}>
                                 {viewMode === 'day' ? '日' : viewMode === 'week' ? '週' : viewMode === 'month' ? '月' : '年'}
                             </Text>
-                            <Ionicons name="chevron-down" size={12} color={COLORS.textSecondary} style={{ marginLeft: 2 }} />
+                            <Ionicons name="chevron-down" size={12} color={colors.textSecondary} style={{ marginLeft: 2 }} />
                         </View>
                     )}
                 </Pressable>
             ),
             headerLeft: () => (
-                <TouchableOpacity
+                <HeaderMenuButton
+                    icon={searchFilters ? 'back' : 'menu'}
                     onPress={() => {
                         if (searchFilters) {
-                            // 當從搜尋結果返回時，清除背景搜尋過濾並開啟視窗
                             setSearchFilters(null);
                             setSearchModalVisible(true);
                         } else {
                             setMenuVisible(true);
                         }
                     }}
-                    style={{ marginLeft: 16 }}
-                >
-                    <Ionicons name={searchFilters ? "chevron-back" : "menu-outline"} size={28} color={COLORS.textPrimary} />
-                </TouchableOpacity>
+                    accessibilityLabel={searchFilters ? '返回搜尋' : '開啟選單'}
+                />
             ),
         });
-    }, [navigation, viewMode, showModePicker, searchFilters]);
+    }, [navigation, viewMode, showModePicker, searchFilters, colors.textPrimary, setSearchFilters, setSearchModalVisible, setMenuVisible]);
 
     const allData = useMemo(() => transformRecordsForExport(records), [records]);
 
@@ -262,6 +336,11 @@ export default function CalendarScreen() {
             }
         });
 
+        // 非日期排序：扁平列表，不再依日期分組（否則排序看起來沒作用）
+        if (sortConfig.key !== '日期') {
+            return [{ title: '', data: mergedData }];
+        }
+
         const groups: { [key: string]: TransformedRecord[] } = {};
         mergedData.forEach(item => {
             const dateStr = item['日期'] || '未知';
@@ -269,82 +348,52 @@ export default function CalendarScreen() {
             groups[dateStr].push(item);
         });
 
-        const sortedKeys = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+        const sortedKeys = Object.keys(groups).sort((a, b) =>
+            sortConfig.direction === 'desc' ? b.localeCompare(a) : a.localeCompare(b)
+        );
 
         return sortedKeys.map(key => ({
             title: key,
             data: groups[key]
         }));
-    }, [filteredData]);
+    }, [filteredData, sortConfig.key, sortConfig.direction]);
 
-    const renderItem = useCallback(({ item }: { item: TransformedRecord }) => {
-        const isTransfer = item['記錄類型'] === '轉帳';
-        const typeColor = isTransfer ? COLORS.blue : (TYPE_COLORS[item['記錄類型']] || COLORS.textMuted);
+    const listData = useMemo(() => {
+        const rows: ListRow[] = [];
+        sections.forEach(section => {
+            if (section.title) {
+                rows.push({ kind: 'header', key: `h-${section.title}`, title: section.title });
+            }
+            section.data.forEach((item, i) => {
+                rows.push({ kind: 'record', key: item.id || `r-${section.title}-${i}`, item });
+            });
+        });
+        return rows;
+    }, [sections]);
 
-        if (isTransfer) {
-            // Transfer card — matches AccountDetailModal's transfer style
-            const fromAccount = item['帳戶'];
-            const toAccount = item['描述']; // stored in merged step
-            return (
-                <Pressable
-                    onPress={() => setSelectedRecord(item)}
-                    style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                >
-                    <View style={[styles.accentStrip, { backgroundColor: COLORS.blue }]} />
-                    <View style={styles.cardContent}>
-                        <View style={styles.topRow}>
-                            <Text style={styles.cardTitle} numberOfLines={1}>
-                                {fromAccount} » {toAccount}
-                            </Text>
-                            <View style={[styles.categoryBadge, { backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.2)' }]}>
-                                <Text style={[styles.categoryBadgeText, { color: COLORS.blue }]}>轉帳</Text>
-                            </View>
-                            <Text style={[styles.cardAmount, { color: COLORS.blue }]}>
-                                ${item['金額'].toLocaleString()}
-                            </Text>
-                        </View>
-                        <View style={styles.bottomRow}>
-                            {item['時間'] !== '09:00' && <Text style={styles.metaText}>🕒 {item['時間']}</Text>}
-                            {item['專案'] ? <Text style={styles.metaText}>📁 {item['專案']}</Text> : null}
-                        </View>
-                    </View>
-                </Pressable>
-            );
-        }
-
-        // Normal record card (支出/收入)
-        return (
-            <Pressable
-                onPress={() => setSelectedRecord(item)}
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            >
-                <View style={[styles.accentStrip, { backgroundColor: typeColor }]} />
-                <View style={styles.cardContent}>
-                    <View style={styles.topRow}>
-                        <Text style={styles.cardTitle} numberOfLines={1}>{item['商家'] || item['名稱'] || '未命名'}</Text>
-                        <View style={styles.categoryBadge}>
-                            <Text style={styles.categoryBadgeText}>{item['主類別']}</Text>
-                        </View>
-                        <Text style={[styles.cardAmount, { color: item['金額'] >= 0 ? COLORS.green : COLORS.red }]}>
-                            {item['金額'].toLocaleString()}
-                        </Text>
-                    </View>
-                    <View style={styles.bottomRow}>
-                        {item['時間'] !== '09:00' && <Text style={styles.metaText}>🕒 {item['時間']}</Text>}
-                        {item['帳戶'] ? <Text style={styles.metaText}>💳 {item['帳戶']}</Text> : null}
-                        {item['專案'] ? <Text style={styles.metaText}>📁 {item['專案']}</Text> : null}
-                        {item['描述'] ? <Text style={styles.metaDesc} numberOfLines={1}>{item['描述']}</Text> : null}
-                    </View>
-                </View>
-            </Pressable>
-        );
+    const handleRecordPress = useCallback((item: TransformedRecord) => {
+        setDetailTitle(item['商家'] || item['名稱'] || '記錄詳情');
+        setSelectedRecord(item);
     }, []);
 
-    const renderSectionHeader = useCallback(({ section: { title } }: { section: { title: string } }) => (
-        <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>{title}</Text>
-        </View>
-    ), []);
+    const renderFlashItem = useCallback(({ item: row }: { item: ListRow }) => {
+        if (row.kind === 'header') {
+            return (
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionHeaderText}>{row.title}</Text>
+                </View>
+            );
+        }
+        return (
+            <RecordListItem
+                item={row.item}
+                colors={colors}
+                typeColors={typeColors}
+                styles={styles}
+                onPress={handleRecordPress}
+            />
+        );
+    }, [colors, typeColors, styles, handleRecordPress]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -355,7 +404,7 @@ export default function CalendarScreen() {
     return (
         <View style={styles.container}>
             {/* Header Nav + Mode Picker Dropdown */}
-            <View style={styles.headerNavContainer}>
+            <PageChrome zIndex={100}>
                 {!searchFilters ? (
                     <UnifiedDateNavigator
                         dateLabel={dateLabel}
@@ -377,10 +426,10 @@ export default function CalendarScreen() {
                                 {searchFilters.startDate ? '日期區間 ' : ''}
                             </Text>
                         </View>
-                        <TouchableOpacity style={styles.searchClearBtn} onPress={() => setSearchFilters(null)}>
+                        <Pressable style={({ pressed }) => [styles.searchClearBtn, pressed && { opacity: 0.7 }]} onPress={() => setSearchFilters(null)}>
                             <Text style={styles.searchClearText}>清除</Text>
-                            <Ionicons name="close-circle" size={16} color={COLORS.accent} />
-                        </TouchableOpacity>
+                            <Ionicons name="close-circle" size={16} color={colors.accent} />
+                        </Pressable>
                     </View>
                 )}
 
@@ -405,29 +454,51 @@ export default function CalendarScreen() {
                                         <Text style={[styles.dropdownItemText, viewMode === m && styles.dropdownItemTextActive]}>
                                             {m === 'day' ? '按日檢視' : m === 'week' ? '按週檢視' : m === 'month' ? '按月檢視' : '按年檢視'}
                                         </Text>
-                                        {viewMode === m && <Ionicons name="checkmark" size={18} color="#fff" />}
+                                        {viewMode === m && <Ionicons name="checkmark" size={18} color={colors.textWhite} />}
                                     </View>
                                 </Pressable>
                             ))}
                         </View>
                     </>
                 )}
-            </View>
+            </PageChrome>
 
-            <SectionList
-                sections={sections}
-                ListHeaderComponent={null}
-                renderItem={renderItem}
-                renderSectionHeader={renderSectionHeader}
-                keyExtractor={(item, index) => item.id || `${item['日期']}-${index}`}
-                stickySectionHeadersEnabled={true}
-                ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.accent} />}
+            {!searchFilters && (
+                <SortChips
+                    variant="bar"
+                    options={[
+                        { key: '日期', label: '日期' },
+                        { key: '主類別', label: '類別' },
+                        { key: '金額', label: '金額' },
+                    ]}
+                    activeKey={sortConfig.key}
+                    direction={sortConfig.direction}
+                    onChange={(key, direction) => setSortConfig({ key, direction })}
+                />
+            )}
+
+            <FlashList
+                style={styles.list}
+                data={listData}
+                renderItem={renderFlashItem}
+                keyExtractor={(row) => row.key}
+                getItemType={(row) => row.kind}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+                // @ts-ignore FlashList v2 estimatedItemSize
+                estimatedItemSize={88}
+                ListEmptyComponent={
+                    <EmptyState
+                        icon="receipt-outline"
+                        title="尚無記錄"
+                        description={searchFilters ? '試著調整搜尋條件' : '切換日期範圍或從選單匯入資料'}
+                    />
+                }
             />
 
             {/* Calendar Modal */}
             <Modal visible={showCalendarModal} transparent animationType="fade" onRequestClose={() => setShowCalendarModal(false)}>
-                <BlurView intensity={20} tint="dark" style={styles.modalOverlay}>
+                <ModalBackdrop colors={colors} style={styles.modalOverlay}>
                     <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCalendarModal(false)} />
                     <View style={styles.calendarModalContent}>
                         <MonthlyCalendar
@@ -438,93 +509,53 @@ export default function CalendarScreen() {
                             selectedDate={null}
                         />
                     </View>
-                </BlurView>
+                </ModalBackdrop>
             </Modal>
 
-            {/* Detail Modal */}
-            <Modal visible={!!selectedRecord} transparent animationType="slide" onRequestClose={() => setSelectedRecord(null)}>
-                <BlurView intensity={30} tint="dark" style={styles.modalOverlay}>
-                    <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedRecord(null)} />
-                    <View style={styles.detailModal}>
-                        <View style={styles.detailHeader}>
-                            <View style={[styles.typeTag, { backgroundColor: TYPE_COLORS[selectedRecord?.['記錄類型'] || ''] }]}>
-                                <Text style={styles.typeTagText}>{selectedRecord?.['記錄類型']}</Text>
-                            </View>
-                            <Text style={styles.detailTitle}>{selectedRecord?.['商家'] || selectedRecord?.['名稱'] || '未命名'}</Text>
-                            <Text style={[styles.detailAmount, selectedRecord && selectedRecord['金額'] >= 0 ? { color: COLORS.green } : { color: COLORS.red }]}>
-                                {selectedRecord?.['金額'].toLocaleString()}
-                            </Text>
-                        </View>
-                        <ScrollView style={styles.detailBody}>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>日期時間</Text>
-                                <Text style={styles.detailValue}>{selectedRecord?.['日期']} {selectedRecord?.['時間']}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>分類</Text>
-                                <Text style={styles.detailValue}>{selectedRecord?.['主類別']} - {selectedRecord?.['子類別']}</Text>
-                            </View>
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>帳戶</Text>
-                                <Text style={styles.detailValue}>{selectedRecord?.['帳戶']}</Text>
-                            </View>
-                            {selectedRecord?.['專案'] && (
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>專案</Text>
-                                    <Text style={styles.detailValue}>{selectedRecord?.['專案']}</Text>
-                                </View>
-                            )}
-                            <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>備註/描述</Text>
-                                <Text style={styles.detailValue}>{selectedRecord?.['描述'] || '無'}</Text>
-                            </View>
-                        </ScrollView>
-                    </View>
-                </BlurView>
-            </Modal>
+            <DetailModal
+                visible={!!selectedRecord}
+                title={detailTitle}
+                records={selectedRecord ? [selectedRecord] : []}
+                onClose={() => setSelectedRecord(null)}
+            />
         </View>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.bg },
+const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
     // Header Nav
-    headerNavContainer: { backgroundColor: COLORS.headerBg, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.divider, zIndex: 100, ...SHADOWS.sm },
     headerTitleContainer: { flexDirection: 'row', alignItems: 'center' },
-    headerTitleText: { ...TYPOGRAPHY.h3, fontSize: 17, marginRight: 6 },
+    headerTitleText: { ...typography.h3, fontSize: 17, marginRight: 6 },
     modeBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         paddingHorizontal: 8,
         paddingVertical: 2,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
     },
-    modeBadgeText: { fontSize: 12, fontWeight: '700', color: COLORS.textSecondary },
+    modeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
 
     // Dropdown
     dropdownBackdrop: {
-        position: 'absolute',
-        top: 0,
-        left: -100,
-        right: -100,
-        height: 2000,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.blackOverlay,
         zIndex: 90,
     },
     dropdownMenu: {
         position: 'absolute',
         top: 10,
         alignSelf: 'center',
-        backgroundColor: COLORS.card,
+        backgroundColor: colors.card,
         width: 180,
         borderRadius: 20,
         padding: 8,
         ...SHADOWS.lg,
         borderWidth: 1,
-        borderColor: COLORS.cardBorder,
+        borderColor: colors.cardBorder,
         zIndex: 100,
     },
     dropdownItem: {
@@ -533,31 +564,22 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         marginBottom: 2,
     },
-    dropdownItemActive: { backgroundColor: COLORS.accent },
+    dropdownItemActive: { backgroundColor: colors.accent },
     dropdownItemContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    dropdownItemText: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
-    dropdownItemTextActive: { color: '#fff' },
+    dropdownItemText: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+    dropdownItemTextActive: { color: colors.textWhite },
     // Calendar Modal
-    calendarModalContent: { backgroundColor: COLORS.card, margin: 20, borderRadius: 24, padding: 12, paddingBottom: 20, ...SHADOWS.lg },
-    // Record Card — matches travel/project card design system
-    card: { flexDirection: 'row', borderRadius: 14, marginHorizontal: 16, marginBottom: 10, marginTop: 2, borderWidth: 1, borderColor: COLORS.cardBorder, overflow: 'hidden', backgroundColor: COLORS.card, ...SHADOWS.sm },
-    cardPressed: { opacity: 0.88, transform: [{ scale: 0.98 }] },
-    accentStrip: { width: 4 },
-    cardContent: { flex: 1, paddingVertical: 14, paddingHorizontal: 14, paddingLeft: 12 },
-    topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    cardTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3, flex: 1 },
-    categoryBadge: { backgroundColor: COLORS.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: COLORS.cardBorder, marginHorizontal: 8 },
-    categoryBadgeText: { color: COLORS.textMuted, fontSize: 11, fontWeight: '600' },
-    cardAmount: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
-    bottomRow: { flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
-    metaText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
-    metaDesc: { fontSize: 12, fontWeight: '400', color: COLORS.textMuted, flex: 1 },
-    itemSeparator: { height: 1, backgroundColor: COLORS.divider, marginHorizontal: 24 },
-    sectionHeader: { backgroundColor: COLORS.bg, paddingHorizontal: 16, paddingVertical: 8, marginTop: 6 },
-    sectionHeaderText: { color: COLORS.textSecondary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
-    searchContainer: { padding: 16, backgroundColor: COLORS.card, ...SHADOWS.sm, zIndex: 5 },
-    searchInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.bg, borderRadius: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: COLORS.cardBorder },
-    searchInput: { flex: 1, paddingVertical: 12, ...TYPOGRAPHY.body },
+    modalOverlay: { flex: 1, justifyContent: 'center' },
+    calendarModalContent: { backgroundColor: colors.card, margin: 20, ...withContinuousRadius(RADIUS.xl), padding: 12, paddingBottom: 20, ...SHADOWS.lg },
+    // Record Card badge + description (card shell provided by AccentListCard)
+    categoryBadge: { backgroundColor: colors.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder, marginHorizontal: 8 },
+    categoryBadgeText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+    metaDesc: { fontSize: 12, fontWeight: '400', color: colors.textMuted, flex: 1 },
+    sectionHeader: { backgroundColor: colors.bg, paddingHorizontal: 16, marginHorizontal: -16, paddingVertical: 8, marginTop: 6 },
+    sectionHeaderText: { color: colors.textSecondary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+    searchContainer: { padding: 16, backgroundColor: colors.card, ...SHADOWS.sm, zIndex: 5 },
+    searchInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderRadius: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.cardBorder },
+    searchInput: { flex: 1, paddingVertical: 12, ...typography.body },
 
     // Search Result Indicator
     searchActiveBanner: {
@@ -566,49 +588,20 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         paddingHorizontal: 16,
     },
-    searchActiveTitle: { fontSize: 16, fontWeight: '800', color: COLORS.textPrimary },
-    searchActiveSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+    searchActiveTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    searchActiveSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
     searchClearBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.bg,
+        backgroundColor: colors.bg,
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: COLORS.divider,
+        borderColor: colors.divider,
         gap: 4
     },
-    searchClearText: { fontSize: 13, fontWeight: '700', color: COLORS.accent },
+    searchClearText: { fontSize: 13, fontWeight: '700', color: colors.accent },
 
-    // Filter
-    typeFilterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
-    typeChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.bg, borderWidth: 1, borderColor: COLORS.cardBorder },
-    typeChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent, ...SHADOWS.sm },
-    typeChipText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '700' },
-    typeChipTextActive: { color: '#fff' },
-
-    // Modal
-    modalOverlay: { flex: 1, justifyContent: 'center' },
-    // Detail Modal Styles
-    detailModalOverlay: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    detailModal: {
-        maxHeight: '80%',
-        backgroundColor: COLORS.card,
-        margin: 24,
-        borderRadius: 24, padding: 24, ...SHADOWS.lg
-    },
-    detailHeader: { alignItems: 'center', marginBottom: 20 },
-    typeTag: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginBottom: 16 },
-    typeTagText: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-    detailTitle: { ...TYPOGRAPHY.h2, textAlign: 'center', marginBottom: 8 },
-    detailAmount: { fontSize: 32, fontWeight: '800', letterSpacing: -1 },
-    detailBody: {},
-    detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
-    detailLabel: { ...TYPOGRAPHY.bodySm, color: COLORS.textMuted, flex: 1 },
-    detailValue: { ...TYPOGRAPHY.body, fontWeight: '600', flex: 2, textAlign: 'right' },
+    list: { flex: 1 },
 });

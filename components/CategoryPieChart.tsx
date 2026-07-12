@@ -3,7 +3,9 @@ import { View, Text, Pressable, StyleSheet, Dimensions } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { PieChart } from 'react-native-gifted-charts';
 import { AccountsSummaryMap } from '../types';
-import { COLORS, SHADOWS, CATEGORY_COLORS } from '../theme';
+import { AppColors, SHADOWS, CATEGORY_COLORS } from '../theme';
+import { useAppTheme } from '../context/ThemeContext';
+import SegmentedControl from './ui/SegmentedControl';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -20,6 +22,8 @@ function getCategoryForAccount(accountName: string, accountCategories: { [key: s
 }
 
 export default function CategoryPieChart({ accountsSummary, accountCategories }: CategoryPieChartProps) {
+    const { colors } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors), [colors]);
     const [chartType, setChartType] = useState<'asset' | 'liability'>('asset');
 
     const pieData = useMemo(() => {
@@ -45,22 +49,15 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
         <Animated.View entering={FadeInDown.delay(600).springify()} style={[styles.container, SHADOWS.sm]}>
             <View style={styles.header}>
                 <Text style={styles.title}>各分組佔比</Text>
-                <View style={styles.toggleRow}>
-                    {(['asset', 'liability'] as const).map(type => (
-                        <Pressable key={type}
-                            onPress={() => setChartType(type)}
-                            style={({ pressed }) => [
-                                styles.toggleBtn,
-                                chartType === type ? (type === 'asset' ? styles.toggleAsset : styles.toggleLiability) : null,
-                                pressed && { opacity: 0.8, transform: [{ scale: 0.95 }] }
-                            ]}
-                        >
-                            <Text style={[styles.toggleText, chartType === type ? { color: '#fff' } : null]}>
-                                {type === 'asset' ? '資產' : '負債'}
-                            </Text>
-                        </Pressable>
-                    ))}
-                </View>
+                <SegmentedControl
+                    options={[
+                        { value: 'asset', label: '資產' },
+                        { value: 'liability', label: '負債' },
+                    ]}
+                    value={chartType}
+                    onChange={setChartType}
+                    accessibilityLabel="圖表類型"
+                />
             </View>
 
             {pieData.length > 0 ? (
@@ -91,7 +88,7 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
                                         <Text style={styles.legendName}>{item.name}</Text>
                                     </View>
                                     <View style={styles.legendRight}>
-                                        <Text style={[styles.legendAmount, { color: chartType === 'asset' ? COLORS.accent : COLORS.red }]}>
+                                        <Text style={[styles.legendAmount, { color: chartType === 'asset' ? colors.accent : colors.red }]}>
                                             ${item.value.toLocaleString()}
                                         </Text>
                                         <Text style={styles.legendPct}>{pct}%</Text>
@@ -101,7 +98,7 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
                         })}
                         <View style={styles.legendTotal}>
                             <Text style={styles.legendTotalLabel}>總額</Text>
-                            <Text style={[styles.legendTotalValue, { color: chartType === 'asset' ? COLORS.accent : COLORS.red }]}>
+                            <Text style={[styles.legendTotalValue, { color: chartType === 'asset' ? colors.accent : colors.red }]}>
                                 ${totalValue.toLocaleString()}
                             </Text>
                         </View>
@@ -116,33 +113,33 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
     );
 }
 
-const styles = StyleSheet.create({
-    container: { backgroundColor: COLORS.card, marginHorizontal: 16, marginTop: 16, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: COLORS.divider },
+const createStyles = (colors: AppColors) => StyleSheet.create({
+    container: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 16, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: colors.divider },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    title: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary, letterSpacing: -0.3 },
-    toggleRow: { flexDirection: 'row', gap: 6, backgroundColor: COLORS.bg, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: COLORS.divider },
+    title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.3 },
+    toggleRow: { flexDirection: 'row', gap: 6, backgroundColor: colors.bg, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: colors.divider },
     toggleBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
-    toggleAsset: { backgroundColor: COLORS.green, ...SHADOWS.sm },
-    toggleLiability: { backgroundColor: COLORS.red, ...SHADOWS.sm },
-    toggleText: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary },
+    toggleAsset: { backgroundColor: colors.green, ...SHADOWS.sm },
+    toggleLiability: { backgroundColor: colors.red, ...SHADOWS.sm },
+    toggleText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
     // Chart
     chartCenter: { alignItems: 'center', marginBottom: 20 },
     centerLabel: { alignItems: 'center' },
-    centerLabelTotal: { fontSize: 22, fontWeight: '800', color: COLORS.textPrimary, letterSpacing: -0.5 },
-    centerLabelSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2, fontWeight: '600' },
+    centerLabelTotal: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.5 },
+    centerLabelSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: '600' },
     // Legend
     legend: { gap: 8, marginTop: 4 },
-    legendItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, backgroundColor: COLORS.bg, borderRadius: 12 },
+    legendItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, backgroundColor: colors.bg, borderRadius: 12 },
     legendLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, marginLeft: 8 },
     legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
-    legendName: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '500' },
+    legendName: { fontSize: 14, color: colors.textPrimary, fontWeight: '500' },
     legendRight: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
     legendAmount: { fontSize: 14, fontWeight: '700', marginRight: 10 },
-    legendPct: { fontSize: 12, color: COLORS.textMuted, width: 44, textAlign: 'right', fontWeight: '500' },
-    legendTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.divider, paddingTop: 16, marginTop: 8, paddingHorizontal: 12 },
-    legendTotalLabel: { fontSize: 15, fontWeight: '700', color: COLORS.textSecondary },
+    legendPct: { fontSize: 12, color: colors.textMuted, width: 44, textAlign: 'right', fontWeight: '500' },
+    legendTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 16, marginTop: 8, paddingHorizontal: 12 },
+    legendTotalLabel: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
     legendTotalValue: { fontSize: 18, fontWeight: '800' },
     // Empty
     emptyView: { alignItems: 'center', paddingVertical: 40 },
-    emptyText: { color: COLORS.textMuted, fontSize: 15, fontWeight: '500' },
+    emptyText: { color: colors.textMuted, fontSize: 15, fontWeight: '500' },
 });
