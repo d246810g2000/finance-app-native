@@ -113,7 +113,7 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
 };
 
 export default function DashboardScreen() {
-    const { records } = useFinance();
+    const { records, budgetConfig } = useFinance();
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
     const navigation = useNavigation();
@@ -202,8 +202,15 @@ export default function DashboardScreen() {
             periodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
             previousPeriodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
         };
-        return processAndAggregateRecords(records, startDate, endDate, accountFilter, excludedAccounts);
-    }, [records, startDate, endDate, accountFilter, excludedAccounts]);
+        return processAndAggregateRecords(
+            records,
+            startDate,
+            endDate,
+            accountFilter,
+            excludedAccounts,
+            !!budgetConfig.isSplitEnabled,
+        );
+    }, [records, startDate, endDate, accountFilter, excludedAccounts, budgetConfig.isSplitEnabled]);
 
     const currentSavingsRate = periodSummary.totalIncome > 0
         ? ((periodSummary.totalIncome - periodSummary.totalExpense) / periodSummary.totalIncome) * 100 : 0;

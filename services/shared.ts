@@ -98,3 +98,42 @@ export function aggregateTravelProjects(rawRecords: RawRecord[]): TravelProject[
         return { name, totalExpense, startDate, endDate, durationDays, dailyAvg, records: recs, categoryBreakdown, currencies, maxSingleExpense: maxSingle };
     });
 }
+
+export type TravelYearRank = {
+    year: number;
+    totalExpense: number;
+    tripCount: number;
+    trips: TravelProject[];
+};
+
+/** 依行程起始年彙總出國花費（年從 YYMMDD 專案名前綴或 startDate） */
+export function rankTravelSpendByYear(projects: TravelProject[]): TravelYearRank[] {
+    const byYear: { [year: number]: TravelProject[] } = {};
+
+    projects.forEach((p) => {
+        let year = 0;
+        const m = p.name.match(/^(\d{2})(\d{2})(\d{2})-/);
+        if (m) {
+            year = 2000 + parseInt(m[1], 10);
+        } else if (p.startDate) {
+            const d = parseFormattedDate(p.startDate);
+            if (!isNaN(d.getTime())) year = d.getFullYear();
+        }
+        if (!year) return;
+        if (!byYear[year]) byYear[year] = [];
+        byYear[year].push(p);
+    });
+
+    return Object.entries(byYear)
+        .map(([yearStr, trips]) => {
+            const year = parseInt(yearStr, 10);
+            const totalExpense = trips.reduce((s, t) => s + t.totalExpense, 0);
+            return {
+                year,
+                totalExpense,
+                tripCount: trips.length,
+                trips: [...trips].sort((a, b) => b.totalExpense - a.totalExpense),
+            };
+        })
+        .sort((a, b) => b.year - a.year);
+}

@@ -46,3 +46,7 @@ yarn-error.*
 .gemini/
 .codeium/
 .cursor/
+
+# data（真實消費紀錄，禁止提交）
+/data/
+

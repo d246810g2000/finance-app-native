@@ -2,6 +2,15 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { RawRecord, BudgetRule, BudgetStatus, BudgetCalculationResult, BudgetGlobalConfig, FixedProjectStatus } from '../types';
 import { SHARED_ACCOUNTS, EXCHANGE_RATES } from '../constants';
+import { CustomAccountMappings } from '../types';
+
+const isSharedAccountName = (accountName: string, customMappings: CustomAccountMappings = {}): boolean => {
+  if (!accountName) return false;
+  const mapping = customMappings[accountName];
+  if (mapping?.type === 'shared') return true;
+  if (mapping?.type === 'personal') return false;
+  return SHARED_ACCOUNTS.includes(accountName);
+};
 
 const BUDGET_FILE_NAME = 'budget_rules.json';
 const CONFIG_FILE_NAME = 'budget_config.json';
@@ -48,8 +57,9 @@ export const loadBudgetConfig = async (): Promise<BudgetGlobalConfig> => {
     const content = await FileSystem.readAsStringAsync(CONFIG_FILE_URI);
     const parsed = JSON.parse(content);
     // 向下相容：若缺少 projectGroups 欄位，自動填入空物件
+    const { projectBudgets: _legacyProjectBudgets, ...rest } = parsed;
     return {
-      ...parsed,
+      ...rest,
       projectGroups: parsed.projectGroups || {},
     };
   } catch (e) {
@@ -173,6 +183,8 @@ export const calculateBudgetStatus = (
       amount = Math.abs(amount * exchangeRate);
 
       if (config.splitProjects.includes(project)) {
+        amount = amount * 0.5;
+      } else if (isSharedAccountName(expenseAccount) && config.isSplitEnabled) {
         amount = amount * 0.5;
       }
 

@@ -1,9 +1,14 @@
-
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, ScrollView, Switch } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFinance } from '../context/FinanceContext';
-import { readFileContent, parseCsvData, findUnmappedAccounts } from '../services/financeService';
+import {
+    readFileContent,
+    parseCsvData,
+    analyzeImport,
+    ImportReport,
+    UpsertResult,
+} from '../services/financeService';
 import { RawRecord, CustomAccountMappings } from '../types';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../theme';
@@ -15,25 +20,36 @@ interface UploadSectionProps {
     onUploadSuccess?: () => void;
 }
 
+type ImportMode = 'merge' | 'replace';
+
 export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const { loadRecords, clearRecords, records, customMappings, saveCustomMappings } = useFinance();
+    const { loadRecords, mergeRecords, clearRecords, records, customMappings, saveCustomMappings } = useFinance();
     const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
     const [selectedFileUri, setSelectedFileUri] = useState<string | null>(null);
-    const [selectedFileObj, setSelectedFileObj] = useState<any>(null); // Store the actual file object for Web support
+    const [selectedFileObj, setSelectedFileObj] = useState<any>(null);
     const [encoding, setEncoding] = useState<'utf-8' | 'big5'>('utf-8');
+    const [importMode, setImportMode] = useState<ImportMode>('merge');
+    const [syncDelete, setSyncDelete] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [successCount, setSuccessCount] = useState<number | null>(null);
+    const [importReport, setImportReport] = useState<ImportReport | null>(null);
+    const [mergeStats, setMergeStats] = useState<UpsertResult | null>(null);
     const [unmappedList, setUnmappedList] = useState<string[]>([]);
     const [isMappingModalVisible, setIsMappingModalVisible] = useState(false);
     const hasExistingData = records.length > 0;
     const hasSelectedFile = !!selectedFileUri;
+    const successVisible = importReport != null;
+
+    const resetSelectionExtras = () => {
+        setError(null);
+        setImportReport(null);
+        setMergeStats(null);
+    };
 
     const handlePickFile = useCallback(async () => {
-        setError(null);
-        setSuccessCount(null);
+        resetSelectionExtras();
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: '*/*',
@@ -44,7 +60,6 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 if (file.uri) {
                     setSelectedFileName(file.name || 'selected_file');
                     setSelectedFileUri(file.uri);
-                    // document-picker on web returns a "file" property which holds the native JavaScript File instance
                     setSelectedFileObj(file.file || file);
                 }
             }
@@ -58,9 +73,9 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
         if (!targetFile) return;
         setLoading(true);
         setError(null);
-        setSuccessCount(null);
+        setImportReport(null);
+        setMergeStats(null);
         try {
-            // Pass the whole object if available (web), otherwise just the uri (native)
             const csvText = await readFileContent(targetFile, encoding);
             const parsedRecords: RawRecord[] = parseCsvData(csvText);
             if (parsedRecords.length === 0) {
@@ -68,23 +83,43 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 setLoading(false);
                 return;
             }
-            clearRecords();
-            loadRecords(parsedRecords);
-            setSuccessCount(parsedRecords.length);
 
-            // 檢查是否有未分類的帳戶
-            const unmapped = findUnmappedAccounts(parsedRecords, customMappings);
-            if (unmapped.length > 0) {
-                setUnmappedList(unmapped);
-                setIsMappingModalVisible(true);
+            const report = analyzeImport(parsedRecords, customMappings);
+            setImportReport(report);
+
+            const mode = hasExistingData ? importMode : 'replace';
+            if (mode === 'merge' && hasExistingData) {
+                const stats = mergeRecords(parsedRecords, { syncDelete });
+                setMergeStats(stats);
             } else {
-                if (onUploadSuccess) setTimeout(() => onUploadSuccess(), 1200);
+                clearRecords();
+                loadRecords(parsedRecords);
+                setMergeStats(null);
+            }
+
+            if (report.unmappedAccounts.length > 0) {
+                setUnmappedList(report.unmappedAccounts);
+                setIsMappingModalVisible(true);
+            } else if (onUploadSuccess) {
+                setTimeout(() => onUploadSuccess(), 1600);
             }
         } catch (e: any) {
             setError(`解析失敗：${e.message || '未知錯誤'}`);
         }
         setLoading(false);
-    }, [selectedFileUri, selectedFileObj, encoding, clearRecords, loadRecords, onUploadSuccess, customMappings]);
+    }, [
+        selectedFileUri,
+        selectedFileObj,
+        encoding,
+        clearRecords,
+        loadRecords,
+        mergeRecords,
+        onUploadSuccess,
+        customMappings,
+        hasExistingData,
+        importMode,
+        syncDelete,
+    ]);
 
     const handleSaveMappings = async (newMappings: CustomAccountMappings) => {
         await saveCustomMappings(newMappings);
@@ -92,15 +127,20 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
         if (onUploadSuccess) onUploadSuccess();
     };
 
+    const formatYmd = (ymd: string | null) => {
+        if (!ymd || ymd.length < 8) return '—';
+        return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
+    };
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
             <Animated.View entering={FadeInDown.springify()}>
                 <View style={styles.intro}>
                     <Text style={styles.eyebrow}>資料中心</Text>
                     <Text style={styles.pageTitle}>匯入你的消費紀錄</Text>
                     <Text style={styles.pageDescription}>選擇 AndroMoney 匯出的 CSV，快速建立你的財務總覽。</Text>
                 </View>
-                {/* Upload Area */}
+
                 <Pressable
                     style={({ pressed }) => [styles.uploadArea, pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : {}]}
                     onPress={handlePickFile}
@@ -109,10 +149,9 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                         <Ionicons name="cloud-upload-outline" size={40} color={colors.accent} />
                     </View>
                     <Text style={styles.uploadTitle}>選擇 CSV 檔案</Text>
-                    <Text style={styles.uploadSubtitle}>支援 AndroMoney 匯出格式</Text>
+                    <Text style={styles.uploadSubtitle}>支援 AndroMoney 匯出格式（uid 增量合併）</Text>
                 </Pressable>
 
-                {/* Selected file */}
                 {selectedFileName ? (
                     <Animated.View entering={FadeInUp.springify()} style={styles.fileInfo}>
                         <View style={styles.fileIcon}>
@@ -123,7 +162,12 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                             <Text style={styles.fileName} numberOfLines={1}>{selectedFileName}</Text>
                         </View>
                         <Pressable
-                            onPress={() => { setSelectedFileName(null); setSelectedFileUri(null); setSelectedFileObj(null); setError(null); setSuccessCount(null); }}
+                            onPress={() => {
+                                setSelectedFileName(null);
+                                setSelectedFileUri(null);
+                                setSelectedFileObj(null);
+                                resetSelectionExtras();
+                            }}
                             hitSlop={10}
                             accessibilityRole="button"
                             accessibilityLabel="移除已選擇的檔案"
@@ -133,7 +177,6 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </Animated.View>
                 ) : null}
 
-                {/* Encoding */}
                 <View style={styles.encodingSection}>
                     <Text style={styles.encodingLabel}>編碼格式</Text>
                     <View style={styles.encodingToggle}>
@@ -147,21 +190,61 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </View>
                 </View>
 
+                {hasExistingData ? (
+                    <View style={styles.encodingSection}>
+                        <Text style={styles.encodingLabel}>匯入方式</Text>
+                        <View style={styles.encodingToggle}>
+                            <Pressable
+                                style={[styles.encodingBtn, importMode === 'merge' ? styles.encodingBtnActive : null]}
+                                onPress={() => setImportMode('merge')}
+                            >
+                                <Text style={[styles.encodingBtnText, importMode === 'merge' ? styles.encodingBtnTextActive : null]}>
+                                    合併更新
+                                </Text>
+                            </Pressable>
+                            <Pressable
+                                style={[styles.encodingBtn, importMode === 'replace' ? styles.encodingBtnActive : null]}
+                                onPress={() => setImportMode('replace')}
+                            >
+                                <Text style={[styles.encodingBtnText, importMode === 'replace' ? styles.encodingBtnTextActive : null]}>
+                                    完全取代
+                                </Text>
+                            </Pressable>
+                        </View>
+                        <Text style={styles.modeHint}>
+                            {importMode === 'merge'
+                                ? (syncDelete
+                                    ? '依 uid 更新／新增，並刪除 CSV 中不存在的本機紀錄。'
+                                    : '依 CSV 的 uid／Id 更新或新增；本機多出的紀錄會保留。')
+                                : `會清空並取代目前 ${records.length.toLocaleString()} 筆資料。`}
+                        </Text>
+                        {importMode === 'merge' ? (
+                            <View style={styles.syncRow}>
+                                <View style={styles.syncTextWrap}>
+                                    <Text style={styles.syncLabel}>同步刪除 CSV 沒有的紀錄</Text>
+                                    <Text style={styles.syncHint}>適合整份匯出當真相來源時開啟</Text>
+                                </View>
+                                <Switch
+                                    value={syncDelete}
+                                    onValueChange={setSyncDelete}
+                                    trackColor={{ false: colors.border, true: colors.accent }}
+                                    thumbColor={colors.textWhite}
+                                />
+                            </View>
+                        ) : null}
+                    </View>
+                ) : null}
 
-                {/* Existing Data Notice */}
-                {!successCount && hasExistingData ? (
-                    <Animated.View entering={FadeInDown.springify()} style={[styles.existingDataCard, hasSelectedFile && styles.replacementNotice]}>
-                        <Ionicons name={hasSelectedFile ? 'alert-circle-outline' : 'stats-chart-outline'} size={18} color={hasSelectedFile ? colors.yellow : colors.accent} />
-                        <Text style={[styles.existingDataText, hasSelectedFile && styles.replacementText]}>
-                            {hasSelectedFile
-                                ? `載入後會取代目前的 ${records.length.toLocaleString()} 筆資料`
-                                : `目前已有 ${records.length.toLocaleString()} 筆資料；選擇新檔案即可更新`}
+                {!successVisible && hasExistingData ? (
+                    <Animated.View entering={FadeInDown.springify()} style={styles.existingDataCard}>
+                        <Ionicons name="stats-chart-outline" size={18} color={colors.accent} />
+                        <Text style={styles.existingDataText}>
+                            目前已有 {records.length.toLocaleString()} 筆資料
                         </Text>
                     </Animated.View>
                 ) : null}
 
-                {/* Import action */}
-                {successCount === null && (
+                {!successVisible && (
                     <View style={styles.actionSection}>
                         <Pressable
                             style={({ pressed }) => [
@@ -172,15 +255,21 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                             onPress={handleParse}
                             disabled={!hasSelectedFile || loading}
                             accessibilityRole="button"
-                            accessibilityLabel={hasExistingData ? '使用所選檔案更新資料' : '載入所選 CSV 資料'}
+                            accessibilityLabel={hasExistingData ? '匯入 CSV' : '載入所選 CSV 資料'}
                         >
                             {loading ? (
                                 <ActivityIndicator color={colors.textWhite} size="small" />
                             ) : (
                                 <View style={styles.uploadBtnContent}>
-                                    <Ionicons name={hasExistingData ? 'refresh-outline' : 'arrow-up-circle-outline'} size={20} color={hasSelectedFile ? colors.textWhite : colors.textMuted} />
+                                    <Ionicons
+                                        name={hasExistingData ? 'refresh-outline' : 'arrow-up-circle-outline'}
+                                        size={20}
+                                        color={hasSelectedFile ? colors.textWhite : colors.textMuted}
+                                    />
                                     <Text style={[styles.uploadBtnText, !hasSelectedFile && styles.uploadBtnTextDisabled]}>
-                                        {hasExistingData ? '更新現有資料' : '載入 CSV 資料'}
+                                        {hasExistingData
+                                            ? (importMode === 'merge' ? '合併匯入 CSV' : '取代並載入 CSV')
+                                            : '載入 CSV 資料'}
                                     </Text>
                                 </View>
                             )}
@@ -189,7 +278,6 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </View>
                 )}
 
-                {/* Error */}
                 {error ? (
                     <Animated.View entering={FadeInUp.springify()} style={styles.errorCard}>
                         <Ionicons name="alert-circle-outline" size={20} color={colors.red} />
@@ -197,11 +285,34 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </Animated.View>
                 ) : null}
 
-                {/* Success */}
-                {successCount !== null ? (
-                    <Animated.View entering={FadeInUp.springify()} style={styles.successCard}>
-                        <Ionicons name="checkmark-circle-outline" size={20} color={colors.green} />
-                        <Text style={styles.successText}>已載入 {successCount.toLocaleString()} 筆記錄</Text>
+                {importReport ? (
+                    <Animated.View entering={FadeInUp.springify()} style={styles.reportCard}>
+                        <View style={styles.reportHeader}>
+                            <Ionicons name="checkmark-circle-outline" size={22} color={colors.green} />
+                            <Text style={styles.reportTitle}>匯入完成</Text>
+                        </View>
+                        <Text style={styles.reportLine}>總列數 {importReport.totalRows.toLocaleString()}　·　可分析 {importReport.importableRows.toLocaleString()}</Text>
+                        <Text style={styles.reportLine}>略過 SYSTEM {importReport.systemSkipped} 筆</Text>
+                        <Text style={styles.reportLine}>
+                            商家：欄位 {importReport.merchantFromField}　·　備註抽取 {importReport.merchantFromNotes}　·　後備 {importReport.merchantFallback}
+                        </Text>
+                        <Text style={styles.reportLine}>
+                            日期 {formatYmd(importReport.dateMin)} – {formatYmd(importReport.dateMax)}　·　專案 {importReport.uniqueProjects} 種
+                        </Text>
+                        {importReport.unmappedAccounts.length > 0 ? (
+                            <Text style={styles.reportWarn}>
+                                未對應帳戶 {importReport.unmappedAccounts.length} 個：{importReport.unmappedAccounts.slice(0, 5).join('、')}
+                                {importReport.unmappedAccounts.length > 5 ? '…' : ''}
+                            </Text>
+                        ) : (
+                            <Text style={styles.reportOk}>帳戶皆已對應</Text>
+                        )}
+                        {mergeStats ? (
+                            <Text style={styles.reportLine}>
+                                合併：新增 {mergeStats.added}　·　更新 {mergeStats.updated}
+                                {mergeStats.removed > 0 ? `　·　刪除 ${mergeStats.removed}` : `　·　保留本機 ${mergeStats.kept}`}
+                            </Text>
+                        ) : null}
                     </Animated.View>
                 ) : null}
             </Animated.View>
@@ -212,28 +323,26 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 onSave={handleSaveMappings}
                 existingMappings={customMappings}
             />
-        </View>
+        </ScrollView>
     );
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg, padding: 24, justifyContent: 'flex-start', paddingTop: 32 },
+    scroll: { flex: 1, backgroundColor: colors.bg },
+    container: { padding: 24, justifyContent: 'flex-start', paddingTop: 32, paddingBottom: 40 },
     intro: { marginBottom: 24 },
     eyebrow: { ...typography.caption, color: colors.accent, marginBottom: 8 },
     pageTitle: { ...typography.h1, fontSize: 26, marginBottom: 8 },
     pageDescription: { ...typography.body, color: colors.textMuted, lineHeight: 22 },
-    // Upload Area
     uploadArea: { backgroundColor: colors.card, borderWidth: 2, borderColor: colors.accentBorder, borderStyle: 'dashed', ...withContinuousRadius(RADIUS.xl), paddingVertical: 48, alignItems: 'center', ...SHADOWS.md },
     uploadIconCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accentLight, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: colors.accentBorder },
     uploadTitle: { ...typography.h2, fontSize: 20, marginBottom: 6 },
     uploadSubtitle: { ...typography.body, color: colors.textMuted },
-    // File Info
     fileInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 24, backgroundColor: colors.accentLight, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
     fileIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderRadius: RADIUS.sm },
     fileTextWrap: { flex: 1 },
     fileStatus: { ...typography.caption, color: colors.accent, marginBottom: 2 },
     fileName: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
-    // Encoding
     encodingSection: { marginTop: 28 },
     encodingLabel: { ...typography.body, fontWeight: '700', marginBottom: 10 },
     encodingToggle: { flexDirection: 'row', backgroundColor: colors.bg, borderRadius: RADIUS.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
@@ -241,7 +350,14 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     encodingBtnActive: { backgroundColor: colors.accent, borderRadius: RADIUS.sm, margin: 2, ...SHADOWS.sm },
     encodingBtnText: { ...typography.body, fontWeight: '600', color: colors.textMuted },
     encodingBtnTextActive: { color: colors.textWhite },
-    // Upload Button
+    modeHint: { ...typography.bodySm, color: colors.textMuted, marginTop: 10, lineHeight: 18 },
+    syncRow: {
+        flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingTop: 12,
+        borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider, gap: 12,
+    },
+    syncTextWrap: { flex: 1 },
+    syncLabel: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
+    syncHint: { ...typography.bodySm, color: colors.textMuted, marginTop: 2 },
     actionSection: { marginTop: 28 },
     uploadBtn: { backgroundColor: colors.accent, minHeight: 56, paddingHorizontal: 18, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center', ...SHADOWS.lg },
     uploadBtnDisabled: { backgroundColor: colors.card, shadowOpacity: 0, borderWidth: 1, borderColor: colors.cardBorder },
@@ -250,14 +366,14 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     uploadBtnText: { color: colors.textWhite, fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
     uploadBtnTextDisabled: { color: colors.textMuted },
     actionHint: { ...typography.bodySm, color: colors.textMuted, textAlign: 'center', marginTop: 10 },
-    // Messages
     errorCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, backgroundColor: colors.redLight, padding: 16, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.red, ...SHADOWS.sm },
     errorText: { ...typography.body, color: colors.red, fontWeight: '600', flex: 1 },
-    successCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, backgroundColor: colors.greenLight, padding: 16, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.green, ...SHADOWS.sm },
-    successText: { ...typography.body, color: colors.green, fontWeight: '700', flex: 1 },
-    // Existing Data Info
+    reportCard: { marginTop: 20, backgroundColor: colors.greenLight, padding: 16, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.green, ...SHADOWS.sm, gap: 6 },
+    reportHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+    reportTitle: { ...typography.body, color: colors.green, fontWeight: '800', fontSize: 16 },
+    reportLine: { ...typography.bodySm, color: colors.textPrimary, lineHeight: 20 },
+    reportOk: { ...typography.bodySm, color: colors.green, fontWeight: '600' },
+    reportWarn: { ...typography.bodySm, color: colors.yellow, fontWeight: '600', marginTop: 2 },
     existingDataCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, backgroundColor: colors.accentLight, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
-    replacementNotice: { backgroundColor: colors.yellowLight, borderColor: colors.yellow + '70' },
     existingDataText: { ...typography.body, color: colors.accent, fontWeight: '600', textAlign: 'left', flex: 1 },
-    replacementText: { color: colors.yellow },
 });

@@ -131,12 +131,492 @@ export const parseCsvData = (csvText: string): RawRecord[] => {
       rowObject['分類'] = rowObject['主類別'];
     }
 
-    // Generate a simple unique ID
-    rowObject.id = Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    // Prefer AndroMoney uid / Id as stable keys for incremental import
+    const stableId = String(rowObject['uid'] || rowObject['Id'] || rowObject['id'] || '').trim();
+    rowObject.id = stableId || (`gen_${Math.random().toString(36).slice(2, 11)}${Date.now().toString(36)}`);
     return rowObject as unknown as RawRecord;
   });
 
   return rows;
+};
+
+/** 正規化備註換行：真換行、\\n、以及 AndroMoney 常見的字面「 n 」 */
+export const normalizeNoteLines = (notes: string): string[] => {
+  if (!notes) return [];
+  return notes
+    .replace(/\r\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\s+n\s+/gi, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+};
+
+export type ImportReport = {
+  totalRows: number;
+  systemSkipped: number;
+  importableRows: number;
+  merchantFromField: number;
+  merchantFromNotes: number;
+  merchantFallback: number;
+  merchantEmpty: number;
+  unmappedAccounts: string[];
+  uniqueProjects: number;
+  dateMin: string | null;
+  dateMax: string | null;
+};
+
+/** 匯入前分析：略過筆數、商家抽取來源、未對應帳戶等 */
+export const analyzeImport = (
+  rawRecords: RawRecord[],
+  customMappings: CustomAccountMappings = {}
+): ImportReport => {
+  let systemSkipped = 0;
+  let merchantFromField = 0;
+  let merchantFromNotes = 0;
+  let merchantFallback = 0;
+  let merchantEmpty = 0;
+  const projects = new Set<string>();
+  let dateMin: string | null = null;
+  let dateMax: string | null = null;
+
+  rawRecords.forEach((r) => {
+    if (r['分類'] === 'SYSTEM' || r['主類別'] === 'SYSTEM') {
+      systemSkipped += 1;
+      return;
+    }
+    const date = (r['日期'] || '').toString();
+    if (date.length >= 8) {
+      if (!dateMin || date < dateMin) dateMin = date;
+      if (!dateMax || date > dateMax) dateMax = date;
+    }
+    if (r['專案']) projects.add(r['專案']);
+
+    const field = (r['商家(公司)'] || '').trim();
+    if (field) {
+      merchantFromField += 1;
+      return;
+    }
+    const notes = r['備註'] || '';
+    const lines = normalizeNoteLines(notes);
+    const hasMerchantLine = lines.some((l) => l.startsWith('商家:') || l.startsWith('商家：'));
+    if (hasMerchantLine || /商家[:：]/.test(notes)) {
+      merchantFromNotes += 1;
+      return;
+    }
+    const extracted = extractMerchantName(r);
+    if (!extracted) merchantEmpty += 1;
+    else merchantFallback += 1;
+  });
+
+  return {
+    totalRows: rawRecords.length,
+    systemSkipped,
+    importableRows: rawRecords.length - systemSkipped,
+    merchantFromField,
+    merchantFromNotes,
+    merchantFallback,
+    merchantEmpty,
+    unmappedAccounts: findUnmappedAccounts(rawRecords, customMappings),
+    uniqueProjects: projects.size,
+    dateMin,
+    dateMax,
+  };
+};
+
+export type UpsertResult = {
+  records: RawRecord[];
+  added: number;
+  updated: number;
+  kept: number;
+  removed: number;
+};
+
+/** 依穩定 id（uid/Id）合併；CSV 有的更新／新增；syncDelete 時移除 CSV 沒有的本機列 */
+export const upsertRecordsById = (
+  existing: RawRecord[],
+  incoming: RawRecord[],
+  options: { syncDelete?: boolean } = {}
+): UpsertResult => {
+  const { syncDelete = false } = options;
+  const map = new Map<string, RawRecord>();
+  existing.forEach((r) => {
+    const id = String(r.id || '').trim();
+    if (id) map.set(id, r);
+  });
+
+  const incomingIds = new Set<string>();
+  let added = 0;
+  let updated = 0;
+  incoming.forEach((r) => {
+    const id = String(r.id || '').trim();
+    if (!id) {
+      const gen = `gen_${Math.random().toString(36).slice(2, 11)}${Date.now().toString(36)}`;
+      map.set(gen, { ...r, id: gen });
+      incomingIds.add(gen);
+      added += 1;
+      return;
+    }
+    incomingIds.add(id);
+    if (map.has(id)) {
+      map.set(id, { ...r, id });
+      updated += 1;
+    } else {
+      map.set(id, { ...r, id });
+      added += 1;
+    }
+  });
+
+  let removed = 0;
+  if (syncDelete) {
+    for (const id of Array.from(map.keys())) {
+      if (!incomingIds.has(id)) {
+        map.delete(id);
+        removed += 1;
+      }
+    }
+  }
+
+  const records = Array.from(map.values());
+  const kept = syncDelete ? 0 : Math.max(0, records.length - added - updated);
+  return { records, added, updated, kept, removed };
+};
+
+/** 縮短商家顯示名（去法人後綴／過長分店） */
+export const shortenMerchantName = (name: string, maxLen = 18): string => {
+  if (!name) return '';
+  let s = name.trim();
+  s = s
+    .replace(/股份有限公司/g, '')
+    .replace(/有限公司/g, '')
+    .replace(/台灣分公司/g, '')
+    .replace(/油品行銷事業部/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+
+  const gasStation = s.match(/(.+加油站)$/);
+  if (gasStation && s.includes('中油')) {
+    s = `中油${gasStation[1]}`;
+  } else if (s.includes('統一超商')) {
+    const branch = s.match(/統一超商.*?([^市縣區鄉鎮]{2,8}(?:分公司|門市|店))$/);
+    s = branch ? `統一超商${branch[1]}` : '統一超商';
+  } else if (s.includes('全家便利商店')) {
+    const branch = s.match(/全家便利商店.*?([^市縣]{2,10}(?:分公司|店))$/);
+    s = branch ? `全家${branch[1]}` : '全家';
+  }
+
+  if (s.length > maxLen) s = `${s.slice(0, maxLen - 1)}…`;
+  return s || name.slice(0, maxLen);
+};
+
+export type MerchantAggregate = {
+  name: string;
+  shortName: string;
+  total: number;
+  count: number;
+  avg: number;
+};
+
+export const aggregateMerchants = (
+  rawRecords: RawRecord[],
+  startDate: Date | null,
+  endDate: Date | null
+): MerchantAggregate[] => {
+  const filtered = filterAndSortRecords(rawRecords, startDate, endDate);
+  const map: { [name: string]: { total: number; count: number } } = {};
+
+  filtered.forEach((row) => {
+    const pay = row['付款(轉出)'];
+    const recv = row['收款(轉入)'];
+    const cat = row['分類'] || row['主類別'] || '';
+    if (!pay || recv) return;
+    if (cat === 'SYSTEM' || cat === '代付' || cat === '轉帳') return;
+
+    const name = extractMerchantName(row);
+    if (!name || name.startsWith('發票號碼')) return;
+    // 略過純分類後備
+    if (/^(餐飲食品|居家生活|運輸交通|休閒娛樂|人情交際|其他|費用|醫療保健|汽機車|理財投資)-/.test(name)) return;
+
+    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
+    const currency = row['幣別'];
+    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+
+    if (!map[name]) map[name] = { total: 0, count: 0 };
+    map[name].total += amount;
+    map[name].count += 1;
+  });
+
+  return Object.entries(map)
+    .map(([name, v]) => ({
+      name,
+      shortName: shortenMerchantName(name),
+      total: Math.round(v.total),
+      count: v.count,
+      avg: Math.round(v.total / v.count),
+    }))
+    .sort((a, b) => b.total - a.total);
+};
+
+export type InvoiceProduct = {
+  name: string;
+  unitPrice: number;
+  qty: number;
+  lineTotal: number;
+};
+
+export const parseInvoiceProducts = (notes: string): InvoiceProduct[] => {
+  if (!notes) return [];
+  const lines = normalizeNoteLines(notes);
+  const products: InvoiceProduct[] = [];
+  let afterMerchant = false;
+  for (const line of lines) {
+    if (line.startsWith('商家:') || line.startsWith('商家：')) {
+      afterMerchant = true;
+      continue;
+    }
+    if (line.startsWith('發票號碼:') || line.startsWith('發票號碼：')) {
+      afterMerchant = false;
+      continue;
+    }
+    if (!afterMerchant && !/\[NT\$/.test(line) && !/\sx\s/i.test(line)) continue;
+    const regex = /(.*?)(?:\[NT\$(\-?\d+\.?\d*)\])?\s*x\s*(\d+\.?\d*)/i;
+    const match = line.match(regex);
+    if (!match) continue;
+    const itemName = match[1].trim().replace(/^【.*?】/, '').trim();
+    if (!itemName || itemName.length > 80) continue;
+    const unitPrice = parseFloat(match[2]) || 0;
+    const qty = parseFloat(match[3]) || 0;
+    const lineTotal = Math.round(unitPrice * qty);
+    if (lineTotal === 0 && unitPrice === 0) continue;
+    products.push({ name: itemName, unitPrice, qty, lineTotal });
+  }
+  return products;
+};
+
+export type ProductAggregate = {
+  name: string;
+  total: number;
+  count: number;
+  avg: number;
+};
+
+export const aggregateInvoiceProducts = (
+  rawRecords: RawRecord[],
+  startDate: Date | null,
+  endDate: Date | null
+): ProductAggregate[] => {
+  const filtered = filterAndSortRecords(rawRecords, startDate, endDate);
+  const map: { [name: string]: { total: number; count: number } } = {};
+
+  filtered.forEach((row) => {
+    const pay = row['付款(轉出)'];
+    const recv = row['收款(轉入)'];
+    if (!pay || recv) return;
+    const cat = row['分類'] || '';
+    if (cat === 'SYSTEM' || cat === '轉帳' || cat === '代付') return;
+
+    const products = parseInvoiceProducts(row['備註'] || '');
+    products.forEach((p) => {
+      // 外幣發票少見：品項金額已是發票幣列，此處用列金額比例不處理；以 lineTotal 為準
+      // 若幣別非 TWD，用匯率換算品項
+      let line = Math.abs(p.lineTotal);
+      const currency = row['幣別'];
+      if (currency && currency !== 'TWD' && EXCHANGE_RATES[currency]) {
+        line *= EXCHANGE_RATES[currency];
+      }
+      if (!map[p.name]) map[p.name] = { total: 0, count: 0 };
+      map[p.name].total += line;
+      map[p.name].count += 1;
+    });
+  });
+
+  return Object.entries(map)
+    .map(([name, v]) => ({
+      name,
+      total: Math.round(v.total),
+      count: v.count,
+      avg: Math.round(v.total / v.count),
+    }))
+    .sort((a, b) => b.total - a.total);
+};
+
+/** 帳戶是否視為共享（含自訂對照） */
+export const isSharedAccountName = (
+  accountName: string,
+  customMappings: CustomAccountMappings = {}
+): boolean => {
+  if (!accountName) return false;
+  const mapping = customMappings[accountName];
+  if (mapping?.type === 'shared') return true;
+  if (mapping?.type === 'personal') return false;
+  return SHARED_ACCOUNTS.includes(accountName);
+};
+
+/**
+ * 支出分帳係數（最多 ×0.5 一次，避免專案＋共享帳戶疊加變成 0.25）
+ * 優先：專案在 splitProjects；否則在 isSplitShared 時對共享付款帳戶分帳
+ */
+export const resolveExpenseSplitFactor = (
+  project: string | undefined,
+  payAccount: string | undefined,
+  options: {
+    splitProjects?: string[] | null;
+    isSplitShared?: boolean;
+    customMappings?: CustomAccountMappings;
+  } = {}
+): number => {
+  const { splitProjects = null, isSplitShared = false, customMappings = {} } = options;
+  if (project && splitProjects?.includes(project)) return 0.5;
+  if (isSplitShared && payAccount && isSharedAccountName(payAccount, customMappings)) return 0.5;
+  return 1;
+};
+
+export type BurdenSplitSummary = {
+  personalFull: number;
+  sharedShare: number;
+  sharedGross: number;
+  personalCount: number;
+  sharedCount: number;
+};
+
+/** 個人全額負擔 vs 共同相關（你的 50% 份額） */
+export const summarizePersonalVsSharedBurden = (
+  rawRecords: RawRecord[],
+  startDate: Date | null,
+  endDate: Date | null,
+  options: {
+    splitProjects?: string[];
+    customMappings?: CustomAccountMappings;
+  } = {}
+): BurdenSplitSummary => {
+  const { splitProjects = [], customMappings = {} } = options;
+  const filtered = filterAndSortRecords(rawRecords, startDate, endDate);
+  let personalFull = 0;
+  let sharedShare = 0;
+  let sharedGross = 0;
+  let personalCount = 0;
+  let sharedCount = 0;
+
+  filtered.forEach((row) => {
+    const pay = row['付款(轉出)'];
+    const recv = row['收款(轉入)'];
+    const cat = row['分類'] || row['主類別'] || '';
+    if (!pay || recv) return;
+    if (cat === 'SYSTEM' || cat === '代付' || cat === '轉帳') return;
+    if (cat === '其他' && row['子分類'] === '代付') return;
+
+    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
+    const currency = row['幣別'];
+    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+
+    const project = row['專案'] || '';
+    const isSharedBurden =
+      splitProjects.includes(project) || isSharedAccountName(pay, customMappings);
+
+    if (isSharedBurden) {
+      sharedGross += amount;
+      sharedShare += amount * 0.5;
+      sharedCount += 1;
+    } else {
+      personalFull += amount;
+      personalCount += 1;
+    }
+  });
+
+  return {
+    personalFull: Math.round(personalFull),
+    sharedShare: Math.round(sharedShare),
+    sharedGross: Math.round(sharedGross),
+    personalCount,
+    sharedCount,
+  };
+};
+
+export type ProjectLifecycle = {
+  name: string;
+  totalExpense: number;
+  recordCount: number;
+  firstDate: string;
+  lastDate: string;
+  monthSpan: number;
+  monthlySpend: { month: string; amount: number }[];
+};
+
+const formatYmdDisplay = (ymd: string): string => {
+  if (!ymd || ymd.length < 8) return ymd;
+  return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
+};
+
+/** 大額／長期專案生命週期（全期間支出，不受列表日期篩選限制；不含未來日期） */
+export const computeProjectLifecycles = (
+  rawRecords: RawRecord[],
+  excludeTravel = true
+): ProjectLifecycle[] => {
+  const buckets: {
+    [name: string]: { expense: number; count: number; dates: string[]; byMonth: { [m: string]: number } };
+  } = {};
+
+  const now = new Date();
+  const todayYmd =
+    `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+
+  rawRecords.forEach((row) => {
+    const cat = row['分類'] || row['主類別'] || '';
+    if (cat === 'SYSTEM' || cat === '代付' || cat === '轉帳') return;
+    const pay = row['付款(轉出)'];
+    const recv = row['收款(轉入)'];
+    if (!pay || recv) return;
+    const name = (row['專案'] || '').trim();
+    if (!name) return;
+    if (excludeTravel && /^\d{6}-/.test(name)) return;
+
+    const date = (row['日期'] || '').toString();
+    const ymd = date.replace(/\D/g, '').slice(0, 8);
+    // 略過未來排程／預記帳
+    if (ymd.length >= 8 && ymd > todayYmd) return;
+
+    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
+    const currency = row['幣別'];
+    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+
+    if (!buckets[name]) buckets[name] = { expense: 0, count: 0, dates: [], byMonth: {} };
+    buckets[name].expense += amount;
+    buckets[name].count += 1;
+    if (ymd.length >= 8) {
+      buckets[name].dates.push(ymd);
+      const monthKey = `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}`;
+      buckets[name].byMonth[monthKey] = (buckets[name].byMonth[monthKey] || 0) + amount;
+    }
+  });
+
+  return Object.entries(buckets)
+    .map(([name, b]) => {
+      const sortedDates = [...b.dates].sort();
+      const first = sortedDates[0] || '';
+      const last = sortedDates[sortedDates.length - 1] || '';
+      let monthSpan = 1;
+      if (first.length >= 6 && last.length >= 6) {
+        const fy = parseInt(first.slice(0, 4), 10);
+        const fm = parseInt(first.slice(4, 6), 10);
+        const ly = parseInt(last.slice(0, 4), 10);
+        const lm = parseInt(last.slice(4, 6), 10);
+        monthSpan = Math.max(1, (ly - fy) * 12 + (lm - fm) + 1);
+      }
+      const monthlySpend = Object.entries(b.byMonth)
+        .sort(([a], [c]) => a.localeCompare(c))
+        .map(([month, amount]) => ({ month, amount: Math.round(amount) }));
+      const totalExpense = Math.round(b.expense);
+      return {
+        name,
+        totalExpense,
+        recordCount: b.count,
+        firstDate: formatYmdDisplay(first),
+        lastDate: formatYmdDisplay(last),
+        monthSpan,
+        monthlySpend,
+      };
+    })
+    .sort((a, b) => b.totalExpense - a.totalExpense);
 };
 
 // 輔助函數：初始化帳戶數據 - 確保包含所有已定義的帳戶，不僅限於有交易的
@@ -226,11 +706,11 @@ export const updateAccountBalancesAndSnapshots = (filteredRecords: RawRecord[], 
     const expenseAccountName = row['付款(轉出)'];
 
     if (incomeAccountName && accountRunningBalances.hasOwnProperty(incomeAccountName)) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(incomeAccountName)) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
       accountRunningBalances[incomeAccountName] += amount * splitFactor;
     }
     if (expenseAccountName && accountRunningBalances.hasOwnProperty(expenseAccountName)) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(expenseAccountName)) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
       accountRunningBalances[expenseAccountName] -= amount * splitFactor;
     }
   });
@@ -287,11 +767,11 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
 
         // Balance updates must include ALL transactions to be accurate
         if (isIncomeAccountInFilter) {
-          const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['收款(轉入)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
           currentOverallBalances[row['收款(轉入)']] += amount * splitFactor;
         }
         if (isExpenseAccountInFilter) {
-          const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['付款(轉出)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
           currentOverallBalances[row['付款(轉出)']] -= amount * splitFactor;
         }
 
@@ -312,10 +792,10 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
         }
 
         if (isIncome) {
-          const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['收款(轉入)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
           dayIncome += amount * splitFactor;
         } else if (isExpense) {
-          const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['付款(轉出)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
           dayExpense += amount * splitFactor;
         }
 
@@ -447,10 +927,10 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
     }
 
     if (isIncome) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['收款(轉入)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
       periodSummary.totalIncome += amount * splitFactor;
     } else if (isExpense) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['付款(轉出)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
       periodSummary.totalExpense += amount * splitFactor;
     }
   });
@@ -484,10 +964,10 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
     }
 
     if (isIncome) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['收款(轉入)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
       previousPeriodSummary.totalIncome += amount * splitFactor;
     } else if (isExpense) {
-      const splitFactor = (isSplitShared && SHARED_ACCOUNTS.includes(row['付款(轉出)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
       previousPeriodSummary.totalExpense += amount * splitFactor;
     }
   });
@@ -518,48 +998,43 @@ export const extractMerchantName = (record: RawRecord): string => {
     return finalMerchant.trim();
   }
 
-  // 2. "商家:" in Notes
-  if (originalNotes.includes('商家:')) {
-    const noteLines = originalNotes.replace(/\\n|\n/g, '\n').split('\n').map(l => l.trim()).filter(l => l);
-    for (const line of noteLines) {
-      if (line.startsWith('商家:')) {
-        return line.substring('商家:'.length).trim();
-      }
+  // 2. "商家:" / "商家：" in Notes（支援真換行、\\n、字面「 n 」）
+  const noteLines = normalizeNoteLines(originalNotes);
+  for (const line of noteLines) {
+    if (line.startsWith('商家:')) {
+      return line.substring('商家:'.length).trim();
     }
+    if (line.startsWith('商家：')) {
+      return line.substring('商家：'.length).trim();
+    }
+  }
+  // 單行備註內嵌「商家:xxx」
+  const inlineMatch = originalNotes.match(/商家[:：]\s*([^\n]+?)(?:\s+n\s+|$)/i);
+  if (inlineMatch?.[1]) {
+    return inlineMatch[1].replace(/\\n.*/s, '').trim();
   }
 
   // 3. Enhanced Extraction Logic from Notes (Payment Gateways, etc.)
   if (originalNotes.trim()) {
-    let note = originalNotes.trim();
+    const firstLine = (noteLines[0] || originalNotes.trim()).trim();
 
     // Strategy A: Check for Payment Gateway prefixes
-    // Matches "Line Pay - Merchant", "街口 - Merchant", etc.
     const paymentPrefixes = ['Line Pay', '街口', '台灣Pay', '悠遊付', '全支付', 'Uber Eats', 'Foodpanda', 'Uber'];
     for (const prefix of paymentPrefixes) {
-      // Regex looks for Prefix followed by optional separators like " - ", ":", " "
-      // e.g., "Line Pay - 7-ELEVEN"
       const regex = new RegExp(`^${prefix}[\\s-]*[:：\\-]?\\s*(.*)`, 'i');
-      const match = note.match(regex);
-
-      // If matched and the remainder isn't empty
+      const match = firstLine.match(regex);
       if (match && match[1] && match[1].trim().length > 0) {
-        const extractedName = match[1].trim();
-        return `${extractedName} (${prefix})`;
+        return `${match[1].trim()} (${prefix})`;
       }
     }
 
-    // Strategy B: Use note as merchant if it's short and text-like (e.g. "午餐", "計程車")
-    // Avoid using long sentences or purely numeric IDs
-    const cleanNote = note.split(/\n|\\n/)[0].trim();
-    const isNumeric = /^\d+$/.test(cleanNote);
-
-    if (cleanNote.length > 0 && cleanNote.length < 20 && !isNumeric) {
-      return cleanNote;
+    // Strategy B/C: short text-like note as merchant
+    const isNumeric = /^\d+$/.test(firstLine);
+    if (firstLine.length > 0 && firstLine.length < 20 && !isNumeric && !firstLine.startsWith('發票號碼')) {
+      return firstLine;
     }
-
-    // Strategy C: If it's a bit longer but starts with typical merchant names, we might consider truncating
-    if (cleanNote.length >= 20 && cleanNote.length <= 40) {
-      return cleanNote;
+    if (firstLine.length >= 20 && firstLine.length <= 40 && !firstLine.startsWith('發票號碼')) {
+      return firstLine;
     }
   }
 
@@ -593,22 +1068,21 @@ export const transformRecord = (record: RawRecord): TransformedRecord[] | Transf
   let productDetailsRawLines: string[] = [];
   let otherNotesLines: string[] = [];
 
-  const invoicePatternDetected = originalNotes && originalNotes.includes('發票號碼:');
+  const invoicePatternDetected = originalNotes && (originalNotes.includes('發票號碼:') || originalNotes.includes('發票號碼：'));
   if (invoicePatternDetected) {
-    const noteLines = originalNotes.replace(/\\n|\n/g, '\n').split('\n').map(l => l.trim()).filter(l => l);
+    const noteLines = normalizeNoteLines(originalNotes);
     let parsingProductDetails = false;
     noteLines.forEach(line => {
-      // "商家:" line is handled by extractMerchantName, but we parse here to separate product details
-      if (line.startsWith('商家:')) {
+      if (line.startsWith('商家:') || line.startsWith('商家：')) {
         parsingProductDetails = true;
-      } else if (parsingProductDetails && !line.startsWith('發票號碼:')) {
+      } else if (parsingProductDetails && !line.startsWith('發票號碼:') && !line.startsWith('發票號碼：')) {
         productDetailsRawLines.push(line);
-      } else if (!line.startsWith('發票號碼:')) {
+      } else if (!line.startsWith('發票號碼:') && !line.startsWith('發票號碼：')) {
         otherNotesLines.push(line);
       }
     });
   } else if (originalNotes) {
-    otherNotesLines.push(originalNotes);
+    otherNotesLines.push(...normalizeNoteLines(originalNotes));
   }
 
   const formattedProductDetails = productDetailsRawLines.map(item => `◎ ${formatProductDetailLine(item)}`).join(' ');
@@ -626,7 +1100,7 @@ export const transformRecord = (record: RawRecord): TransformedRecord[] | Transf
   const baseExportRecord: Omit<TransformedRecord, '帳戶' | '記錄類型' | '金額'> = {
     id: record.id,
     '幣種': 'TWD', '主類別': record['分類'] || record['主類別'] || '', '子類別': record['子分類'],
-    '手續費': 0, '折扣': 0, '名稱': '', '商家': finalMerchant ? finalMerchant.substring(0, 30) : '',
+    '手續費': 0, '折扣': 0, '名稱': '', '商家': finalMerchant ? finalMerchant.substring(0, 48) : '',
     '日期': formattedDate, '時間': formattedTime, '專案': record['專案'], '描述': finalDescriptionContent,
     '標籤': '', '對象': '',
   };
@@ -816,10 +1290,12 @@ export const getCategoryAverage = (
       amount *= EXCHANGE_RATES[currency];
     }
 
-    // Split Logic
-    if (config.splitProjects.includes(project || '') || SHARED_ACCOUNTS.includes(r['付款(轉出)'])) {
-      amount *= 0.5;
-    }
+    // Split Logic（專案分帳優先；否則共享帳戶；不疊加）
+    amount *= resolveExpenseSplitFactor(project, r['付款(轉出)'], {
+      splitProjects: config.splitProjects,
+      isSplitShared: true,
+      customMappings: {},
+    });
 
     totalAmount += amount;
   });
@@ -899,13 +1375,10 @@ export const detectExpenseSpikes = (
       amount *= EXCHANGE_RATES[currency];
     }
 
-    if (isSplitShared && SHARED_ACCOUNTS.includes(row['付款(轉出)'])) {
-      amount *= 0.5;
-    }
-
-    if (splitProjects && splitProjects.includes(project)) {
-      amount *= 0.5;
-    }
+    amount *= resolveExpenseSplitFactor(project, row['付款(轉出)'], {
+      splitProjects,
+      isSplitShared,
+    });
 
     targetMap[cat] = (targetMap[cat] || 0) + amount;
     if (collectMap) {
@@ -956,10 +1429,14 @@ export const detectExpenseSpikes = (
         const tArr = Array.isArray(trans) ? trans : [trans];
         return tArr.map(t => {
           const project = r['專案'] || '';
-          if (splitProjects && splitProjects.includes(project)) {
+          const factor = resolveExpenseSplitFactor(project, r['付款(轉出)'], {
+            splitProjects,
+            isSplitShared,
+          });
+          if (factor !== 1) {
             return {
               ...t,
-              '金額': t['金額'] * 0.5,
+              '金額': t['金額'] * factor,
               '專案': t['專案'] ? `${t['專案']} (50%)` : '(分帳 50%)'
             };
           }

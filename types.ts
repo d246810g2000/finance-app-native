@@ -113,8 +113,11 @@ export interface BudgetGlobalConfig {
   splitProjects: string[];
   // 專案群組：'fixed' = 固定支出, 'daily' = 日常預算（預設 'daily'）
   projectGroups: { [project: string]: 'fixed' | 'daily' };
+  /** 資產頁等：共享帳戶餘額／收支是否以 50% 計入 */
   isSplitEnabled?: boolean;
   healthCheckProjects?: string[];
+  /** 專案頁長期時間軸要顯示的專案（未設定時用自動門檻） */
+  timelineProjects?: string[];
 }
 
 export interface CustomAccountMapping {

@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
-import { AppColors, CATEGORY_COLORS } from '../../theme';
+import { AppColors, CATEGORY_COLORS, RADIUS, SHADOWS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
@@ -12,7 +11,7 @@ import AccentListCard from '../../components/ui/AccentListCard';
 import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
 import SectionHeader from '../../components/ui/SectionHeader';
 import PageChrome from '../../components/layout/PageChrome';
-import { aggregateTravelProjects, TravelProject } from '../../services/shared';
+import { aggregateTravelProjects, rankTravelSpendByYear, TravelProject } from '../../services/shared';
 import DateRangeSelector from '../../components/DateRangeSelector';
 import { parseFormattedDate } from '../../utils/dateUtils';
 
@@ -24,6 +23,7 @@ export default function TravelScreen() {
     const { records } = useFinance();
     const router = useRouter();
     const [sortKey, setSortKey] = useState<SortKey>('date_desc');
+    const [yearFilter, setYearFilter] = useState<number | null>(null);
 
     const [startDate, setStartDate] = useState(() => {
         const d = new Date(); d.setMonth(0, 1); d.setHours(0, 0, 0, 0); return d;
@@ -37,15 +37,27 @@ export default function TravelScreen() {
     const handleDateChange = useCallback((start: Date, end: Date) => {
         setStartDate(start);
         setEndDate(end);
+        setYearFilter(null);
     }, []);
 
+    const allProjects = useMemo(() => aggregateTravelProjects(records), [records]);
+    const yearRanks = useMemo(() => rankTravelSpendByYear(allProjects), [allProjects]);
+
     const travelProjects = useMemo(() => {
-        const projects = aggregateTravelProjects(records);
-        const filtered = projects.filter(p => {
+        let filtered = allProjects.filter(p => {
             const pStart = parseFormattedDate(p.startDate);
             const pEnd = parseFormattedDate(p.endDate);
             return pStart <= endDate && pEnd >= startDate;
         });
+
+        if (yearFilter != null) {
+            filtered = filtered.filter((p) => {
+                const m = p.name.match(/^(\d{2})/);
+                if (m) return 2000 + parseInt(m[1], 10) === yearFilter;
+                const d = parseFormattedDate(p.startDate);
+                return !isNaN(d.getTime()) && d.getFullYear() === yearFilter;
+            });
+        }
 
         return filtered.sort((a, b) => {
             switch (sortKey) {
@@ -68,7 +80,7 @@ export default function TravelScreen() {
                 }
             }
         });
-    }, [records, sortKey, startDate, endDate]);
+    }, [allProjects, sortKey, startDate, endDate, yearFilter]);
 
     const totalTravelExpense = useMemo(() => travelProjects.reduce((sum, p) => sum + p.totalExpense, 0), [travelProjects]);
 
@@ -80,7 +92,7 @@ export default function TravelScreen() {
         if (travelProjects.length > 0) {
             setTimeout(() => { listRef.current?.scrollToOffset({ offset: 0, animated: false }); }, 10);
         }
-    }, [sortKey, startDate, endDate]);
+    }, [sortKey, startDate, endDate, yearFilter]);
 
     const renderProjectCard = useCallback(({ item }: { item: TravelProject }) => {
         const totalCatExpense = item.categoryBreakdown.reduce((s, c) => s + c.amount, 0);
@@ -96,10 +108,7 @@ export default function TravelScreen() {
                 ]}
                 accessibilityLabel={`旅遊 ${item.name.replace(/^\d{6}-/, '')}，總花費 ${item.totalExpense} 元`}
             >
-                {/* Date range */}
                 <Text style={styles.dateRange}>{item.startDate} → {item.endDate}</Text>
-
-                {/* Category distribution bar */}
                 <View style={styles.distBar}>
                     {item.categoryBreakdown.map((cat, idx) => (
                         <View key={cat.category} style={{
@@ -108,8 +117,6 @@ export default function TravelScreen() {
                         }} />
                     ))}
                 </View>
-
-                {/* Top categories */}
                 <View style={styles.topCatRow}>
                     {item.categoryBreakdown.slice(0, 3).map((cat, idx) => (
                         <View key={cat.category} style={styles.topCatItem}>
@@ -123,7 +130,6 @@ export default function TravelScreen() {
         );
     }, [handleProjectClick, styles]);
 
-    // ── ListHeaderComponent: identical architecture to budget/project pages ──
     const listHeader = useMemo(() => (
         <View style={styles.listHeaderWrapper}>
             <CompactSummaryBar
@@ -133,9 +139,36 @@ export default function TravelScreen() {
                 ]}
             />
 
-            <SectionHeader title="旅程總覽" accent={colors.blue} style={styles.sectionHeader} />
+            {yearRanks.length > 0 ? (
+                <View style={styles.yearSection}>
+                    <SectionHeader title="年度出國成本" accent={colors.blue} style={styles.sectionHeader} />
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.yearScroll}>
+                        <Pressable
+                            style={[styles.yearCard, yearFilter === null && styles.yearCardActive]}
+                            onPress={() => setYearFilter(null)}
+                        >
+                            <Text style={styles.yearLabel}>全部</Text>
+                            <Text style={styles.yearAmount}>
+                                ${yearRanks.reduce((s, y) => s + y.totalExpense, 0).toLocaleString()}
+                            </Text>
+                            <Text style={styles.yearMeta}>{allProjects.length} 趟</Text>
+                        </Pressable>
+                        {yearRanks.map((y) => (
+                            <Pressable
+                                key={y.year}
+                                style={[styles.yearCard, yearFilter === y.year && styles.yearCardActive]}
+                                onPress={() => setYearFilter(y.year === yearFilter ? null : y.year)}
+                            >
+                                <Text style={styles.yearLabel}>{y.year}</Text>
+                                <Text style={styles.yearAmount}>${y.totalExpense.toLocaleString()}</Text>
+                                <Text style={styles.yearMeta}>{y.tripCount} 趟</Text>
+                            </Pressable>
+                        ))}
+                    </ScrollView>
+                </View>
+            ) : null}
 
-            {/* Sort Chips */}
+            <SectionHeader title="旅程總覽" accent={colors.blue} style={styles.sectionHeader} />
             <View style={styles.sortContainer}>
                 <SortChips
                     options={[
@@ -150,21 +183,19 @@ export default function TravelScreen() {
                 />
             </View>
         </View>
-    ), [travelProjects.length, totalTravelExpense, sortKey]);
+    ), [travelProjects.length, totalTravelExpense, sortKey, yearRanks, yearFilter, allProjects.length, colors.blue, styles]);
 
     return (
         <View style={styles.container}>
-            {/* Fixed date header — mirrors budget's <View style={styles.header}> */}
             <PageChrome>
                 <DateRangeSelector
                     startDate={startDate}
                     endDate={endDate}
                     onDateChange={handleDateChange}
-                    subLabel={`${travelProjects.length} 次旅行`}
+                    subLabel={`${travelProjects.length} 次旅行${yearFilter ? ` · ${yearFilter}` : ''}`}
                 />
             </PageChrome>
 
-            {/* FlashList with paddingHorizontal:16 — mirrors budget's scrollContent paddingHorizontal */}
             <FlashList
                 ref={listRef}
                 data={travelProjects}
@@ -188,25 +219,24 @@ export default function TravelScreen() {
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg },
-
-    // ListHeaderComponent wrapper — negative margin to bleed past paddingHorizontal:16
     listHeaderWrapper: { marginHorizontal: -16 },
-
-    // Sort Chips — identical to budget/project page
     sectionHeader: { marginHorizontal: 16, marginTop: 22, marginBottom: 2 },
     sortContainer: { marginTop: 12, marginBottom: 0 },
-
-    // Travel card extra content (below AccentListCard meta row)
+    yearSection: { marginTop: 4 },
+    yearScroll: { paddingHorizontal: 16, gap: 10, paddingTop: 10, paddingBottom: 4 },
+    yearCard: {
+        minWidth: 112, backgroundColor: colors.card, borderRadius: RADIUS.lg, padding: 14,
+        borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm,
+    },
+    yearCardActive: { borderColor: colors.accent, backgroundColor: colors.accentLight },
+    yearLabel: { fontSize: 13, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
+    yearAmount: { fontSize: 16, fontWeight: '800', color: colors.accent },
+    yearMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
     dateRange: { ...typography.caption, marginTop: 8, marginBottom: 10 },
-
-    // Distribution bar
     distBar: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.divider, marginBottom: 10 },
-
-    // Top categories
     topCatRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap', rowGap: 6, marginBottom: 10 },
     topCatItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     topCatDot: { width: 8, height: 8, borderRadius: 4 },
     topCatName: { ...typography.bodySm },
     topCatAmount: { ...typography.bodySm, fontWeight: '700', color: colors.textPrimary },
-
 });

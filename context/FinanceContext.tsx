@@ -6,6 +6,8 @@ import { Alert, AppState, AppStateStatus } from 'react-native';
 import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS } from '../constants';
 import { loadCustomAccountMappings, saveCustomAccountMappings, loadExcludedAccounts, saveExcludedAccounts as saveExcludedAccountsService } from '../services/accountConfigService';
 import { loadBudgetConfig, saveBudgetConfig as saveBudgetConfigService, loadBudgets, saveBudgets as saveBudgetsService } from '../services/budgetService';
+import { upsertRecordsById, UpsertResult } from '../services/financeService';
+import { parseFormattedDate } from '../utils/dateUtils';
 
 const RECORDS_FILE_NAME = 'finance_records.json';
 const RECORDS_FILE_URI = (FileSystem.documentDirectory || FileSystem.cacheDirectory) + RECORDS_FILE_NAME;
@@ -14,6 +16,7 @@ interface FinanceContextType {
     records: RawRecord[];
     isLoading: boolean;
     loadRecords: (records: RawRecord[]) => void;
+    mergeRecords: (records: RawRecord[], options?: { syncDelete?: boolean }) => UpsertResult;
     clearRecords: () => void;
     deleteRecord: (id: string) => void;
     refreshRecords: () => Promise<void>;
@@ -199,6 +202,16 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
         saveRecordsToFile(withIds);
     }, []);
 
+    const mergeRecords = useCallback((incoming: RawRecord[], options?: { syncDelete?: boolean }): UpsertResult => {
+        let result: UpsertResult = { records: [], added: 0, updated: 0, kept: 0, removed: 0 };
+        setRecords(prev => {
+            result = upsertRecordsById(prev, incoming, options);
+            saveRecordsToFile(result.records);
+            return result.records;
+        });
+        return result;
+    }, []);
+
     const clearRecords = useCallback(() => {
         setRecords([]);
         FileSystem.deleteAsync(RECORDS_FILE_URI, { idempotent: true }).catch(e =>
@@ -219,25 +232,28 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
         const accs = new Set<string>();
         const projs = new Set<string>();
         let min = new Date();
-        let max = new Date();
+        let max = new Date(0);
 
         if (records.length > 0) {
-            // Avoid heavy transformation if we just need metadata
-            // But for consistency we use the same logic
             records.forEach(r => {
-                if (r['主類別']) cats.add(r['主類別']);
-                if (r['帳戶']) accs.add(r['帳戶']);
+                const cat = r['分類'] || r['主類別'];
+                if (cat && cat !== 'SYSTEM') cats.add(cat);
+                if (r['收款(轉入)']) accs.add(r['收款(轉入)']);
+                if (r['付款(轉出)']) accs.add(r['付款(轉出)']);
                 if (r['專案']) projs.add(r['專案']);
 
-                if (r['日期']) {
-                    const d = new Date(r['日期']);
-                    if (!isNaN(d.getTime())) {
+                const dateStr = (r['日期'] || '').toString();
+                if (dateStr.length >= 8) {
+                    const d = parseFormattedDate(dateStr);
+                    if (d && !isNaN(d.getTime())) {
                         if (d < min) min = d;
                         if (d > max) max = d;
                     }
                 }
             });
         }
+
+        if (max.getTime() === 0) max = new Date();
 
         return {
             categories: Array.from(cats).sort(),
@@ -250,7 +266,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
     return (
         <FinanceContext.Provider value={{
-            records, isLoading, loadRecords, clearRecords, deleteRecord, refreshRecords,
+            records, isLoading, loadRecords, mergeRecords, clearRecords, deleteRecord, refreshRecords,
             globalExcludeTravel, setGlobalExcludeTravel,
             searchFilters, setSearchFilters,
             searchModalVisible, setSearchModalVisible,

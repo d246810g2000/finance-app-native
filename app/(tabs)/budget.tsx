@@ -13,7 +13,7 @@ import BudgetSettingModal from '../../components/budget/BudgetSettingModal';
 import SettingsModal from '../../components/settings/SettingsModal';
 import BatchBudgetModal from '../../components/budget/BatchBudgetModal';
 import DetailModal from '../../components/DetailModal';
-import { transformRecordsForExport, detectExpenseSpikes } from '../../services/financeService';
+import { transformRecordsForExport, detectExpenseSpikes, summarizePersonalVsSharedBurden } from '../../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
@@ -109,6 +109,15 @@ export default function BudgetScreen() {
     }, [sortKey]);
 
     const sortedDailyStatuses = useMemo(() => sortStatuses(budgetCalc.dailyStatuses), [budgetCalc.dailyStatuses, sortStatuses]);
+
+    const burdenSplit = useMemo(() => {
+        const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
+        const end = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+        return summarizePersonalVsSharedBurden(records, start, end, {
+            splitProjects: config.splitProjects || [],
+            customMappings,
+        });
+    }, [records, targetMonth, config.splitProjects, customMappings]);
 
     // Derived values
     // totalBudget = 所有 BudgetRule 的總和（涵蓋固定+日常）
@@ -359,6 +368,24 @@ export default function BudgetScreen() {
                 contentContainerStyle={styles.scrollContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             >
+                <View style={styles.burdenCard}>
+                    <Text style={styles.burdenTitle}>本月負擔拆分</Text>
+                    <Text style={styles.burdenDesc}>個人全額 + 共同／共享帳戶的你的 50% 份額（不重複疊加）</Text>
+                    <View style={styles.burdenRow}>
+                        <View style={styles.burdenItem}>
+                            <Text style={styles.burdenLabel}>個人全額</Text>
+                            <Text style={styles.burdenValue}>${burdenSplit.personalFull.toLocaleString()}</Text>
+                            <Text style={styles.burdenMeta}>{burdenSplit.personalCount} 筆</Text>
+                        </View>
+                        <View style={styles.burdenDivider} />
+                        <View style={styles.burdenItem}>
+                            <Text style={styles.burdenLabel}>共同份額</Text>
+                            <Text style={[styles.burdenValue, { color: colors.blue }]}>${burdenSplit.sharedShare.toLocaleString()}</Text>
+                            <Text style={styles.burdenMeta}>{burdenSplit.sharedCount} 筆 · 毛額 ${burdenSplit.sharedGross.toLocaleString()}</Text>
+                        </View>
+                    </View>
+                </View>
+
                 {/* ══ Unified Summary Card ══ */}
                 <View style={styles.summaryCard}>
                     <LinearGradient
@@ -648,6 +675,24 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     scrollContent: { paddingVertical: 12, paddingHorizontal: 16, paddingBottom: 40 },
 
     // ── Unified Summary Card ──
+    burdenCard: {
+        backgroundColor: colors.card,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: colors.cardBorder,
+        padding: 16,
+        marginBottom: 12,
+        ...SHADOWS.sm,
+    },
+    burdenTitle: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+    burdenDesc: { fontSize: 12, color: colors.textMuted, marginTop: 4, marginBottom: 12, lineHeight: 17 },
+    burdenRow: { flexDirection: 'row', alignItems: 'stretch' },
+    burdenItem: { flex: 1, alignItems: 'flex-start' },
+    burdenDivider: { width: 1, backgroundColor: colors.divider, marginHorizontal: 12 },
+    burdenLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 4 },
+    burdenValue: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
+    burdenMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+
     summaryCard: {
         backgroundColor: colors.card, ...withContinuousRadius(RADIUS.lg), padding: 16,
         borderWidth: 1, borderColor: colors.cardBorder, marginBottom: 6, ...SHADOWS.md,

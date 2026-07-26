@@ -69,6 +69,13 @@ export default function TabLayout() {
                     }}
                 />
                 <Tabs.Screen
+                    name="merchant"
+                    options={{
+                        title: '商家',
+                        href: null,
+                    }}
+                />
+                <Tabs.Screen
                     name="index"
                     options={{ title: '資產' }}
                 />

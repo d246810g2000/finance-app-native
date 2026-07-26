@@ -216,6 +216,17 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                     showDivider
                                 />
                                 <MenuRow
+                                    icon="storefront-outline"
+                                    label="商家分析"
+                                    subtitle="商家排行與發票品項"
+                                    iconColor={colors.blue}
+                                    iconBg={colors.blueLight}
+                                    onPress={() => navigateTo('/merchant')}
+                                    colors={colors}
+                                    styles={styles}
+                                    showDivider
+                                />
+                                <MenuRow
                                     icon="settings-outline"
                                     label="系統設定"
                                     subtitle="帳戶、預算與外觀主題"

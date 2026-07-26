@@ -14,8 +14,6 @@ import NotificationService from '../../services/NotificationService';
 
 import AccountMappingModal from '../account/AccountMappingModal';
 import AccountSettingsModal from '../account/AccountSettingsModal';
-import BudgetSettingsModal from '../budget/BudgetSettingsModal';
-import BatchBudgetModal from '../budget/BatchBudgetModal';
 
 interface SettingsModalProps {
     visible: boolean;
@@ -76,20 +74,12 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
         records,
         customMappings,
         saveCustomMappings,
-        globalExcludeTravel,
-        setGlobalExcludeTravel,
         excludedAccounts,
         saveExcludedAccounts,
-        budgetConfig,
-        saveBudgetConfig,
-        budgets,
-        saveBudgets,
     } = useFinance();
 
     const [isMappingVisible, setIsMappingVisible] = useState(false);
     const [isVisibilityVisible, setIsVisibilityVisible] = useState(false);
-    const [isBudgetConfigVisible, setIsBudgetConfigVisible] = useState(false);
-    const [isBatchEditVisible, setIsBatchEditVisible] = useState(false);
     const [notificationEnabled, setNotificationEnabled] = useState(false);
 
     useEffect(() => {
@@ -110,16 +100,6 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
         set.delete('');
         return Array.from(set).sort();
     }, [customMappings, records]);
-
-    const uniqueCategories = React.useMemo(() => {
-        const cats = new Set<string>();
-        records.forEach(r => {
-            if (r['付款(轉出)'] && !r['收款(轉入)'] && r['分類'] && r['分類'] !== 'SYSTEM' && r['分類'] !== '代付') {
-                cats.add(r['分類']);
-            }
-        });
-        return Array.from(cats).sort();
-    }, [records]);
 
     const toggleNotification = async () => {
         if (!NotificationService.isSupported()) {
@@ -213,56 +193,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                             </View>
                         </View>
 
-                        {/* 2. 預算與專案設定 */}
-                        <View style={styles.settingsSection}>
-                            <View style={styles.sectionTitleRow}>
-                                <Ionicons name="pie-chart-outline" size={16} color={colors.green} style={styles.sectionIcon} />
-                                <Text style={styles.sectionTitle}>預算與專案設定</Text>
-                            </View>
-                            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                                <SettingsRow
-                                    icon="options-outline"
-                                    iconColor={colors.yellow}
-                                    iconBg={colors.yellow + '15'}
-                                    title="預算專案全局設定"
-                                    subtitle="自訂預算納入的專案、拆分比或固定支出"
-                                    onPress={() => setIsBudgetConfigVisible(true)}
-                                    colors={colors}
-                                    styles={styles}
-                                />
-                                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
-                                <SettingsRow
-                                    icon="grid-outline"
-                                    iconColor={colors.blue}
-                                    iconBg={colors.blue + '15'}
-                                    title="批次編輯預算額"
-                                    subtitle="一次性自訂設定所有消費類別的月預算限制"
-                                    onPress={() => setIsBatchEditVisible(true)}
-                                    colors={colors}
-                                    styles={styles}
-                                />
-                                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
-                                <SettingsRow
-                                    icon="airplane-outline"
-                                    iconColor={colors.blue}
-                                    iconBg={colors.blue + '15'}
-                                    title="排除旅遊專案"
-                                    subtitle="在統計與預算中自動剔除旅遊專案支出"
-                                    colors={colors}
-                                    styles={styles}
-                                    trailing={(
-                                        <Switch
-                                            value={globalExcludeTravel}
-                                            onValueChange={setGlobalExcludeTravel}
-                                            trackColor={{ false: colors.border, true: colors.accent }}
-                                            thumbColor={colors.card}
-                                        />
-                                    )}
-                                />
-                            </View>
-                        </View>
-
-                        {/* 3. 系統與喜好 */}
+                        {/* 2. 系統與喜好 */}
                         <View style={styles.settingsSection}>
                             <View style={styles.sectionTitleRow}>
                                 <Ionicons name="settings-outline" size={16} color={colors.textPrimary} style={styles.sectionIcon} />
@@ -315,22 +246,6 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 onClose={() => setIsVisibilityVisible(false)}
                 excludedAccounts={excludedAccounts}
                 onSave={saveExcludedAccounts}
-            />
-            <BudgetSettingsModal
-                visible={isBudgetConfigVisible}
-                onClose={() => setIsBudgetConfigVisible(false)}
-                config={budgetConfig}
-                onSave={saveBudgetConfig}
-                allRawRecords={records}
-            />
-            <BatchBudgetModal
-                visible={isBatchEditVisible}
-                onClose={() => setIsBatchEditVisible(false)}
-                currentBudgets={budgets}
-                onSave={saveBudgets}
-                uniqueCategories={uniqueCategories}
-                allRawRecords={records}
-                config={budgetConfig}
             />
         </Modal>
     );
