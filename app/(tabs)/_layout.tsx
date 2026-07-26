@@ -109,9 +109,11 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors'], bottomIn
         backgroundColor: colors.tabBg,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: isDark ? colors.divider : colors.cardBorder,
-        height: 56 + bottomInset,
+        // Keep tab targets clear of Android gesture navigation / the iPhone home indicator.
+        // The extra height lifts the icon + label group without shrinking its hit area.
+        height: 68 + bottomInset,
         paddingTop: 6,
-        paddingBottom: Math.max(bottomInset, 8),
+        paddingBottom: Math.max(bottomInset, 16),
         paddingHorizontal: edgeH,
         ...Platform.select({
             android: {

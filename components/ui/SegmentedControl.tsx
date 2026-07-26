@@ -1,11 +1,13 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
 type SegmentedOption<T extends string> = {
     value: T;
     label: string;
+    icon?: React.ComponentProps<typeof Ionicons>['name'];
 };
 
 interface SegmentedControlProps<T extends string> {
@@ -14,6 +16,8 @@ interface SegmentedControlProps<T extends string> {
     onChange: (value: T) => void;
     colors?: AppColors;
     accessibilityLabel?: string;
+    variant?: 'default' | 'filter' | 'view';
+    fullWidth?: boolean;
 }
 
 export default function SegmentedControl<T extends string>({
@@ -22,14 +26,21 @@ export default function SegmentedControl<T extends string>({
     onChange,
     colors: colorsProp,
     accessibilityLabel,
+    variant = 'default',
+    fullWidth = false,
 }: SegmentedControlProps<T>) {
     const { colors: themeColors } = useAppTheme();
     const colors = colorsProp ?? themeColors;
     const styles = useMemo(() => createStyles(colors), [colors]);
+    const isCompact = variant === 'filter' || variant === 'view';
 
     return (
         <View
-            style={styles.container}
+            style={[
+                styles.track,
+                fullWidth && styles.trackFull,
+                isCompact && styles.trackCompact,
+            ]}
             accessibilityRole="tablist"
             accessibilityLabel={accessibilityLabel}
         >
@@ -41,16 +52,27 @@ export default function SegmentedControl<T extends string>({
                         onPress={() => onChange(option.value)}
                         style={({ pressed }) => [
                             styles.segment,
+                            fullWidth && styles.segmentFull,
+                            isCompact && styles.segmentCompact,
                             isActive && styles.segmentActive,
-                            pressed && styles.segmentPressed,
+                            pressed ? { opacity: 0.85, transform: [{ scale: 0.97 }] } : null,
                         ]}
                         accessibilityRole="tab"
                         accessibilityState={{ selected: isActive }}
                         accessibilityLabel={option.label}
                     >
-                        <Text style={[styles.label, isActive && styles.labelActive]}>
-                            {option.label}
-                        </Text>
+                        <View style={styles.segmentContent}>
+                            {option.icon ? (
+                                <Ionicons
+                                    name={option.icon}
+                                    size={isCompact ? 14 : 15}
+                                    color={isActive ? colors.accent : colors.textMuted}
+                                />
+                            ) : null}
+                            <Text style={[styles.label, isCompact && styles.labelCompact, isActive && styles.labelActive]}>
+                                {option.label}
+                            </Text>
+                        </View>
                     </Pressable>
                 );
             })}
@@ -59,40 +81,46 @@ export default function SegmentedControl<T extends string>({
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    container: {
+    // iOS-style segmented track: one shared rail, segments sit flush with a small inset.
+    track: {
         flexDirection: 'row',
         alignSelf: 'center',
-        backgroundColor: colors.card,
+        alignItems: 'center',
+        backgroundColor: colors.bg,
         ...withContinuousRadius(RADIUS.md),
-        padding: 4,
-        gap: 4,
+        padding: 3,
+        gap: 2,
         borderWidth: 1,
+        borderColor: colors.divider,
+    },
+    trackFull: { alignSelf: 'stretch' },
+    trackCompact: { alignSelf: 'flex-end' },
+    segment: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        ...withContinuousRadius(RADIUS.sm),
+        minWidth: 64,
+        minHeight: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    segmentFull: { flex: 1, minWidth: 0, paddingHorizontal: 8 },
+    segmentCompact: { minWidth: 0, minHeight: 36, paddingVertical: 6, paddingHorizontal: 10 },
+    segmentActive: {
+        backgroundColor: colors.card,
         borderColor: colors.cardBorder,
         ...SHADOWS.sm,
     },
-    segment: {
-        paddingVertical: 8,
-        paddingHorizontal: 20,
-        ...withContinuousRadius(RADIUS.sm),
-        minWidth: 72,
-        minHeight: 44,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    segmentActive: {
-        backgroundColor: colors.accentLight,
-        borderWidth: 1,
-        borderColor: colors.accentBorder,
-    },
-    segmentPressed: {
-        opacity: 0.85,
-    },
+    segmentContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
     label: {
         fontSize: 14,
         fontWeight: '500',
         color: colors.textMuted,
-        letterSpacing: 0.5,
+        letterSpacing: 0,
     },
+    labelCompact: { fontSize: 13 },
     labelActive: {
         fontWeight: '700',
         color: colors.accent,

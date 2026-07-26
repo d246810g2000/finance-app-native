@@ -59,8 +59,8 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
     const displayValue = isPercentage ? `${value.toFixed(1)}%` : `$${Math.round(value).toLocaleString()}`;
     const arrow = isPositive ? '↑' : isNegative ? '↓' : '−';
     const iconMap: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-        '資產': 'diamond-outline', '收入': 'trending-up', '支出': 'trending-down',
-        '儲蓄率': 'flag-outline', '日均消費': 'cafe-outline',
+        '資產': 'wallet-outline', '收入': 'arrow-up-circle-outline', '支出': 'arrow-down-circle-outline',
+        '儲蓄率': 'pie-chart-outline', '日均消費': 'cafe-outline',
     };
     const accentMap: Record<string, string> = {
         '資產': colors.accent, '收入': colors.green, '支出': colors.red,
@@ -74,7 +74,7 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
                 onPress={onPress}
                 style={({ pressed }) => [
                     styles.summaryCardWrapper,
-                    pressed && onPress ? { opacity: 0.85, transform: [{ scale: 0.96 }], ...SHADOWS.hover } : { ...SHADOWS.md },
+                    pressed && onPress ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null,
                 ]}
             >
                 <View style={[styles.summaryCardInner, { borderColor: colors.cardBorder }]}>
@@ -84,8 +84,8 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
                             <IconCircle
                                 name={iconMap[title] || 'stats-chart-outline'}
                                 color={accentMap[title] || colors.accent}
-                                size={32}
-                                iconSize={16}
+                                size={34}
+                                iconSize={18}
                             />
                             <Text style={styles.summaryCardTitle}>{title}</Text>
                         </View>
@@ -94,10 +94,15 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
                         </Text>
                         {!isNaN(previousValue) ? (
                             <View style={styles.summaryCardChange}>
-                                <Text style={[styles.summaryCardChangeText, { color: changeColor }]}>
-                                    {arrow} {isPercentage ? `${Math.abs(diff).toFixed(1)}%` : `${pctChange}%`}
-                                </Text>
-                                <Text style={styles.summaryCardChangeLabel}> vs 上期</Text>
+                                <View style={[
+                                    styles.summaryCardBadge,
+                                    { backgroundColor: isPositive ? (invertColor ? colors.redLight : colors.greenLight) : (invertColor ? colors.greenLight : colors.redLight) }
+                                ]}>
+                                    <Text style={[styles.summaryCardChangeText, { color: changeColor }]}>
+                                        {arrow} {isPercentage ? `${Math.abs(diff).toFixed(1)}%` : `${pctChange}%`}
+                                    </Text>
+                                </View>
+                                <Text style={styles.summaryCardChangeLabel}>vs 上期</Text>
                             </View>
                         ) : null}
                     </View>
@@ -418,15 +423,18 @@ export default function DashboardScreen() {
             </PageChrome>
 
             <View style={styles.filterSection}>
+                <Text style={styles.controlLabel}>帳戶範圍</Text>
                 <SegmentedControl
                     options={[
-                        { value: 'all', label: '全部' },
-                        { value: 'personal', label: '個人' },
-                        { value: 'shared', label: '共享' },
+                        { value: 'all', label: '全部', icon: 'apps-outline' },
+                        { value: 'personal', label: '個人', icon: 'person-outline' },
+                        { value: 'shared', label: '共享', icon: 'people-outline' },
                     ]}
                     value={accountViewType}
                     onChange={setAccountViewType}
                     colors={colors}
+                    variant="filter"
+                    accessibilityLabel="帳戶範圍篩選"
                 />
             </View>
 
@@ -447,23 +455,22 @@ export default function DashboardScreen() {
             {/* Account List and Ratio Visualization Area */}
             {accountTableData.hasAnyAccounts ? (
                 <View style={{ marginTop: 20 }}>
-                    <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                    <View style={styles.accountViewToolbar}>
+                        <View style={styles.accountViewCopy}>
+                            <Text style={styles.accountViewTitle}>{showRatioView ? '資產分配' : '帳戶明細'}</Text>
+                            <Text style={styles.accountViewSubtitle}>{showRatioView ? '依資產類別檢視佔比' : '點擊類別展開帳戶'}</Text>
+                        </View>
                         <SegmentedControl
                             options={[
-                                { value: 'list', label: '列表' },
-                                { value: 'ratio', label: '比例' },
+                                { value: 'list', label: '列表', icon: 'list-outline' },
+                                { value: 'ratio', label: '比例', icon: 'pie-chart-outline' },
                             ]}
                             value={showRatioView ? 'ratio' : 'list'}
                             onChange={(v) => setShowRatioView(v === 'ratio')}
+                            variant="view"
                             accessibilityLabel="帳戶檢視模式"
                         />
                     </View>
-
-                    {showRatioView && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 16 }}>
-                            <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>資產分配比</Text>
-                        </View>
-                    )}
 
                     {showRatioView ? (
                         <Animated.View entering={FadeInLeft.duration(300).springify().damping(15)} style={{ paddingHorizontal: 20, height: 420, flexDirection: 'row', width: '100%' }}>
@@ -1043,27 +1050,41 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg },
     // Empty
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 20 },
-    filterSection: { paddingTop: 20, paddingBottom: 4, alignItems: 'center' },
+    filterSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 4,
+        gap: 12,
+    },
+    controlLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+    accountViewToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 14, gap: 12 },
+    accountViewCopy: { flex: 1 },
+    accountViewTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+    accountViewSubtitle: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 3 },
     // Summary Grid
     summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, gap: 14 },
     summaryCardContainer: { marginBottom: 0 },
-    summaryCardWrapper: { ...withContinuousRadius(RADIUS.lg), backgroundColor: colors.bg },
+    summaryCardWrapper: { ...withContinuousRadius(RADIUS.lg), backgroundColor: colors.bg, ...SHADOWS.sm },
     summaryCardInner: {
         flexDirection: 'row',
         backgroundColor: colors.card,
         ...withContinuousRadius(RADIUS.lg),
         borderWidth: 1,
-        minHeight: 120,
+        minHeight: 124,
         overflow: 'hidden',
     },
     summaryAccentStrip: { width: 4 },
-    summaryCardBody: { flex: 1, padding: 16, justifyContent: 'space-between' },
-    summaryCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+    summaryCardBody: { flex: 1, padding: 14, justifyContent: 'space-between' },
+    summaryCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
     summaryCardTitle: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', letterSpacing: -0.1 },
-    summaryCardValue: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', letterSpacing: -0.8 },
-    summaryCardChange: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-    summaryCardChangeText: { fontSize: 13, fontWeight: '700' },
-    summaryCardChangeLabel: { color: colors.textMuted, fontSize: 11, marginLeft: 4 },
+    summaryCardValue: { color: colors.textPrimary, fontSize: 24, fontWeight: '800', letterSpacing: -0.6 },
+    summaryCardChange: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 },
+    summaryCardBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: RADIUS.xs },
+    summaryCardChangeText: { fontSize: 11, fontWeight: '800' },
+    summaryCardChangeLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '500' },
     tapHint: { fontSize: 11, color: colors.textMuted, marginTop: 8, textAlign: 'right', fontWeight: '500' },
     // Chart Cards
     chartCard: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 20, ...withContinuousRadius(RADIUS.xl), padding: 20, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.md },

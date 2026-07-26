@@ -7,6 +7,7 @@ import { FlatList, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppColors, SHADOWS, CATEGORY_COLORS, RADIUS, withContinuousRadius } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
+import { Ionicons } from '@expo/vector-icons';
 import ModalBackdrop from './ui/ModalBackdrop';
 import SegmentedControl from './ui/SegmentedControl';
 import SortChips from './ui/SortChips';
@@ -109,7 +110,7 @@ function StatsView({ records, onScroll, colors, statsStyles }: { records: Transf
             {stats.maxExpRecord ? (
                 <View style={statsStyles.maxCard}>
                     <View style={statsStyles.maxHeader}>
-                        <Text style={statsStyles.maxIcon}>💸</Text>
+                        <Ionicons name="receipt-outline" size={20} color={colors.yellow} />
                         <Text style={statsStyles.maxTitle}>最大單筆支出</Text>
                     </View>
                     <View style={statsStyles.maxBody}>
@@ -243,12 +244,18 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
 
                     {/* Summary */}
                     <View style={styles.summaryRow}>
-                        <View style={[styles.summaryItem, { backgroundColor: colors.greenLight }]}>
-                            <Text style={[styles.summaryLabel, { color: colors.green }]}>收入</Text>
+                        <View style={[styles.summaryItem, { backgroundColor: colors.greenLight, borderColor: colors.greenLight }]}>
+                            <View style={styles.summaryBadgeHeader}>
+                                <Ionicons name="arrow-up-circle-outline" size={16} color={colors.green} />
+                                <Text style={[styles.summaryLabel, { color: colors.green }]}>收入</Text>
+                            </View>
                             <Text style={[styles.summaryValue, { color: colors.green }]}>${totalIncome.toLocaleString()}</Text>
                         </View>
-                        <View style={[styles.summaryItem, { backgroundColor: colors.redLight }]}>
-                            <Text style={[styles.summaryLabel, { color: colors.red }]}>支出</Text>
+                        <View style={[styles.summaryItem, { backgroundColor: colors.redLight, borderColor: colors.redLight }]}>
+                            <View style={styles.summaryBadgeHeader}>
+                                <Ionicons name="arrow-down-circle-outline" size={16} color={colors.red} />
+                                <Text style={[styles.summaryLabel, { color: colors.red }]}>支出</Text>
+                            </View>
                             <Text style={[styles.summaryValue, { color: colors.red }]}>${totalExpense.toLocaleString()}</Text>
                         </View>
                     </View>
@@ -322,9 +329,10 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     handleBar: { width: 40, height: 5, backgroundColor: colors.border, borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
     // Summary
     summaryRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-    summaryItem: { flex: 1, padding: 16, borderRadius: 16, alignItems: 'center', ...SHADOWS.sm },
-    summaryLabel: { ...typography.caption },
-    summaryValue: { fontSize: 18, fontWeight: '800', marginTop: 4, letterSpacing: -0.5 },
+    summaryItem: { flex: 1, padding: 14, ...withContinuousRadius(RADIUS.md), alignItems: 'center', borderWidth: 1, ...SHADOWS.sm },
+    summaryBadgeHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    summaryLabel: { ...typography.caption, fontWeight: '700' },
+    summaryValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5 },
     // Mode Toggle
     modeRow: { paddingHorizontal: 16, paddingBottom: 12 },
     modeToggle: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 16, padding: 4, borderWidth: 1, borderColor: colors.divider, ...SHADOWS.sm },

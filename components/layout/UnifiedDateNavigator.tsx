@@ -85,8 +85,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         ...withContinuousRadius(RADIUS.md),
         borderWidth: 1,
         borderColor: colors.cardBorder,
-        paddingHorizontal: 4,
-        paddingVertical: 4,
+        paddingHorizontal: 5,
+        paddingVertical: 5,
         ...SHADOWS.sm,
     },
     arrowBtn: {
@@ -96,12 +96,13 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         justifyContent: 'center',
         paddingHorizontal: 12,
         ...withContinuousRadius(RADIUS.sm),
+        backgroundColor: colors.accentLight,
     },
     dateDisplay: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 6,
+        paddingVertical: 7,
         paddingHorizontal: 8,
         ...withContinuousRadius(RADIUS.sm),
     },
@@ -111,7 +112,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     dateText: {
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '800',
         color: colors.textPrimary,
     },
     subText: {

@@ -25,16 +25,16 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
         chrome: {
             backgroundColor: colors.headerBg,
             paddingHorizontal: 16,
-            paddingVertical: 10,
+            paddingVertical: 12,
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: colors.cardBorder,
             ...Platform.select({
-                android: { elevation: 2 },
+                android: { elevation: 3 },
                 ios: {
                     shadowColor: '#0F172A',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: 0.06,
+                    shadowRadius: 10,
                 },
                 default: {},
             }),

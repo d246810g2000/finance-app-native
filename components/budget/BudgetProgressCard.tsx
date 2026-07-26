@@ -199,15 +199,15 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             color: colors.red,
         },
         progressTrack: {
-            height: 5,
-            backgroundColor: colors.divider,
-            borderRadius: 3,
+            height: 7,
+            backgroundColor: colors.bg,
+            borderRadius: 4,
             marginBottom: 6,
             overflow: 'hidden',
         },
         progressFill: {
             height: '100%',
-            borderRadius: 3,
+            borderRadius: 4,
         },
         bottomRow: {
             flexDirection: 'row',

@@ -24,10 +24,11 @@ export default function CompactSummaryBar({ items, style }: CompactSummaryBarPro
         <View style={[styles.row, style]}>
             {items.map((item, idx) => (
                 <React.Fragment key={item.label}>
-                    {idx > 0 ? <Text style={styles.divider}>|</Text> : null}
-                    <Text style={styles.text}>
-                        {item.label} <Text style={styles.value}>{item.value}</Text>
-                    </Text>
+                    {idx > 0 ? <View style={styles.divider} /> : null}
+                    <View style={styles.metric}>
+                        <Text style={styles.text}>{item.label}</Text>
+                        <Text style={styles.value}>{item.value}</Text>
+                    </View>
                 </React.Fragment>
             ))}
         </View>
@@ -38,19 +39,20 @@ const createStyles = (colors: AppColors) =>
     StyleSheet.create({
         row: {
             flexDirection: 'row',
-            justifyContent: 'center',
+            justifyContent: 'space-evenly',
             alignItems: 'center',
             backgroundColor: colors.card,
             marginHorizontal: 16,
             marginTop: 12,
-            paddingVertical: 14,
-            paddingHorizontal: 20,
+            paddingVertical: 13,
+            paddingHorizontal: 12,
             ...withContinuousRadius(RADIUS.lg),
             borderWidth: 1,
             borderColor: colors.cardBorder,
             ...SHADOWS.sm,
         },
-        text: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
-        value: { color: colors.textPrimary, fontWeight: '800', fontSize: 15 },
-        divider: { color: colors.divider, marginHorizontal: 14, fontSize: 12 },
+        metric: { flex: 1, alignItems: 'center', gap: 3 },
+        text: { fontSize: 12, color: colors.textMuted, fontWeight: '700' },
+        value: { color: colors.textPrimary, fontWeight: '800', fontSize: 17, letterSpacing: -0.3 },
+        divider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: colors.divider },
     });

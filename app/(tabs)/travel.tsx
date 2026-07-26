@@ -11,6 +11,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
 import AccentListCard from '../../components/ui/AccentListCard';
 import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
+import SectionHeader from '../../components/ui/SectionHeader';
 import PageChrome from '../../components/layout/PageChrome';
 import { aggregateTravelProjects, TravelProject } from '../../services/shared';
 import DateRangeSelector from '../../components/DateRangeSelector';
@@ -133,6 +134,8 @@ export default function TravelScreen() {
                 ]}
             />
 
+            <SectionHeader title="旅程總覽" accent={colors.blue} style={styles.sectionHeader} />
+
             {/* Sort Chips */}
             <View style={styles.sortContainer}>
                 <SortChips
@@ -198,7 +201,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     listHeaderWrapper: { marginHorizontal: -16 },
 
     // Sort Chips — identical to budget/project page
-    sortContainer: { marginTop: 14, marginBottom: 0 },
+    sectionHeader: { marginHorizontal: 16, marginTop: 22, marginBottom: 2 },
+    sortContainer: { marginTop: 12, marginBottom: 0 },
 
     // Travel card extra content (below AccentListCard meta row)
     dateRange: { ...typography.caption, marginTop: 8, marginBottom: 10 },

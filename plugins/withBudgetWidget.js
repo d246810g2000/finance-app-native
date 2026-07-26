@@ -470,10 +470,12 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
         if (action == "com.anonymous.financeappnative.ACTION_PREV_MONTH" || action == "com.anonymous.financeappnative.ACTION_NEXT_MONTH") {
             val prefs = context.getSharedPreferences("budget_widget_data", Context.MODE_PRIVATE)
             val currentOffset = prefs.getInt("viewedMonthOffset", 0)
+            val minOffset = prefs.getInt("minMonthOffset", -12)
+            val maxOffset = prefs.getInt("maxMonthOffset", 12)
             val newOffset = if (action == "com.anonymous.financeappnative.ACTION_PREV_MONTH") {
-                Math.max(-1, currentOffset - 1)
+                Math.max(minOffset, currentOffset - 1)
             } else {
-                Math.min(1, currentOffset + 1)
+                Math.min(maxOffset, currentOffset + 1)
             }
             prefs.edit().putInt("viewedMonthOffset", newOffset).apply()
             updateAllWidgets(context)
@@ -482,7 +484,13 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
 
     fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val prefs = context.getSharedPreferences("budget_widget_data", Context.MODE_PRIVATE)
-        val offset = prefs.getInt("viewedMonthOffset", 0)
+        val minOffset = prefs.getInt("minMonthOffset", -12)
+        val maxOffset = prefs.getInt("maxMonthOffset", 12)
+        var offset = prefs.getInt("viewedMonthOffset", 0)
+        if (offset < minOffset || offset > maxOffset) {
+            offset = offset.coerceIn(minOffset, maxOffset)
+            prefs.edit().putInt("viewedMonthOffset", offset).apply()
+        }
         val prefix = if (offset == 0) "m0_" else "m\${offset}_"
 
         val dailyBudget = prefs.getInt("\${prefix}dailyBudget", 0)
@@ -523,13 +531,13 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
         }
         views.setTextViewText(R.id.tv_title, titleText)
 
-        // Show/Hide prev/next arrows based on bounds (-1 and 1)
-        if (offset <= -1) {
+        // Show/Hide prev/next arrows based on synced month range
+        if (offset <= minOffset) {
             views.setViewVisibility(R.id.btn_prev, android.view.View.INVISIBLE)
         } else {
             views.setViewVisibility(R.id.btn_prev, android.view.View.VISIBLE)
         }
-        if (offset >= 1) {
+        if (offset >= maxOffset) {
             views.setViewVisibility(R.id.btn_next, android.view.View.INVISIBLE)
         } else {
             views.setViewVisibility(R.id.btn_next, android.view.View.VISIBLE)
@@ -573,7 +581,7 @@ abstract class BaseBudgetWidgetProvider(private val layoutResId: Int) : AppWidge
                 views.setTextViewText(R.id.tv_next_due_name, "\${nextFixedName} (預計 NT$ \${String.format("%,d", nextFixedAmount)})")
             } else {
                 views.setTextViewText(R.id.tv_next_due_date, "無待繳項")
-                views.setTextViewText(R.id.tv_next_due_name, "本月固定支出已清")
+                views.setTextViewText(R.id.tv_next_due_name, "目前沒有待繳的固定支出")
             }
         } catch (e: Exception) {}
 

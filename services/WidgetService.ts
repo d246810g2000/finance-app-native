@@ -24,19 +24,20 @@ class WidgetService {
             const now = new Date();
             const syncOps: Promise<any>[] = [];
 
-            // 同步 前一個月、當前月、下一個月
-            for (let offset = -1; offset <= 1; offset++) {
+            // 同步前後各 12 個月，讓桌面小工具可連續切換
+            const MONTH_RANGE = 12;
+            for (let offset = -MONTH_RANGE; offset <= MONTH_RANGE; offset++) {
                 const targetMonth = new Date(now.getFullYear(), now.getMonth() + offset, 1);
                 const prefix = `m${offset}_`;
                 syncOps.push(...await this._syncMonthData(records, budgets, config, targetMonth, prefix));
             }
 
+            syncOps.push(SharedPrefs.setInt('minMonthOffset', -MONTH_RANGE));
+            syncOps.push(SharedPrefs.setInt('maxMonthOffset', MONTH_RANGE));
+
             await Promise.all(syncOps);
-            
-            // 每次同步時重置偏移量為 0 (回到當前月)
-            await SharedPrefs.setInt('viewedMonthOffset', 0);
- 
-            // 觸發 Widget 刷新
+
+            // 觸發 Widget 刷新（保留使用者目前檢視的月份）
             await SharedPrefs.updateWidget();
         } catch (e) {
             console.warn('Failed to sync widget data', e);

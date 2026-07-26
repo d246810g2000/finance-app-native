@@ -69,42 +69,70 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const edgeH = Math.max(insets.left, SCREEN_EDGE_MIN);
 
     const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const shouldOpenSettingsAfterClose = useRef(false);
     const [isAnimating, setIsAnimating] = useState(false);
     const [isSettingsVisible, setIsSettingsVisible] = useState(false);
 
     useEffect(() => {
         if (actualVisible) {
             setIsAnimating(true);
-            Animated.timing(slideAnim, {
-                toValue: 0,
-                duration: 280,
-                useNativeDriver: true,
-            }).start(() => setIsAnimating(false));
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: 0,
+                    duration: 220,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 220,
+                    useNativeDriver: true,
+                }),
+            ]).start(() => setIsAnimating(false));
         } else {
             setIsAnimating(true);
-            Animated.timing(slideAnim, {
-                toValue: -MENU_WIDTH,
-                duration: 280,
-                useNativeDriver: true,
-            }).start(() => setIsAnimating(false));
+            Animated.parallel([
+                Animated.timing(slideAnim, {
+                    toValue: -MENU_WIDTH,
+                    duration: 180,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 180,
+                    useNativeDriver: true,
+                }),
+            ]).start(() => {
+                setIsAnimating(false);
+                if (shouldOpenSettingsAfterClose.current) {
+                    shouldOpenSettingsAfterClose.current = false;
+                    setIsSettingsVisible(true);
+                }
+            });
         }
-    }, [actualVisible, slideAnim]);
+    }, [actualVisible, slideAnim, fadeAnim]);
 
     if (!actualVisible && !isAnimating && !isSettingsVisible) return null;
 
     const navigateTo = (path: string) => {
         actualOnClose();
-        setTimeout(() => router.push(path as any), 280);
+        requestAnimationFrame(() => {
+            router.push(path as any);
+        });
     };
 
     const openSettings = () => {
+        // A native Modal cannot reliably present another Modal while its close
+        // animation is still running. Wait for the drawer animation callback.
+        shouldOpenSettingsAfterClose.current = true;
         actualOnClose();
-        setTimeout(() => setIsSettingsVisible(true), 300);
     };
 
     const openSearch = () => {
         actualOnClose();
-        setTimeout(() => setSearchModalVisible(true), 280);
+        requestAnimationFrame(() => {
+            setSearchModalVisible(true);
+        });
     };
 
     return (
@@ -117,12 +145,14 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                 statusBarTranslucent
             >
                 <View style={styles.overlay}>
-                    <Pressable
-                        style={styles.backdrop}
-                        onPress={actualOnClose}
-                        accessibilityRole="button"
-                        accessibilityLabel="關閉選單"
-                    />
+                    <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+                        <Pressable
+                            style={StyleSheet.absoluteFill}
+                            onPress={actualOnClose}
+                            accessibilityRole="button"
+                            accessibilityLabel="關閉選單"
+                        />
+                    </Animated.View>
 
                     <Animated.View style={[styles.drawerShell, { transform: [{ translateX: slideAnim }] }]}>
                         <View

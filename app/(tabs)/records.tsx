@@ -572,8 +572,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     modalOverlay: { flex: 1, justifyContent: 'center' },
     calendarModalContent: { backgroundColor: colors.card, margin: 20, ...withContinuousRadius(RADIUS.xl), padding: 12, paddingBottom: 20, ...SHADOWS.lg },
     // Record Card badge + description (card shell provided by AccentListCard)
-    categoryBadge: { backgroundColor: colors.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder, marginHorizontal: 8 },
-    categoryBadgeText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+    categoryBadge: { backgroundColor: colors.accentLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.xs, borderWidth: 1, borderColor: colors.accentBorder, marginHorizontal: 6 },
+    categoryBadgeText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
     metaDesc: { fontSize: 12, fontWeight: '400', color: colors.textMuted, flex: 1 },
     sectionHeader: { backgroundColor: colors.bg, paddingHorizontal: 16, marginHorizontal: -16, paddingVertical: 8, marginTop: 6 },
     sectionHeaderText: { color: colors.textSecondary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },

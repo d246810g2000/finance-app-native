@@ -247,58 +247,59 @@ export const calculateBudgetStatus = (
     spent: Math.round(fixedProjectSpent[project] || 0),
   }));
 
-  // 5. Calculate nextFixedExpense (待繳項目)
+  // 5. Calculate nextFixedExpense (待繳項目) — 當月／未來月／過去月皆可計算
   let nextFixedExpense: BudgetCalculationResult['nextFixedExpense'] = undefined;
-  
-  if (isCurrentMonth) {
-    const pendingItems: { name: string; amount: number; day: number }[] = [];
-    
-    fixedProjectsInConfig.forEach(project => {
-      if (!paidFixedProjects.has(project)) {
-        // 尋找該專案的扣款日與最近一筆金額
-        // 我們從所有紀錄中尋找
-        const projectRecords = records.filter(r => r['專案'] === project).sort((a, b) => {
-          const dateA = a.parsedDate || new Date(0);
-          const dateB = b.parsedDate || new Date(0);
-          return dateB.getTime() - dateA.getTime();
-        });
+  const pendingItems: { name: string; amount: number; day: number }[] = [];
+  const daysInTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
 
-        if (projectRecords.length > 0) {
-          const lastRecord = projectRecords[0];
-          const dueDay = getDueDayFromRecord(lastRecord);
-          if (dueDay !== null) {
-            const rawAmountStr = (lastRecord['金額'] || '').replace(/[,￥$€£]/g, '').trim();
-            let lastAmount = parseFloat(rawAmountStr) || 0;
-            const exchangeRate = EXCHANGE_RATES[lastRecord['幣別']] || 1;
-            lastAmount = Math.abs(lastAmount * exchangeRate);
-            if (config.splitProjects.includes(project)) lastAmount *= 0.5;
+  fixedProjectsInConfig.forEach(project => {
+    if (paidFixedProjects.has(project)) return;
 
-            pendingItems.push({
-              name: project,
-              amount: Math.round(lastAmount),
-              day: dueDay
-            });
-          }
-        }
-      }
+    const projectRecords = records.filter(r => r['專案'] === project).sort((a, b) => {
+      const dateA = a.parsedDate || new Date(0);
+      const dateB = b.parsedDate || new Date(0);
+      return dateB.getTime() - dateA.getTime();
     });
 
-    if (pendingItems.length > 0) {
+    if (projectRecords.length === 0) return;
+
+    const lastRecord = projectRecords[0];
+    const dueDay = getDueDayFromRecord(lastRecord);
+    if (dueDay === null) return;
+
+    const rawAmountStr = (lastRecord['金額'] || '').replace(/[,￥$€£]/g, '').trim();
+    let lastAmount = parseFloat(rawAmountStr) || 0;
+    const exchangeRate = EXCHANGE_RATES[lastRecord['幣別']] || 1;
+    lastAmount = Math.abs(lastAmount * exchangeRate);
+    if (config.splitProjects.includes(project)) lastAmount *= 0.5;
+
+    pendingItems.push({
+      name: project,
+      amount: Math.round(lastAmount),
+      day: Math.min(dueDay, daysInTargetMonth),
+    });
+  });
+
+  if (pendingItems.length > 0) {
+    if (isCurrentMonth) {
+      // 當月：優先找今天之後最接近的；若皆已過則選日期最小者
       const today = now.getDate();
-      // 排序規則：優先找今天之後最接近的；如果都過了，選日期最小的（可能是下個月或過期）
       pendingItems.sort((a, b) => {
         const diffA = a.day >= today ? a.day - today : a.day + 31 - today;
         const diffB = b.day >= today ? b.day - today : b.day + 31 - today;
         return diffA - diffB;
       });
-
-      const next = pendingItems[0];
-      nextFixedExpense = {
-        name: next.name,
-        amount: next.amount,
-        date: `${String(targetMonthIndex + 1).padStart(2, '0')}/${String(next.day).padStart(2, '0')}`
-      };
+    } else {
+      // 非當月：依扣款日由早到晚
+      pendingItems.sort((a, b) => a.day - b.day);
     }
+
+    const next = pendingItems[0];
+    nextFixedExpense = {
+      name: next.name,
+      amount: next.amount,
+      date: `${String(targetMonthIndex + 1).padStart(2, '0')}/${String(next.day).padStart(2, '0')}`,
+    };
   }
 
   // 6. Calculate daily unbudgeted spent

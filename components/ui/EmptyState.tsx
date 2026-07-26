@@ -59,11 +59,11 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     StyleSheet.create({
         container: {
             alignItems: 'center',
-            paddingVertical: 64,
+            paddingVertical: 72,
             paddingHorizontal: 36,
         },
         iconWrap: {
-            marginBottom: 20,
+            marginBottom: 18,
             ...SHADOWS.sm,
             ...withContinuousRadius(36),
         },
@@ -81,9 +81,10 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             maxWidth: 280,
         },
         actionBtn: {
-            marginTop: 24,
+            marginTop: 28,
+            minHeight: 48,
             paddingHorizontal: 24,
-            paddingVertical: 14,
+            justifyContent: 'center',
             backgroundColor: colors.accent,
             ...withContinuousRadius(RADIUS.md),
             ...SHADOWS.sm,

@@ -12,6 +12,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
 import AccentListCard from '../../components/ui/AccentListCard';
 import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
+import SectionHeader from '../../components/ui/SectionHeader';
 import PageChrome from '../../components/layout/PageChrome';
 import { TransformedRecord } from '../../types';
 import { TRAVEL_PROJECT_REGEX, ProjectData } from '../../services/shared';
@@ -113,6 +114,8 @@ export default function ProjectScreen() {
                 ]}
             />
 
+            <SectionHeader title="專案支出" style={styles.sectionHeader} />
+
             {/* Sort Chips */}
             <View style={styles.sortContainer}>
                 <SortChips
@@ -177,5 +180,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     listHeaderWrapper: { marginHorizontal: -16 },
 
     // Sort Chips
-    sortContainer: { marginTop: 14, marginBottom: 0 },
+    sectionHeader: { marginHorizontal: 16, marginTop: 22, marginBottom: 2 },
+    sortContainer: { marginTop: 12, marginBottom: 0 },
 });

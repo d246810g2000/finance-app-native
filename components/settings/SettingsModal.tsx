@@ -151,7 +151,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     return (
         <Modal
             visible={visible}
-            animationType="none"
+            animationType="slide"
             transparent
             presentationStyle="overFullScreen"
             onRequestClose={onClose}
