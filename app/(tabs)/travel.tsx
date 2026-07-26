@@ -2,11 +2,10 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
+import { useRouter } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
-import { TransformedRecord } from '../../types';
 import { AppColors, CATEGORY_COLORS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
-import DetailModal from '../../components/DetailModal';
 import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
 import AccentListCard from '../../components/ui/AccentListCard';
@@ -23,8 +22,8 @@ export default function TravelScreen() {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const { records } = useFinance();
+    const router = useRouter();
     const [sortKey, setSortKey] = useState<SortKey>('date_desc');
-    const [detailModal, setDetailModal] = useState<{ visible: boolean; title: string; data: TransformedRecord[] }>({ visible: false, title: '', data: [] });
 
     const [startDate, setStartDate] = useState(() => {
         const d = new Date(); d.setMonth(0, 1); d.setHours(0, 0, 0, 0); return d;
@@ -74,8 +73,8 @@ export default function TravelScreen() {
     const totalTravelExpense = useMemo(() => travelProjects.reduce((sum, p) => sum + p.totalExpense, 0), [travelProjects]);
 
     const handleProjectClick = useCallback((project: TravelProject) => {
-        setDetailModal({ visible: true, title: `旅遊明細: ${project.name.replace(/^\d{6}-/, '')}`, data: project.records });
-    }, []);
+        router.push({ pathname: '/travel/[name]', params: { name: project.name } });
+    }, [router]);
 
     useEffect(() => {
         if (travelProjects.length > 0) {
@@ -182,13 +181,6 @@ export default function TravelScreen() {
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
                 // @ts-ignore
                 estimatedItemSize={210}
-            />
-
-            <DetailModal
-                visible={detailModal.visible}
-                title={detailModal.title}
-                records={detailModal.data}
-                onClose={() => setDetailModal({ ...detailModal, visible: false })}
             />
         </View>
     );
