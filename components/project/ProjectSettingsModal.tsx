@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { RawRecord, BudgetGlobalConfig, BudgetRule } from '../../types';
-import { AppColors, SHADOWS } from '../../theme';
+import { AppColors } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import ModalBackdrop from '../ui/ModalBackdrop';
 import BatchBudgetModal from '../budget/BatchBudgetModal';
@@ -194,9 +194,10 @@ export default function ProjectSettingsModal({
                                                     <Switch
                                                         value={timelineProjects.has(l.name)}
                                                         onValueChange={() => toggleTimeline(l.name)}
-                                                        trackColor={{ false: colors.border, true: colors.accent }}
-                                                        thumbColor="#fff"
+                                                        trackColor={{ false: colors.border, true: colors.primary }}
+                                                        thumbColor={colors.textWhite}
                                                         ios_backgroundColor={colors.border}
+                                                        accessibilityLabel={`時間軸顯示專案 ${l.name}`}
                                                     />
                                                 </View>
                                             );
@@ -216,9 +217,10 @@ export default function ProjectSettingsModal({
                                         <Switch
                                             value={excludeTravel}
                                             onValueChange={setExcludeTravel}
-                                            trackColor={{ false: colors.border, true: colors.accent }}
-                                            thumbColor="#fff"
+                                            trackColor={{ false: colors.border, true: colors.primary }}
+                                            thumbColor={colors.textWhite}
                                             ios_backgroundColor={colors.border}
+                                            accessibilityLabel="排除旅遊專案"
                                         />
                                     </View>
                                 </View>
@@ -236,9 +238,10 @@ export default function ProjectSettingsModal({
                                                 <Switch
                                                     value={includedProjects.has(proj)}
                                                     onValueChange={() => toggleIncluded(proj)}
-                                                    trackColor={{ false: colors.border, true: colors.accent }}
-                                                    thumbColor="#fff"
+                                                    trackColor={{ false: colors.border, true: colors.primary }}
+                                                    thumbColor={colors.textWhite}
                                                     ios_backgroundColor={colors.border}
+                                                    accessibilityLabel={`納入預算計算 ${proj || '無專案'}`}
                                                 />
                                             </View>
                                         );
@@ -291,8 +294,9 @@ export default function ProjectSettingsModal({
                                             value={splitSharedAccounts}
                                             onValueChange={setSplitSharedAccounts}
                                             trackColor={{ false: colors.border, true: colors.blue }}
-                                            thumbColor="#fff"
+                                            thumbColor={colors.textWhite}
                                             ios_backgroundColor={colors.border}
+                                            accessibilityLabel="共享帳戶亦套用五成"
                                         />
                                     </View>
                                     {includedArray.map((proj, index) => {
@@ -304,8 +308,9 @@ export default function ProjectSettingsModal({
                                                     value={splitProjects.has(proj)}
                                                     onValueChange={() => toggleSplit(proj)}
                                                     trackColor={{ false: colors.border, true: colors.blue }}
-                                                    thumbColor="#fff"
+                                                    thumbColor={colors.textWhite}
                                                     ios_backgroundColor={colors.border}
+                                                    accessibilityLabel={`${proj || '無專案'} 自動分帳`}
                                                 />
                                             </View>
                                         );
@@ -321,7 +326,7 @@ export default function ProjectSettingsModal({
                                         style={({ pressed }) => [styles.batchRow, pressed && { opacity: 0.7 }]}
                                         accessibilityRole="button"
                                     >
-                                        <View style={[styles.batchIcon, { backgroundColor: colors.blue + '15' }]}>
+                                        <View style={[styles.batchIcon, { backgroundColor: colors.primaryContainer }]}>
                                             <Ionicons name="grid-outline" size={20} color={colors.blue} />
                                         </View>
                                         <View style={styles.rowTextCol}>
@@ -360,11 +365,13 @@ export default function ProjectSettingsModal({
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) =>
     StyleSheet.create({
         modalContent: {
-            backgroundColor: colors.bg,
+            backgroundColor: colors.surface,
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
             height: '90%',
-            ...SHADOWS.lg,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
+            borderBottomWidth: 0,
         },
         dragHandle: {
             width: 40,
@@ -398,11 +405,11 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         saveBtn: {
             paddingHorizontal: 16,
             paddingVertical: 8,
-            backgroundColor: colors.accentLight,
+            backgroundColor: colors.primaryContainer,
             borderRadius: 16,
         },
         saveBtnText: {
-            color: colors.accent,
+            color: colors.primary,
             fontWeight: '700',
             fontSize: 14,
         },
@@ -424,7 +431,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             lineHeight: 18,
         },
         card: {
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             borderRadius: 16,
             borderWidth: 1,
             borderColor: colors.divider,

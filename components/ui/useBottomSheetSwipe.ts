@@ -10,21 +10,17 @@ import {
     type SharedValue,
 } from 'react-native-reanimated';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const DISMISS_DISTANCE = 96;
 const DISMISS_VELOCITY = 850;
-const HORIZONTAL_DISMISS_DISTANCE = 110;
-const HORIZONTAL_DISMISS_VELOCITY = 800;
 
 interface BottomSheetSwipeOptions {
-    /** 允許左右滑動關閉（DetailModal 等） */
-    enableHorizontalDismiss?: boolean;
+    /** 禁用列表內容區域的下滑手勢（僅頂部 Header / HandleBar 允許下滑關閉），適用於包含 Swipeable 列表的 Modal */
+    disableSheetSwipe?: boolean;
 }
 
 function useDismissActions(
     translateY: SharedValue<number>,
-    translateX: SharedValue<number>,
     onCloseRef: React.MutableRefObject<() => void>,
 ) {
     const close = useCallback(() => {
@@ -40,20 +36,11 @@ function useDismissActions(
         });
     }, [close, translateY]);
 
-    const dismissSheetHorizontal = useCallback((dx: number) => {
-        translateX.value = withTiming(dx > 0 ? SCREEN_WIDTH : -SCREEN_WIDTH, { duration: 220 }, (finished) => {
-            if (finished) {
-                runOnJS(close)();
-            }
-        });
-    }, [close, translateX]);
-
     const snapBack = useCallback(() => {
         translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
-        translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
-    }, [translateX, translateY]);
+    }, [translateY]);
 
-    return { dismissSheet, dismissSheetHorizontal, snapBack };
+    return { dismissSheet, snapBack };
 }
 
 /**
@@ -69,109 +56,71 @@ export function useBottomSheetSwipe(
     options: BottomSheetSwipeOptions = {},
 ) {
     const translateY = useSharedValue(0);
-    const translateX = useSharedValue(0);
     const isAtTop = useSharedValue(true);
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
 
-    const enableHorizontalDismiss = !!options.enableHorizontalDismiss;
-    const { dismissSheet, dismissSheetHorizontal, snapBack } = useDismissActions(translateY, translateX, onCloseRef);
+    const disableSheetSwipe = !!options.disableSheetSwipe;
+    const { dismissSheet, snapBack } = useDismissActions(translateY, onCloseRef);
 
     useEffect(() => {
         if (visible) {
             isAtTop.value = true;
-            translateX.value = 0;
             // 自訂進場：從底部滑入，避免與 Modal animationType 衝突
             translateY.value = SCREEN_HEIGHT;
             translateY.value = withTiming(0, { duration: 280 });
         }
-    }, [visible, isAtTop, translateX, translateY]);
+    }, [visible, isAtTop, translateY]);
 
     const headerGesture = useMemo(() => Gesture.Pan()
-        .activeOffsetY([-4, 12])
-        .failOffsetX([-28, 28])
+        .activeOffsetY([0, 12])
+        .failOffsetX([-24, 24])
         .onUpdate((e) => {
             'worklet';
-            if (
-                enableHorizontalDismiss &&
-                Math.abs(e.translationX) > Math.abs(e.translationY) &&
-                Math.abs(e.translationX) > 8
-            ) {
-                translateX.value = e.translationX;
-                return;
-            }
             if (e.translationY > 0) {
                 translateY.value = e.translationY;
             }
         })
         .onEnd((e) => {
             'worklet';
-            if (
-                enableHorizontalDismiss &&
-                (Math.abs(e.translationX) > HORIZONTAL_DISMISS_DISTANCE || Math.abs(e.velocityX) > HORIZONTAL_DISMISS_VELOCITY)
-            ) {
-                runOnJS(dismissSheetHorizontal)(e.translationX);
-                return;
-            }
             if (e.translationY > DISMISS_DISTANCE || e.velocityY > DISMISS_VELOCITY) {
                 runOnJS(dismissSheet)();
             } else {
                 runOnJS(snapBack)();
             }
         }),
-    [dismissSheet, dismissSheetHorizontal, enableHorizontalDismiss, snapBack, translateX, translateY]);
+    [dismissSheet, snapBack, translateY]);
 
-    const sheetGesture = useMemo(() => Gesture.Pan()
-        .manualActivation(true)
-        .activeOffsetY([-4, 12])
-        .failOffsetX([-28, 28])
-        .onTouchesMove((_, state) => {
-            if (isAtTop.value) {
-                state.activate();
-            } else {
-                state.fail();
-            }
-        })
-        .onUpdate((e) => {
-            'worklet';
-            if (
-                enableHorizontalDismiss &&
-                Math.abs(e.translationX) > Math.abs(e.translationY) &&
-                Math.abs(e.translationX) > 8
-            ) {
-                translateX.value = e.translationX;
-                return;
-            }
-            if (e.translationY > 0) {
-                translateY.value = e.translationY;
-            }
-        })
-        .onEnd((e) => {
-            'worklet';
-            if (!isAtTop.value) {
-                runOnJS(snapBack)();
-                return;
-            }
-            if (
-                enableHorizontalDismiss &&
-                (Math.abs(e.translationX) > HORIZONTAL_DISMISS_DISTANCE || Math.abs(e.velocityX) > HORIZONTAL_DISMISS_VELOCITY)
-            ) {
-                runOnJS(dismissSheetHorizontal)(e.translationX);
-                return;
-            }
-            if (e.translationY > DISMISS_DISTANCE || e.velocityY > DISMISS_VELOCITY) {
-                runOnJS(dismissSheet)();
-            } else {
-                runOnJS(snapBack)();
-            }
-        }),
-    [dismissSheet, dismissSheetHorizontal, enableHorizontalDismiss, isAtTop, snapBack, translateX, translateY]);
+    const sheetGesture = useMemo(() => {
+        if (disableSheetSwipe) {
+            return Gesture.Native().enabled(false);
+        }
+        return Gesture.Pan()
+            .activeOffsetY([12, 500])
+            .failOffsetX([-18, 18])
+            .onUpdate((e) => {
+                'worklet';
+                if (isAtTop.value && e.translationY > 0) {
+                    translateY.value = e.translationY;
+                }
+            })
+            .onEnd((e) => {
+                'worklet';
+                if (!isAtTop.value) {
+                    runOnJS(snapBack)();
+                    return;
+                }
+                if (e.translationY > DISMISS_DISTANCE || e.velocityY > DISMISS_VELOCITY) {
+                    runOnJS(dismissSheet)();
+                } else {
+                    runOnJS(snapBack)();
+                }
+            });
+    }, [disableSheetSwipe, dismissSheet, isAtTop, snapBack, translateY]);
 
     const sheetAnimatedStyle = useAnimatedStyle(() => ({
-        transform: enableHorizontalDismiss
-            ? [{ translateY: translateY.value }, { translateX: translateX.value }]
-            : [{ translateY: translateY.value }],
-    }), [enableHorizontalDismiss]);
+        transform: [{ translateY: translateY.value }],
+    }));
 
     const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number } } }) => {
         isAtTop.value = event.nativeEvent.contentOffset.y <= 2;

@@ -27,21 +27,21 @@ function getVariantMeta(variant: HealthCheckVariant, colors: AppColors) {
                 accent: colors.green,
                 iconBg: colors.greenLight,
                 icon: 'checkmark-circle' as IoniconsName,
-                border: colors.green + '28',
+                border: colors.outlineVariant,
             };
         case 'red':
             return {
                 accent: colors.red,
                 iconBg: colors.redLight,
                 icon: 'alert-circle' as IoniconsName,
-                border: colors.red + '28',
+                border: colors.outlineVariant,
             };
         case 'new':
             return {
-                accent: colors.accent,
-                iconBg: colors.accentLight,
+                accent: colors.primary,
+                iconBg: colors.primaryContainer,
                 icon: 'sparkles' as IoniconsName,
-                border: colors.accentBorder,
+                border: colors.outlineVariant,
             };
         case 'yellow':
         default:
@@ -49,7 +49,7 @@ function getVariantMeta(variant: HealthCheckVariant, colors: AppColors) {
                 accent: colors.yellow,
                 iconBg: colors.yellowLight,
                 icon: 'warning' as IoniconsName,
-                border: colors.yellow + '40',
+                border: colors.outlineVariant,
             };
     }
 }
@@ -129,7 +129,7 @@ const createStyles = (colors: AppColors, typography: Typography) =>
     StyleSheet.create({
         card: {
             flexDirection: 'row',
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             borderWidth: 1,
             ...withContinuousRadius(RADIUS.md),
             overflow: 'hidden',

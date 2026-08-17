@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, Switch, Alert, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, Switch, Alert, TouchableWithoutFeedback, type ColorValue } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, SHADOWS, RADIUS } from '../../theme';
+import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import ModalBackdrop from '../ui/ModalBackdrop';
 import SheetHeader from '../ui/SheetHeader';
@@ -14,6 +14,7 @@ import NotificationService from '../../services/NotificationService';
 
 import AccountMappingModal from '../account/AccountMappingModal';
 import AccountSettingsModal from '../account/AccountSettingsModal';
+import CreditCardManagementModal from '../reconciliation/CreditCardManagementModal';
 
 interface SettingsModalProps {
     visible: boolean;
@@ -24,8 +25,8 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface SettingsRowProps {
     icon: IoniconsName;
-    iconColor: string;
-    iconBg: string;
+    iconColor: ColorValue;
+    iconBg: ColorValue;
     title: string;
     subtitle: string;
     onPress?: () => void;
@@ -42,11 +43,11 @@ function SettingsRow({ icon, iconColor, iconBg, title, subtitle, onPress, traili
                 <Ionicons name={icon} size={20} color={iconColor} />
             </View>
             <View style={styles.itemTextCol}>
-                <Text style={[styles.itemText, { color: colors.textPrimary }]}>{title}</Text>
+                <Text style={[styles.itemText, { color: colors.onSurface }]}>{title}</Text>
                 <Text style={styles.itemSubtext}>{subtitle}</Text>
             </View>
             {trailing ?? (
-                onPress ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} style={styles.itemTrailing} /> : null
+                onPress ? <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} style={styles.itemTrailing} /> : null
             )}
         </View>
     );
@@ -55,8 +56,10 @@ function SettingsRow({ icon, iconColor, iconBg, title, subtitle, onPress, traili
         return (
             <Pressable
                 onPress={onPress}
-                android_ripple={{ color: colors.accent + '18' }}
-                style={({ pressed }) => [pressed && { backgroundColor: colors.bg }]}
+                android_ripple={{ color: colors.statePressed }}
+                style={({ pressed }) => [pressed && { backgroundColor: colors.surfaceVariant }]}
+                accessibilityRole="button"
+                accessibilityLabel={title}
             >
                 {content}
             </Pressable>
@@ -80,6 +83,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
 
     const [isMappingVisible, setIsMappingVisible] = useState(false);
     const [isVisibilityVisible, setIsVisibilityVisible] = useState(false);
+    const [isCreditCardSettingsVisible, setIsCreditCardSettingsVisible] = useState(false);
     const [notificationEnabled, setNotificationEnabled] = useState(false);
 
     useEffect(() => {
@@ -165,25 +169,36 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                         {/* 1. 帳戶與資產設定 */}
                         <View style={styles.settingsSection}>
                             <View style={styles.sectionTitleRow}>
-                                <Ionicons name="card-outline" size={16} color={colors.accent} style={styles.sectionIcon} />
+                                <Ionicons name="card-outline" size={16} color={colors.primary} style={styles.sectionIcon} />
                                 <Text style={styles.sectionTitle}>帳戶與資產設定</Text>
                             </View>
-                            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                            <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
                                 <SettingsRow
                                     icon="git-branch-outline"
-                                    iconColor={colors.accent}
-                                    iconBg={colors.accent + '15'}
+                                    iconColor={colors.primary}
+                                    iconBg={colors.primaryContainer}
                                     title="帳戶分類對照設定"
                                     subtitle="自訂 CSV 帳戶的「個人/共用」歸屬與類別"
                                     onPress={() => setIsMappingVisible(true)}
                                     colors={colors}
                                     styles={styles}
                                 />
-                                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+                                <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+                                <SettingsRow
+                                    icon="layers-outline"
+                                    iconColor={colors.primary}
+                                    iconBg={colors.primaryContainer}
+                                    title="信用卡對帳設定"
+                                    subtitle="結帳日、帳單群組，並可由此開始對帳"
+                                    onPress={() => setIsCreditCardSettingsVisible(true)}
+                                    colors={colors}
+                                    styles={styles}
+                                />
+                                <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
                                 <SettingsRow
                                     icon="eye-off-outline"
                                     iconColor={colors.green}
-                                    iconBg={colors.green + '15'}
+                                    iconBg={colors.greenLight}
                                     title="帳戶顯示隱私設定"
                                     subtitle="設定要隱藏或排除不列入統計的帳戶"
                                     onPress={() => setIsVisibilityVisible(true)}
@@ -196,14 +211,14 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                         {/* 2. 系統與喜好 */}
                         <View style={styles.settingsSection}>
                             <View style={styles.sectionTitleRow}>
-                                <Ionicons name="settings-outline" size={16} color={colors.textPrimary} style={styles.sectionIcon} />
+                                <Ionicons name="settings-outline" size={16} color={colors.onSurface} style={styles.sectionIcon} />
                                 <Text style={styles.sectionTitle}>系統與喜好設定</Text>
                             </View>
-                            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                            <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
                                 <SettingsRow
                                     icon="notifications-outline"
-                                    iconColor={colors.accent}
-                                    iconBg={colors.accent + '15'}
+                                    iconColor={colors.primary}
+                                    iconBg={colors.primaryContainer}
                                     title="預算常駐通知"
                                     subtitle="在解鎖手機時於通知列常駐顯示本月可用餘額"
                                     colors={colors}
@@ -212,16 +227,16 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                                         <Switch
                                             value={notificationEnabled}
                                             onValueChange={toggleNotification}
-                                            trackColor={{ false: colors.border, true: colors.accent }}
-                                            thumbColor={colors.card}
+                                            trackColor={{ false: colors.outline as string, true: colors.primary as string }}
+                                            thumbColor={colors.surfaceContainer as string}
                                         />
                                     )}
                                 />
-                                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+                                <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
                                 <SettingsRow
                                     icon={theme === 'dark' ? 'moon' : theme === 'light' ? 'sunny' : 'contrast'}
-                                    iconColor={colors.textPrimary}
-                                    iconBg={colors.divider}
+                                    iconColor={colors.onSurface}
+                                    iconBg={colors.surfaceVariant}
                                     title="外觀主題"
                                     subtitle={`目前設定：${theme === 'dark' ? '深色' : theme === 'light' ? '淺色' : '跟隨系統'}`}
                                     onPress={handleThemeChange}
@@ -247,6 +262,10 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 excludedAccounts={excludedAccounts}
                 onSave={saveExcludedAccounts}
             />
+            <CreditCardManagementModal
+                visible={isCreditCardSettingsVisible}
+                onClose={() => setIsCreditCardSettingsVisible(false)}
+            />
         </Modal>
     );
 }
@@ -257,28 +276,24 @@ const createStyles = (colors: AppColors) =>
         container: {
             width: '100%',
             height: '90%',
-            backgroundColor: colors.bg,
-            borderTopLeftRadius: RADIUS.xl,
-            borderTopRightRadius: RADIUS.xl,
-            elevation: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -4 },
-            shadowOpacity: 0.12,
-            shadowRadius: 16,
+            backgroundColor: colors.surfaceContainer,
+            borderTopLeftRadius: RADIUS.sheet,
+            borderTopRightRadius: RADIUS.sheet,
+            overflow: 'hidden',
         },
         handleBar: {
-            width: 40,
-            height: 5,
-            backgroundColor: colors.border,
-            borderRadius: 3,
+            width: 32,
+            height: 4,
+            backgroundColor: colors.outline,
+            borderRadius: RADIUS.full,
             alignSelf: 'center',
-            marginTop: 10,
+            marginTop: 12,
             marginBottom: 4,
         },
         headerOverride: {
             backgroundColor: 'transparent',
             borderBottomWidth: StyleSheet.hairlineWidth,
-            borderBottomColor: colors.divider,
+            borderBottomColor: colors.outlineVariant,
         },
         scroll: {
             flex: 1,
@@ -287,6 +302,7 @@ const createStyles = (colors: AppColors) =>
             paddingHorizontal: 16,
             paddingTop: 8,
             paddingBottom: 24,
+            gap: 8,
         },
         settingsSection: {
             marginBottom: 16,
@@ -296,34 +312,36 @@ const createStyles = (colors: AppColors) =>
             alignItems: 'center',
             marginBottom: 8,
             marginLeft: 4,
+            gap: 8,
         },
         sectionIcon: {
-            marginRight: 8,
+            marginRight: 0,
         },
         sectionTitle: {
             fontSize: 12,
             fontWeight: '800',
-            color: colors.textMuted,
+            color: colors.onSurfaceVariant,
             letterSpacing: 0.4,
             includeFontPadding: false,
         },
         card: {
-            borderRadius: RADIUS.lg,
-            borderWidth: 1,
+            borderRadius: RADIUS.md,
+            borderWidth: StyleSheet.hairlineWidth,
             overflow: 'hidden',
-            ...SHADOWS.sm,
         },
         itemRow: {
             flexDirection: 'row',
             alignItems: 'center',
-            paddingVertical: 14,
+            paddingVertical: 12,
             paddingHorizontal: 14,
             width: '100%',
+            minHeight: 56,
         },
         itemTextCol: {
             flex: 1,
             minWidth: 0,
             marginRight: 8,
+            gap: 2,
         },
         iconBg: {
             width: 40,
@@ -341,8 +359,7 @@ const createStyles = (colors: AppColors) =>
         },
         itemSubtext: {
             fontSize: 12,
-            color: colors.textMuted,
-            marginTop: 3,
+            color: colors.onSurfaceVariant,
             lineHeight: 17,
             includeFontPadding: false,
         },

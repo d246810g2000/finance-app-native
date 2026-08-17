@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { AppColors, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
 type Typography = ReturnType<typeof useAppTheme>['typography'];
@@ -10,7 +10,6 @@ interface SheetHeaderProps {
     subtitle?: string;
     onClose?: () => void;
     closeLabel?: string;
-    /** 自訂右側內容（提供時取代預設關閉鈕） */
     trailing?: React.ReactNode;
     titleNumberOfLines?: number;
     style?: StyleProp<ViewStyle>;
@@ -43,6 +42,7 @@ export default function SheetHeader({
                     style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
                     accessibilityRole="button"
                     accessibilityLabel={closeLabel}
+                    hitSlop={8}
                 >
                     <Text style={styles.closeBtnText}>{closeLabel}</Text>
                 </Pressable>
@@ -58,21 +58,23 @@ const createStyles = (colors: AppColors, typography: Typography) =>
             alignItems: 'center',
             paddingHorizontal: 20,
             paddingVertical: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.divider,
-            backgroundColor: colors.card,
+            gap: 12,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: colors.outlineVariant,
+            backgroundColor: colors.surfaceContainer,
+            minHeight: 56,
         },
-        textCol: { flex: 1 },
-        title: { ...typography.h3, letterSpacing: -0.3 },
-        subtitle: { ...typography.caption, marginTop: 4 },
+        textCol: { flex: 1, gap: 2 },
+        title: { ...typography.titleMedium, fontSize: 18, fontWeight: '700' },
+        subtitle: { ...typography.labelMedium },
         closeBtn: {
+            minHeight: 40,
             paddingHorizontal: 16,
             paddingVertical: 8,
-            backgroundColor: colors.accentLight,
-            ...withContinuousRadius(16),
-            borderWidth: 1,
-            borderColor: colors.accentBorder,
+            justifyContent: 'center',
+            backgroundColor: colors.primaryContainer,
+            ...withContinuousRadius(RADIUS.full),
         },
-        closeBtnPressed: { opacity: 0.7, transform: [{ scale: 0.95 }] },
-        closeBtnText: { color: colors.accent, fontWeight: '700', fontSize: 14 },
+        closeBtnPressed: { opacity: 0.85 },
+        closeBtnText: { color: colors.onPrimaryContainer, fontWeight: '700', fontSize: 14 },
     });

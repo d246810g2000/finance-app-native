@@ -16,6 +16,19 @@ export interface RawRecord {
   '備註': string;
   '摘要'?: string;
   parsedDate?: Date; // Optional, added after initial processing
+  /** 對帳模式：是否已確認對帳 */
+  isReconciled?: boolean;
+}
+
+/** 信用卡帳戶設定（結帳日；同群組卡片會共用結帳日對帳） */
+export interface CreditCardSettings {
+  statementDay: number; // 1–28
+  /** 相同非空群組名稱的卡片會一起出現在對帳模式，並共用結帳日 */
+  statementGroup?: string;
+}
+
+export interface CreditCardSettingsMap {
+  [accountName: string]: CreditCardSettings;
 }
 
 // A record transformed for exporting to another format

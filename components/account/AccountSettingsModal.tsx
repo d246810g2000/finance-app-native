@@ -3,10 +3,11 @@ import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Switch } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { AppColors, SHADOWS } from '../../theme';
+import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import ModalBackdrop from '../ui/ModalBackdrop';
 import { ACCOUNT_CATEGORIES } from '../../constants';
+import { hapticSuccess, hapticLight } from '../../utils/haptics';
 
 interface AccountSettingsModalProps {
     visible: boolean;
@@ -29,6 +30,7 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
     }, [visible, excludedAccounts]);
 
     const toggleAccount = (accountName: string) => {
+        hapticLight();
         setLocalExcluded(prev => {
             const next = new Set(prev);
             if (next.has(accountName)) {
@@ -41,6 +43,7 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
     };
 
     const handleSave = () => {
+        hapticSuccess();
         onSave(Array.from(localExcluded));
         onClose();
     };
@@ -58,7 +61,12 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
                             <Text style={styles.title}>帳戶顯示設定</Text>
                             <Text style={styles.subtitle}>被排除的帳戶將不會計入總資產、收入與支出</Text>
                         </View>
-                        <Pressable onPress={handleSave} style={styles.saveBtn}>
+                        <Pressable
+                            onPress={handleSave}
+                            style={styles.saveBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel="儲存帳戶顯示設定"
+                        >
                             <Text style={styles.saveBtnText}>儲存</Text>
                         </Pressable>
                     </View>
@@ -84,8 +92,9 @@ export default function AccountSettingsModal({ visible, onClose, excludedAccount
                                                         value={!isExcluded}
                                                         onValueChange={() => toggleAccount(account)}
                                                         trackColor={{ false: colors.border, true: colors.green }}
-                                                        thumbColor="#fff"
+                                                        thumbColor={colors.textWhite}
                                                         ios_backgroundColor={colors.border}
+                                                        accessibilityLabel={`${account} ${isExcluded ? '已排除' : '已顯示'}`}
                                                     />
                                                 </View>
                                             );
@@ -107,17 +116,17 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: colors.bg,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        backgroundColor: colors.surfaceContainer,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         height: '85%',
-        ...SHADOWS.lg,
+        overflow: 'hidden',
     },
     dragHandle: {
-        width: 40,
-        height: 5,
-        backgroundColor: colors.border,
-        borderRadius: 3,
+        width: 32,
+        height: 4,
+        backgroundColor: colors.outline,
+        borderRadius: RADIUS.full,
         alignSelf: 'center',
         marginTop: 12,
         marginBottom: 8,
@@ -143,11 +152,11 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     saveBtn: {
         paddingHorizontal: 16,
         paddingVertical: 8,
-        backgroundColor: colors.accentLight,
+        backgroundColor: colors.primaryContainer,
         borderRadius: 16,
     },
     saveBtnText: {
-        color: colors.accent,
+        color: colors.primary,
         fontWeight: '700',
         fontSize: 14,
     },
@@ -168,7 +177,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         marginLeft: 8,
     },
     accountList: {
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         borderRadius: 16,
         borderWidth: 1,
         borderColor: colors.divider,

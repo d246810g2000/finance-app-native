@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, ViewStyle, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppColors, RADIUS } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
-/** handle 列高度：marginTop 12 + bar 5 + marginBottom 8 */
-export const BOTTOM_SHEET_HANDLE_HEIGHT = 25;
+/** handle 列高度：marginTop 12 + bar 4 + marginBottom 8 */
+export const BOTTOM_SHEET_HANDLE_HEIGHT = 24;
 
 interface BottomSheetProps {
     children: React.ReactNode;
@@ -47,7 +47,6 @@ export default function BottomSheet({
     );
 }
 
-/** 計算 BottomSheet 內 ScrollView 可用高度（需扣除 handle、固定 header、safe area） */
 export function useBottomSheetScrollHeight(fixedHeaderHeight: number, maxRatio = 0.9) {
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
@@ -58,20 +57,19 @@ export function useBottomSheetScrollHeight(fixedHeaderHeight: number, maxRatio =
 const createStyles = (colors: AppColors) => StyleSheet.create({
     sheet: {
         width: '100%',
-        backgroundColor: colors.bg,
-        borderTopLeftRadius: RADIUS.xl,
-        borderTopRightRadius: RADIUS.xl,
-        shadowColor: '#0F172A',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 16,
-        elevation: 12,
+        backgroundColor: colors.surfaceContainer,
+        ...withContinuousRadius(RADIUS.sheet),
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
+        overflow: 'hidden',
     },
     handleBar: {
-        width: 40,
-        height: 5,
-        backgroundColor: colors.border,
-        borderRadius: 3,
+        width: 32,
+        height: 4,
+        backgroundColor: colors.outline,
+        borderRadius: RADIUS.full,
         alignSelf: 'center',
         marginTop: 12,
         marginBottom: 8,

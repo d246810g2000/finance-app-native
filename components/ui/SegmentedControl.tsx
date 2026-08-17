@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
+import { hapticSelection } from '../../utils/haptics';
 
 type SegmentedOption<T extends string> = {
     value: T;
@@ -49,13 +50,17 @@ export default function SegmentedControl<T extends string>({
                 return (
                     <Pressable
                         key={option.value}
-                        onPress={() => onChange(option.value)}
+                        onPress={() => {
+                            hapticSelection();
+                            onChange(option.value);
+                        }}
+                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                         style={({ pressed }) => [
                             styles.segment,
                             fullWidth && styles.segmentFull,
                             isCompact && styles.segmentCompact,
                             isActive && styles.segmentActive,
-                            pressed ? { opacity: 0.85, transform: [{ scale: 0.97 }] } : null,
+                            pressed && styles.segmentPressed,
                         ]}
                         accessibilityRole="tab"
                         accessibilityState={{ selected: isActive }}
@@ -66,7 +71,7 @@ export default function SegmentedControl<T extends string>({
                                 <Ionicons
                                     name={option.icon}
                                     size={isCompact ? 14 : 15}
-                                    color={isActive ? colors.accent : colors.textMuted}
+                                    color={isActive ? colors.onPrimaryContainer : colors.textMuted}
                                 />
                             ) : null}
                             <Text style={[styles.label, isCompact && styles.labelCompact, isActive && styles.labelActive]}>
@@ -81,48 +86,44 @@ export default function SegmentedControl<T extends string>({
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    // iOS-style segmented track: one shared rail, segments sit flush with a small inset.
     track: {
         flexDirection: 'row',
         alignSelf: 'center',
         alignItems: 'center',
-        backgroundColor: colors.bg,
-        ...withContinuousRadius(RADIUS.md),
-        padding: 3,
+        backgroundColor: colors.surfaceVariant,
+        ...withContinuousRadius(RADIUS.full),
+        padding: 4,
         gap: 2,
-        borderWidth: 1,
-        borderColor: colors.divider,
     },
     trackFull: { alignSelf: 'stretch' },
     trackCompact: { alignSelf: 'flex-end' },
     segment: {
         paddingVertical: 8,
         paddingHorizontal: 16,
-        ...withContinuousRadius(RADIUS.sm),
+        ...withContinuousRadius(RADIUS.full),
         minWidth: 64,
         minHeight: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'transparent',
     },
     segmentFull: { flex: 1, minWidth: 0, paddingHorizontal: 8 },
     segmentCompact: { minWidth: 0, minHeight: 36, paddingVertical: 6, paddingHorizontal: 10 },
     segmentActive: {
-        backgroundColor: colors.card,
-        borderColor: colors.cardBorder,
-        ...SHADOWS.sm,
+        backgroundColor: colors.primaryContainer,
+    },
+    segmentPressed: {
+        opacity: 0.88,
     },
     segmentContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
     label: {
         fontSize: 14,
         fontWeight: '500',
-        color: colors.textMuted,
+        color: colors.onSurfaceVariant,
         letterSpacing: 0,
     },
     labelCompact: { fontSize: 13 },
     labelActive: {
         fontWeight: '700',
-        color: colors.accent,
+        color: colors.onPrimaryContainer,
     },
 });

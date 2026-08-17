@@ -1,15 +1,18 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SCREEN_EDGE_MIN } from '../../theme';
+import { RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import HamburgerMenu from '../../components/layout/HamburgerMenu';
 import HeaderMenuButton from '../../components/layout/HeaderMenuButton';
 import SearchModal from '../../components/SearchModal';
-import { useFinance, SearchFilters } from '../../context/FinanceContext';
+import { SearchFilters } from '../../context/FinanceContext';
+import { useFinanceUI } from '../../context/FinanceUIContext';
 import { useRouter } from 'expo-router';
+import ReconciliationModal from '../../components/reconciliation/ReconciliationModal';
+import { hapticSelection } from '../../utils/haptics';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -21,13 +24,52 @@ const TAB_ICONS: Record<string, { focused: IoniconsName, default: IoniconsName }
     travel: { focused: 'airplane', default: 'airplane-outline' },
 };
 
+function TabBarIcon({
+    routeName,
+    focused,
+    color,
+}: {
+    routeName: string;
+    focused: boolean;
+    color: string;
+}) {
+    const { colors } = useAppTheme();
+    const iconSet = TAB_ICONS[routeName];
+    if (!iconSet) return null;
+    const iconName = focused ? iconSet.focused : iconSet.default;
+
+    return (
+        <View
+            style={[
+                tabIconStyles.wrap,
+                focused && {
+                    backgroundColor: colors.primaryContainer,
+                    ...withContinuousRadius(RADIUS.full),
+                },
+            ]}
+        >
+            <Ionicons name={iconName} size={22} color={color} />
+        </View>
+    );
+}
+
+const tabIconStyles = StyleSheet.create({
+    wrap: {
+        minWidth: 56,
+        minHeight: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 16,
+    },
+});
+
 export default function TabLayout() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { colors, isDark } = useAppTheme();
-    const { menuVisible, setMenuVisible, searchModalVisible, setSearchModalVisible, setSearchFilters } = useFinance();
+    const { colors } = useAppTheme();
+    const { menuVisible, setMenuVisible, searchModalVisible, setSearchModalVisible, setSearchFilters, reconcilingCard, closeReconciliation } = useFinanceUI();
     const edgeH = Math.max(insets.left, insets.right, SCREEN_EDGE_MIN);
-    const styles = useMemo(() => createStyles(colors, insets.bottom, isDark, edgeH), [colors, insets.bottom, isDark, edgeH]);
+    const styles = useMemo(() => createStyles(colors, insets.bottom, edgeH), [colors, insets.bottom, edgeH]);
 
     const handleApplySearch = (filters: SearchFilters) => {
         setSearchFilters(filters);
@@ -39,23 +81,26 @@ export default function TabLayout() {
         <>
             <Tabs
                 initialRouteName="index"
-                screenOptions={({ route }) => ({
-                    tabBarIcon: ({ focused, color }) => {
-                        const iconSet = TAB_ICONS[route.name];
-                        if (!iconSet) return null;
-                        const iconName = focused ? iconSet.focused : iconSet.default;
-                        return <Ionicons name={iconName} size={24} color={color} />;
+                screenListeners={{
+                    tabPress: () => {
+                        hapticSelection();
                     },
-                    tabBarActiveTintColor: colors.accent,
-                    tabBarInactiveTintColor: colors.tabInactive,
+                }}
+                screenOptions={({ route }) => ({
+                    tabBarIcon: ({ focused, color }) => (
+                        <TabBarIcon routeName={route.name} focused={focused} color={color} />
+                    ),
+                    tabBarActiveTintColor: colors.primary as string,
+                    tabBarInactiveTintColor: colors.tabInactive as string,
                     tabBarLabelStyle: styles.tabLabel,
                     tabBarStyle: styles.tabBar,
                     sceneContainerStyle: styles.sceneContainer,
                     headerStyle: styles.header,
                     headerTitleStyle: styles.headerTitle,
-                    headerTintColor: colors.textPrimary,
+                    headerTintColor: colors.onSurface as string,
                     headerLeftContainerStyle: styles.headerLeftContainer,
                     headerRightContainerStyle: styles.headerRightContainer,
+                    headerShadowVisible: false,
                     headerLeft: () => (
                         <HeaderMenuButton onPress={() => setMenuVisible(true)} />
                     ),
@@ -72,6 +117,13 @@ export default function TabLayout() {
                     name="merchant"
                     options={{
                         title: '商家',
+                        href: null,
+                    }}
+                />
+                <Tabs.Screen
+                    name="health"
+                    options={{
+                        title: '財務健檢',
                         href: null,
                     }}
                 />
@@ -102,41 +154,39 @@ export default function TabLayout() {
                 onClose={() => setSearchModalVisible(false)}
                 onApply={handleApplySearch}
             />
+            {reconcilingCard ? (
+                <ReconciliationModal
+                    visible
+                    cardName={reconcilingCard}
+                    onClose={closeReconciliation}
+                />
+            ) : null}
         </>
     );
 }
 
-const createStyles = (colors: ReturnType<typeof useAppTheme>['colors'], bottomInset: number, isDark: boolean, edgeH: number) => StyleSheet.create({
+const createStyles = (
+    colors: ReturnType<typeof useAppTheme>['colors'],
+    bottomInset: number,
+    edgeH: number,
+) => StyleSheet.create({
     sceneContainer: {
         flex: 1,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         paddingHorizontal: edgeH,
     },
     tabBar: {
-        backgroundColor: colors.tabBg,
+        backgroundColor: colors.surfaceContainer,
         borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: isDark ? colors.divider : colors.cardBorder,
-        // Keep tab targets clear of Android gesture navigation / the iPhone home indicator.
-        // The extra height lifts the icon + label group without shrinking its hit area.
+        borderTopColor: colors.outlineVariant,
         height: 68 + bottomInset,
-        paddingTop: 6,
-        paddingBottom: Math.max(bottomInset, 16),
+        paddingTop: 4,
+        paddingBottom: Math.max(bottomInset, 12),
         paddingHorizontal: edgeH,
-        ...Platform.select({
-            android: {
-                elevation: 8,
-            },
-            ios: {
-                shadowColor: '#0F172A',
-                shadowOffset: { width: 0, height: -4 },
-                shadowOpacity: 0.06,
-                shadowRadius: 12,
-            },
-            default: {},
-        }),
+        elevation: 0,
     },
     tabLabel: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         marginTop: 2,
         ...Platform.select({
@@ -145,24 +195,14 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors'], bottomIn
         }),
     },
     header: {
-        backgroundColor: colors.headerBg,
+        backgroundColor: colors.surfaceContainer,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.cardBorder,
-        ...Platform.select({
-            android: {
-                elevation: 3,
-            },
-            ios: {
-                shadowColor: '#0F172A',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.04,
-                shadowRadius: 4,
-            },
-            default: {},
-        }),
+        borderBottomColor: colors.outlineVariant,
+        elevation: 0,
+        shadowOpacity: 0,
     },
     headerTitle: {
-        color: colors.textPrimary,
+        color: colors.onSurface,
         fontWeight: '700',
         fontSize: 18,
         letterSpacing: 0,

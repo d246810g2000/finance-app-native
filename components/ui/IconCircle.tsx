@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, type ColorValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { withContinuousRadius } from '../../theme';
 
@@ -7,8 +7,8 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface IconCircleProps {
     name: IoniconsName;
-    color: string;
-    backgroundColor?: string;
+    color: ColorValue;
+    backgroundColor?: ColorValue;
     size?: number;
     iconSize?: number;
 }
@@ -17,8 +17,8 @@ export default function IconCircle({
     name,
     color,
     backgroundColor,
-    size = 36,
-    iconSize = 18,
+    size = 40,
+    iconSize = 20,
 }: IconCircleProps) {
     const radius = size / 2;
 
@@ -30,7 +30,7 @@ export default function IconCircle({
                 {
                     width: size,
                     height: size,
-                    backgroundColor: backgroundColor ?? color + '18',
+                    backgroundColor: backgroundColor ?? undefined,
                 },
             ]}
         >

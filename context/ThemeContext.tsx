@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useColorScheme as useDeviceColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppColors, LIGHT_COLORS, DARK_COLORS, getTypography } from '../theme';
+import { AppColors, resolveAppColors, getTypography, getAssetClassColors } from '../theme';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -10,6 +10,7 @@ interface ThemeContextType {
     isDark: boolean;
     colors: AppColors;
     typography: ReturnType<typeof getTypography>;
+    assetClassColors: Record<string, string>;
     setTheme: (mode: ThemeMode) => void;
 }
 
@@ -45,11 +46,18 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const isDark = theme === 'system' ? deviceColorScheme === 'dark' : theme === 'dark';
-    const colors = isDark ? DARK_COLORS : LIGHT_COLORS;
-    const typography = getTypography(colors);
+    // Re-resolve when scheme flips so Android PlatformColor roles re-render
+    const colors = useMemo(() => resolveAppColors(isDark), [isDark, deviceColorScheme]);
+    const typography = useMemo(() => getTypography(colors), [colors]);
+    const assetClassColors = useMemo(() => getAssetClassColors(isDark), [isDark]);
+
+    const value = useMemo(
+        () => ({ theme, isDark, colors, typography, assetClassColors, setTheme }),
+        [theme, isDark, colors, typography, assetClassColors],
+    );
 
     return (
-        <ThemeContext.Provider value={{ theme, isDark, colors, typography, setTheme }}>
+        <ThemeContext.Provider value={value}>
             {children}
         </ThemeContext.Provider>
     );

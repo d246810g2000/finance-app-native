@@ -3,9 +3,10 @@ import { View, Text, Modal, Pressable, StyleSheet, RefreshControl, LayoutAnimati
 import { FlashList } from '@shopify/flash-list';
 import { useNavigation } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
+import { useFinanceUI } from '../../context/FinanceUIContext';
 import { transformRecordsForExport } from '../../services/financeService';
 import { TransformedRecord } from '../../types';
-import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { zeroPadDate, parseFormattedDate, getStartOfWeek, getEndOfWeek } from '../../utils/dateUtils';
 import MonthlyCalendar from '../../components/MonthlyCalendar';
@@ -55,7 +56,7 @@ const RecordListItem = memo(({ item, colors, typeColors, styles, onPress }: {
                 accentColor={colors.blue}
                 title={`${fromAccount} » ${toAccount}`}
                 titleBadge={(
-                    <View style={[styles.categoryBadge, { backgroundColor: colors.blueLight, borderColor: colors.accentBorder }]}>
+                    <View style={[styles.categoryBadge, { backgroundColor: colors.blueLight, borderColor: colors.outlineVariant }]}>
                         <Text style={[styles.categoryBadgeText, { color: colors.blue }]}>轉帳</Text>
                     </View>
                 )}
@@ -93,7 +94,8 @@ export default function CalendarScreen() {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const typeColors = useMemo(() => getTypeColors(colors), [colors]);
-    const { records, deleteRecord, refreshRecords, searchFilters, setSearchFilters, searchModalVisible, setSearchModalVisible, setMenuVisible } = useFinance();
+    const { records, deleteRecord, refreshRecords } = useFinance();
+    const { searchFilters, setSearchFilters, setSearchModalVisible, setMenuVisible } = useFinanceUI();
     const [refreshing, setRefreshing] = useState(false);
 
     // View Mode & Date State
@@ -428,7 +430,7 @@ export default function CalendarScreen() {
                         </View>
                         <Pressable style={({ pressed }) => [styles.searchClearBtn, pressed && { opacity: 0.7 }]} onPress={() => setSearchFilters(null)}>
                             <Text style={styles.searchClearText}>清除</Text>
-                            <Ionicons name="close-circle" size={16} color={colors.accent} />
+                            <Ionicons name="close-circle" size={16} color={colors.primary} />
                         </Pressable>
                     </View>
                 )}
@@ -483,8 +485,8 @@ export default function CalendarScreen() {
                 renderItem={renderFlashItem}
                 keyExtractor={(row) => row.key}
                 getItemType={(row) => row.kind}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+                contentContainerStyle={styles.listContent}
                 // @ts-ignore FlashList v2 estimatedItemSize
                 estimatedItemSize={88}
                 ListEmptyComponent={
@@ -523,85 +525,109 @@ export default function CalendarScreen() {
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
-    // Header Nav
+    container: { flex: 1, backgroundColor: colors.surface },
     headerTitleContainer: { flexDirection: 'row', alignItems: 'center' },
     headerTitleText: { ...typography.h3, fontSize: 17, marginRight: 6 },
     modeBadge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surfaceVariant,
         paddingHorizontal: 8,
         paddingVertical: 2,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.divider,
+        borderRadius: RADIUS.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        minHeight: 28,
     },
-    modeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-
-    // Dropdown
+    modeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.onSurfaceVariant },
     dropdownBackdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: colors.blackOverlay,
+        backgroundColor: colors.scrim,
         zIndex: 90,
     },
     dropdownMenu: {
         position: 'absolute',
         top: 10,
         alignSelf: 'center',
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         width: 180,
-        borderRadius: 20,
+        borderRadius: RADIUS.md,
         padding: 8,
-        ...SHADOWS.lg,
-        borderWidth: 1,
-        borderColor: colors.cardBorder,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
         zIndex: 100,
     },
     dropdownItem: {
         paddingVertical: 12,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: RADIUS.sm,
         marginBottom: 2,
+        minHeight: 44,
+        justifyContent: 'center',
     },
-    dropdownItemActive: { backgroundColor: colors.accent },
+    dropdownItemActive: { backgroundColor: colors.primaryContainer },
     dropdownItemContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    dropdownItemText: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-    dropdownItemTextActive: { color: colors.textWhite },
-    // Calendar Modal
+    dropdownItemText: { fontSize: 14, fontWeight: '600', color: colors.onSurface },
+    dropdownItemTextActive: { color: colors.onPrimaryContainer },
     modalOverlay: { flex: 1, justifyContent: 'center' },
-    calendarModalContent: { backgroundColor: colors.card, margin: 20, ...withContinuousRadius(RADIUS.xl), padding: 12, paddingBottom: 20, ...SHADOWS.lg },
-    // Record Card badge + description (card shell provided by AccentListCard)
-    categoryBadge: { backgroundColor: colors.accentLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.xs, borderWidth: 1, borderColor: colors.accentBorder, marginHorizontal: 6 },
-    categoryBadgeText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
-    metaDesc: { fontSize: 12, fontWeight: '400', color: colors.textMuted, flex: 1 },
-    sectionHeader: { backgroundColor: colors.bg, paddingHorizontal: 16, marginHorizontal: -16, paddingVertical: 8, marginTop: 6 },
-    sectionHeaderText: { color: colors.textSecondary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
-    searchContainer: { padding: 16, backgroundColor: colors.card, ...SHADOWS.sm, zIndex: 5 },
-    searchInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderRadius: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.cardBorder },
+    calendarModalContent: {
+        backgroundColor: colors.surfaceContainer,
+        margin: 20,
+        ...withContinuousRadius(RADIUS.md),
+        padding: 12,
+        paddingBottom: 20,
+    },
+    categoryBadge: {
+        backgroundColor: colors.primaryContainer,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: RADIUS.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        marginHorizontal: 6,
+    },
+    categoryBadgeText: { color: colors.onPrimaryContainer, fontSize: 11, fontWeight: '700' },
+    metaDesc: { fontSize: 12, fontWeight: '400', color: colors.onSurfaceVariant, flex: 1 },
+    sectionHeader: { backgroundColor: colors.surface, paddingHorizontal: 16, marginHorizontal: -16, paddingVertical: 8, marginTop: 6 },
+    sectionHeaderText: { color: colors.onSurfaceVariant, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+    searchContainer: {
+        padding: 16,
+        backgroundColor: colors.surfaceContainer,
+        zIndex: 5,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.outlineVariant,
+    },
+    searchInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surfaceVariant,
+        borderRadius: RADIUS.full,
+        paddingHorizontal: 16,
+        minHeight: 48,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        gap: 8,
+    },
     searchInput: { flex: 1, paddingVertical: 12, ...typography.body },
-
-    // Search Result Indicator
     searchActiveBanner: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 4,
         paddingHorizontal: 16,
     },
-    searchActiveTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
-    searchActiveSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    searchActiveTitle: { fontSize: 16, fontWeight: '800', color: colors.onSurface },
+    searchActiveSub: { fontSize: 12, color: colors.onSurfaceVariant, marginTop: 2 },
     searchClearBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.bg,
+        backgroundColor: colors.primaryContainer,
         paddingHorizontal: 10,
         paddingVertical: 6,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.divider,
-        gap: 4
+        borderRadius: RADIUS.full,
+        minHeight: 36,
+        gap: 4,
     },
-    searchClearText: { fontSize: 13, fontWeight: '700', color: colors.accent },
-
+    searchClearText: { fontSize: 13, fontWeight: '700', color: colors.onPrimaryContainer },
     list: { flex: 1 },
+    listContent: { paddingHorizontal: 16, paddingBottom: 24 },
 });

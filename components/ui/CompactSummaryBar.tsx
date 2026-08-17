@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
 export interface SummaryItem {
@@ -14,11 +14,11 @@ interface CompactSummaryBarProps {
 }
 
 /**
- * 精簡摘要列：卡片式的「標籤 值 | 標籤 值」單列，供 project / travel 頁頂部使用。
+ * 精簡摘要列：surfaceContainer 上的「標籤 值」單列。
  */
 export default function CompactSummaryBar({ items, style }: CompactSummaryBarProps) {
-    const { colors } = useAppTheme();
-    const styles = useMemo(() => createStyles(colors), [colors]);
+    const { colors, typography } = useAppTheme();
+    const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
     return (
         <View style={[styles.row, style]}>
@@ -27,7 +27,7 @@ export default function CompactSummaryBar({ items, style }: CompactSummaryBarPro
                     {idx > 0 ? <View style={styles.divider} /> : null}
                     <View style={styles.metric}>
                         <Text style={styles.text}>{item.label}</Text>
-                        <Text style={styles.value}>{item.value}</Text>
+                        <Text style={styles.value} selectable>{item.value}</Text>
                     </View>
                 </React.Fragment>
             ))}
@@ -35,24 +35,31 @@ export default function CompactSummaryBar({ items, style }: CompactSummaryBarPro
     );
 }
 
-const createStyles = (colors: AppColors) =>
+const createStyles = (
+    colors: AppColors,
+    typography: ReturnType<typeof useAppTheme>['typography'],
+) =>
     StyleSheet.create({
         row: {
             flexDirection: 'row',
             justifyContent: 'space-evenly',
             alignItems: 'center',
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             marginHorizontal: 16,
             marginTop: 12,
-            paddingVertical: 13,
+            paddingVertical: 14,
             paddingHorizontal: 12,
-            ...withContinuousRadius(RADIUS.lg),
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
-            ...SHADOWS.sm,
+            ...withContinuousRadius(RADIUS.md),
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
+            gap: 4,
         },
-        metric: { flex: 1, alignItems: 'center', gap: 3 },
-        text: { fontSize: 12, color: colors.textMuted, fontWeight: '700' },
-        value: { color: colors.textPrimary, fontWeight: '800', fontSize: 17, letterSpacing: -0.3 },
-        divider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: colors.divider },
+        metric: { flex: 1, alignItems: 'center', gap: 4 },
+        text: { ...typography.labelMedium, color: colors.onSurfaceVariant },
+        value: {
+            ...typography.amount,
+            color: colors.onSurface,
+            fontSize: 17,
+        },
+        divider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: colors.outlineVariant },
     });

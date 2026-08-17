@@ -13,6 +13,7 @@ import { RawRecord, CustomAccountMappings } from '../types';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
+import { hapticSuccess, hapticLight } from '../utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import AccountMappingModal from './account/AccountMappingModal';
 
@@ -96,6 +97,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 loadRecords(parsedRecords);
                 setMergeStats(null);
             }
+            hapticSuccess();
 
             if (report.unmappedAccounts.length > 0) {
                 setUnmappedList(report.unmappedAccounts);
@@ -144,9 +146,11 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 <Pressable
                     style={({ pressed }) => [styles.uploadArea, pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : {}]}
                     onPress={handlePickFile}
+                    accessibilityRole="button"
+                    accessibilityLabel="選擇 CSV 檔案"
                 >
                     <View style={styles.uploadIconCircle}>
-                        <Ionicons name="cloud-upload-outline" size={40} color={colors.accent} />
+                        <Ionicons name="cloud-upload-outline" size={40} color={colors.primary} />
                     </View>
                     <Text style={styles.uploadTitle}>選擇 CSV 檔案</Text>
                     <Text style={styles.uploadSubtitle}>支援 AndroMoney 匯出格式（uid 增量合併）</Text>
@@ -155,7 +159,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 {selectedFileName ? (
                     <Animated.View entering={FadeInUp.springify()} style={styles.fileInfo}>
                         <View style={styles.fileIcon}>
-                            <Ionicons name="document-text-outline" size={20} color={colors.accent} />
+                            <Ionicons name="document-text-outline" size={20} color={colors.primary} />
                         </View>
                         <View style={styles.fileTextWrap}>
                             <Text style={styles.fileStatus}>已選擇檔案</Text>
@@ -181,7 +185,14 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     <Text style={styles.encodingLabel}>編碼格式</Text>
                     <View style={styles.encodingToggle}>
                         {(['utf-8', 'big5'] as const).map(enc => (
-                            <Pressable key={enc} style={[styles.encodingBtn, encoding === enc ? styles.encodingBtnActive : null]} onPress={() => setEncoding(enc)}>
+                            <Pressable
+                                key={enc}
+                                style={[styles.encodingBtn, encoding === enc ? styles.encodingBtnActive : null]}
+                                onPress={() => setEncoding(enc)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`編碼 ${enc === 'utf-8' ? 'UTF-8' : 'Big-5'}`}
+                                accessibilityState={{ selected: encoding === enc }}
+                            >
                                 <Text style={[styles.encodingBtnText, encoding === enc ? styles.encodingBtnTextActive : null]}>
                                     {enc === 'utf-8' ? 'UTF-8' : 'Big-5'}
                                 </Text>
@@ -197,6 +208,9 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                             <Pressable
                                 style={[styles.encodingBtn, importMode === 'merge' ? styles.encodingBtnActive : null]}
                                 onPress={() => setImportMode('merge')}
+                                accessibilityRole="button"
+                                accessibilityLabel="匯入方式：合併更新"
+                                accessibilityState={{ selected: importMode === 'merge' }}
                             >
                                 <Text style={[styles.encodingBtnText, importMode === 'merge' ? styles.encodingBtnTextActive : null]}>
                                     合併更新
@@ -205,6 +219,9 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                             <Pressable
                                 style={[styles.encodingBtn, importMode === 'replace' ? styles.encodingBtnActive : null]}
                                 onPress={() => setImportMode('replace')}
+                                accessibilityRole="button"
+                                accessibilityLabel="匯入方式：完全取代"
+                                accessibilityState={{ selected: importMode === 'replace' }}
                             >
                                 <Text style={[styles.encodingBtnText, importMode === 'replace' ? styles.encodingBtnTextActive : null]}>
                                     完全取代
@@ -227,7 +244,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                                 <Switch
                                     value={syncDelete}
                                     onValueChange={setSyncDelete}
-                                    trackColor={{ false: colors.border, true: colors.accent }}
+                                    trackColor={{ false: colors.border, true: colors.primary }}
                                     thumbColor={colors.textWhite}
                                 />
                             </View>
@@ -237,7 +254,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
 
                 {!successVisible && hasExistingData ? (
                     <Animated.View entering={FadeInDown.springify()} style={styles.existingDataCard}>
-                        <Ionicons name="stats-chart-outline" size={18} color={colors.accent} />
+                        <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
                         <Text style={styles.existingDataText}>
                             目前已有 {records.length.toLocaleString()} 筆資料
                         </Text>
@@ -328,26 +345,26 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    scroll: { flex: 1, backgroundColor: colors.bg },
+    scroll: { flex: 1, backgroundColor: colors.surface },
     container: { padding: 24, justifyContent: 'flex-start', paddingTop: 32, paddingBottom: 40 },
     intro: { marginBottom: 24 },
-    eyebrow: { ...typography.caption, color: colors.accent, marginBottom: 8 },
+    eyebrow: { ...typography.caption, color: colors.primary, marginBottom: 8 },
     pageTitle: { ...typography.h1, fontSize: 26, marginBottom: 8 },
     pageDescription: { ...typography.body, color: colors.textMuted, lineHeight: 22 },
-    uploadArea: { backgroundColor: colors.card, borderWidth: 2, borderColor: colors.accentBorder, borderStyle: 'dashed', ...withContinuousRadius(RADIUS.xl), paddingVertical: 48, alignItems: 'center', ...SHADOWS.md },
-    uploadIconCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accentLight, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: colors.accentBorder },
+    uploadArea: { backgroundColor: colors.surfaceContainer, borderWidth: 2, borderColor: colors.outlineVariant, borderStyle: 'dashed', ...withContinuousRadius(RADIUS.xl), paddingVertical: 48, alignItems: 'center' },
+    uploadIconCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: colors.outlineVariant },
     uploadTitle: { ...typography.h2, fontSize: 20, marginBottom: 6 },
     uploadSubtitle: { ...typography.body, color: colors.textMuted },
-    fileInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 24, backgroundColor: colors.accentLight, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
-    fileIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderRadius: RADIUS.sm },
+    fileInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 24, backgroundColor: colors.primaryContainer, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
+    fileIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceContainer, borderRadius: RADIUS.sm },
     fileTextWrap: { flex: 1 },
-    fileStatus: { ...typography.caption, color: colors.accent, marginBottom: 2 },
+    fileStatus: { ...typography.caption, color: colors.primary, marginBottom: 2 },
     fileName: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
     encodingSection: { marginTop: 28 },
     encodingLabel: { ...typography.body, fontWeight: '700', marginBottom: 10 },
-    encodingToggle: { flexDirection: 'row', backgroundColor: colors.bg, borderRadius: RADIUS.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
+    encodingToggle: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: RADIUS.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
     encodingBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-    encodingBtnActive: { backgroundColor: colors.accent, borderRadius: RADIUS.sm, margin: 2, ...SHADOWS.sm },
+    encodingBtnActive: { backgroundColor: colors.primary, borderRadius: RADIUS.sm, margin: 2, ...SHADOWS.sm },
     encodingBtnText: { ...typography.body, fontWeight: '600', color: colors.textMuted },
     encodingBtnTextActive: { color: colors.textWhite },
     modeHint: { ...typography.bodySm, color: colors.textMuted, marginTop: 10, lineHeight: 18 },
@@ -359,8 +376,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     syncLabel: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
     syncHint: { ...typography.bodySm, color: colors.textMuted, marginTop: 2 },
     actionSection: { marginTop: 28 },
-    uploadBtn: { backgroundColor: colors.accent, minHeight: 56, paddingHorizontal: 18, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center', ...SHADOWS.lg },
-    uploadBtnDisabled: { backgroundColor: colors.card, shadowOpacity: 0, borderWidth: 1, borderColor: colors.cardBorder },
+    uploadBtn: { backgroundColor: colors.primary, minHeight: 56, paddingHorizontal: 18, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center' },
+    uploadBtnDisabled: { backgroundColor: colors.surfaceContainer, shadowOpacity: 0, borderWidth: 1, borderColor: colors.outlineVariant },
     uploadBtnPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
     uploadBtnContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     uploadBtnText: { color: colors.textWhite, fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
@@ -374,6 +391,6 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     reportLine: { ...typography.bodySm, color: colors.textPrimary, lineHeight: 20 },
     reportOk: { ...typography.bodySm, color: colors.green, fontWeight: '600' },
     reportWarn: { ...typography.bodySm, color: colors.yellow, fontWeight: '600', marginTop: 2 },
-    existingDataCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, backgroundColor: colors.accentLight, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.accentBorder, ...SHADOWS.sm },
-    existingDataText: { ...typography.body, color: colors.accent, fontWeight: '600', textAlign: 'left', flex: 1 },
+    existingDataCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, backgroundColor: colors.primaryContainer, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
+    existingDataText: { ...typography.body, color: colors.primary, fontWeight: '600', textAlign: 'left', flex: 1 },
 });

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import IconCircle from './IconCircle';
 
@@ -33,8 +33,8 @@ export default function EmptyState({
             <View style={styles.iconWrap}>
                 <IconCircle
                     name={icon}
-                    color={colors.accent}
-                    backgroundColor={colors.accentLight}
+                    color={colors.primary}
+                    backgroundColor={colors.primaryContainer}
                     size={72}
                     iconSize={32}
                 />
@@ -61,40 +61,38 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             alignItems: 'center',
             paddingVertical: 72,
             paddingHorizontal: 36,
+            gap: 8,
         },
         iconWrap: {
-            marginBottom: 18,
-            ...SHADOWS.sm,
+            marginBottom: 10,
             ...withContinuousRadius(36),
+            backgroundColor: colors.primaryContainer,
         },
         title: {
-            ...typography.h3,
-            marginBottom: 8,
+            ...typography.titleMedium,
+            fontSize: 18,
             textAlign: 'center',
-            letterSpacing: -0.3,
         },
         description: {
             ...typography.body,
-            color: colors.textMuted,
+            color: colors.onSurfaceVariant,
             textAlign: 'center',
             lineHeight: 22,
             maxWidth: 280,
         },
         actionBtn: {
-            marginTop: 28,
+            marginTop: 20,
             minHeight: 48,
             paddingHorizontal: 24,
             justifyContent: 'center',
-            backgroundColor: colors.accent,
-            ...withContinuousRadius(RADIUS.md),
-            ...SHADOWS.sm,
+            backgroundColor: colors.primary,
+            ...withContinuousRadius(RADIUS.full),
         },
         actionBtnPressed: {
             opacity: 0.9,
-            transform: [{ scale: 0.98 }],
         },
         actionText: {
-            color: colors.textWhite,
+            color: colors.onPrimary,
             fontWeight: '700',
             fontSize: 15,
             letterSpacing: -0.2,

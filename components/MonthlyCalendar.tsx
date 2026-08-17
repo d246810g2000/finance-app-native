@@ -5,6 +5,7 @@ import { transformRecordsForExport, filterAndSortRecords } from '../services/fin
 import { TransformedRecord } from '../types';
 import { AppColors, SHADOWS } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
+import { hapticSelection } from '../utils/haptics';
 import { EXCHANGE_RATES } from '../constants';
 import { parseFormattedDate } from '../utils/dateUtils';
 
@@ -100,11 +101,12 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
     const getDotColor = useCallback((amount: number) => {
         const ratio = amount / maxDailyExpense;
         if (ratio < 0.2) return colors.green;
-        if (ratio < 0.5) return '#F59E0B';
+        if (ratio < 0.5) return colors.yellow;
         return colors.red;
     }, [maxDailyExpense, colors]);
 
     const handleDayClick = useCallback((day: number) => {
+        hapticSelection();
         const date = new Date(year, month, day);
         const recs = dailyRecords[day] || [];
         onDateClick(date, recs);
@@ -128,7 +130,7 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
             <View style={styles.weekRow}>
                 {WEEK_DAYS.map((day, i) => (
                     <View key={day} style={styles.weekCell}>
-                        <Text style={[styles.weekText, (i === 0 || i === 6) ? { color: '#F97316' } : null]}>{day}</Text>
+                        <Text style={[styles.weekText, (i === 0 || i === 6) ? { color: colors.yellow } : null]}>{day}</Text>
                     </View>
                 ))}
             </View>
@@ -146,8 +148,16 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
                     return (
                         <Pressable
                             key={day}
-                            style={[styles.dayCell, isWeekend ? { backgroundColor: colors.bg } : null]}
+                            style={({ pressed }) => [
+                                styles.dayCell,
+                                isWeekend ? { backgroundColor: colors.surface } : null,
+                                pressed && { backgroundColor: colors.surfaceVariant },
+                            ]}
+                            android_ripple={{ color: colors.statePressed, borderless: false }}
                             onPress={() => handleDayClick(day)}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: isSelected(day) }}
+                            accessibilityLabel={`${year}年${month + 1}月${day}日，${expense > 0 ? `支出 ${Math.round(expense)} 元` : '無支出'}`}
                         >
                             <View style={styles.dayHeader}>
                                 <View style={[
@@ -164,7 +174,7 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
                                 ) : null}
                             </View>
                             {expense > 0 ? (
-                                <Text style={styles.expenseText} numberOfLines={1}>
+                                <Text style={styles.expenseText} numberOfLines={1} selectable>
                                     ${Math.round(expense).toLocaleString()}
                                 </Text>
                             ) : null}
@@ -177,27 +187,27 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    container: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 16, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
+    container: { backgroundColor: colors.surfaceContainer, marginHorizontal: 16, marginTop: 16, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
     headerLeft: { flex: 1 },
     headerTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
     headerTotal: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
     navButtons: { flexDirection: 'row', gap: 6 },
-    navBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
-    navBtnText: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+    navBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.outlineVariant },
+    navBtnText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
     // Week
     weekRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.divider },
     weekCell: { flex: 1, alignItems: 'center', paddingVertical: 6 },
     weekText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
     // Grid
     grid: { flexDirection: 'row', flexWrap: 'wrap' },
-    emptyCell: { width: `${100 / 7}%` as any, minHeight: 60, backgroundColor: colors.bg },
+    emptyCell: { width: `${100 / 7}%` as any, minHeight: 60, backgroundColor: colors.surface },
     dayCell: { width: `${100 / 7}%` as any, minHeight: 60, padding: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: colors.divider },
     dayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     dayNumber: { width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-    todayCircle: { backgroundColor: colors.accent },
+    todayCircle: { backgroundColor: colors.primary },
     selectedCircle: { backgroundColor: colors.red },
     dayText: { fontSize: 12, fontWeight: '500', color: colors.textPrimary },
     dot: { width: 6, height: 6, borderRadius: 3 },
-    expenseText: { fontSize: 9, color: colors.red, fontWeight: '700', marginTop: 2, textAlign: 'right' },
+    expenseText: { fontSize: 9, color: colors.red, fontWeight: '700', marginTop: 2, textAlign: 'right', fontVariant: ['tabular-nums'] },
 });

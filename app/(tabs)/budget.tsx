@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useCallback, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Alert, Modal, Platform } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
 import { loadBudgets, saveBudgets, loadBudgetConfig, saveBudgetConfig, calculateBudgetStatus } from '../../services/budgetService';
@@ -11,7 +10,6 @@ import { BudgetProgressCard, OtherExpensesCard } from '../../components/budget/B
 import HealthCheckCard from '../../components/budget/HealthCheckCard';
 import BudgetSettingModal from '../../components/budget/BudgetSettingModal';
 import SettingsModal from '../../components/settings/SettingsModal';
-import BatchBudgetModal from '../../components/budget/BatchBudgetModal';
 import DetailModal from '../../components/DetailModal';
 import { transformRecordsForExport, detectExpenseSpikes, summarizePersonalVsSharedBurden } from '../../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
@@ -53,31 +51,6 @@ export default function BudgetScreen() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [formCategory, setFormCategory] = useState('');
     const [formLimit, setFormLimit] = useState('');
-
-    const [isLoaded, setIsLoaded] = useState(false);
-
-    useEffect(() => {
-        setIsLoaded(true);
-    }, []);
-
-    const loadData = async () => {
-        setIsLoaded(true);
-    };
-
-    // Save budgets effect — also sync notification + widget
-    useEffect(() => {
-        if (isLoaded) {
-            import('../../services/NotificationService').then(ns => ns.default.syncWithRecords(records));
-            import('../../services/WidgetService').then(ws => ws.default.syncWidgetData(records));
-        }
-    }, [budgets, records, isLoaded]);
-
-    // Reload on tab focus
-    useFocusEffect(
-        useCallback(() => {
-            loadData();
-        }, [])
-    );
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -127,7 +100,7 @@ export default function BudgetScreen() {
     const dailyRemaining = disposableDailyBudget - budgetCalc.totalDailySpent;
     const hasFixedProjects = budgetCalc.fixedProjectStatuses.length > 0;
     const fixedColor = colors.textSecondary;
-    const dailyColor = colors.accent;
+    const dailyColor = colors.primary;
 
     const spikes = useMemo(() => {
         if (records.length === 0) return [];
@@ -151,7 +124,7 @@ export default function BudgetScreen() {
         );
     }, [records, targetMonth, config, customMappings]);
 
-    const uniqueCategories = useMemo(() => {
+    const computeUniqueCategories = useCallback(() => {
         const cats = new Set<string>();
         records.forEach(r => {
             if (r['付款(轉出)'] && !r['收款(轉入)'] && r['分類'] && r['分類'] !== 'SYSTEM' && r['分類'] !== '代付') {
@@ -160,6 +133,12 @@ export default function BudgetScreen() {
         });
         return Array.from(cats).sort();
     }, [records]);
+
+    /** 僅在開啟設定彈窗時才掃描類別，避免預算頁每次 records 變動都全量掃描 */
+    const uniqueCategories = useMemo(
+        () => (isModalOpen ? computeUniqueCategories() : []),
+        [isModalOpen, computeUniqueCategories]
+    );
 
     const handleMonthChange = (offset: number) => {
         const newDate = new Date(targetMonth);
@@ -179,7 +158,7 @@ export default function BudgetScreen() {
             setFormLimit(rule.monthlyLimit.toString());
         } else {
             setEditingId(null);
-            setFormCategory(uniqueCategories[0] || '');
+            setFormCategory(computeUniqueCategories()[0] || '');
             setFormLimit('');
         }
         setIsModalOpen(true);
@@ -630,11 +609,11 @@ export default function BudgetScreen() {
                     <View style={styles.monthPickerContent}>
                         <View style={styles.monthPickerHeader}>
                             <Pressable onPress={() => setPickerYear(y => y - 1)} hitSlop={8} accessibilityLabel="上一年">
-                                <Ionicons name="chevron-back" size={24} color={colors.accent} />
+                                <Ionicons name="chevron-back" size={24} color={colors.primary} />
                             </Pressable>
                             <Text style={styles.monthPickerTitle}>{pickerYear} 年</Text>
                             <Pressable onPress={() => setPickerYear(y => y + 1)} hitSlop={8} accessibilityLabel="下一年">
-                                <Ionicons name="chevron-forward" size={24} color={colors.accent} />
+                                <Ionicons name="chevron-forward" size={24} color={colors.primary} />
                             </Pressable>
                         </View>
                         <View style={styles.monthGrid}>
@@ -671,31 +650,30 @@ export default function BudgetScreen() {
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
-    scrollContent: { paddingVertical: 12, paddingHorizontal: 16, paddingBottom: 40 },
+    container: { flex: 1, backgroundColor: colors.surface },
+    scrollContent: { paddingVertical: 12, paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
 
     // ── Unified Summary Card ──
     burdenCard: {
-        backgroundColor: colors.card,
-        borderRadius: RADIUS.lg,
-        borderWidth: 1,
-        borderColor: colors.cardBorder,
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
         padding: 16,
         marginBottom: 12,
-        ...SHADOWS.sm,
     },
-    burdenTitle: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-    burdenDesc: { fontSize: 12, color: colors.textMuted, marginTop: 4, marginBottom: 12, lineHeight: 17 },
+    burdenTitle: { fontSize: 15, fontWeight: '800', color: colors.onSurface },
+    burdenDesc: { fontSize: 12, color: colors.onSurfaceVariant, marginTop: 4, marginBottom: 12, lineHeight: 17 },
     burdenRow: { flexDirection: 'row', alignItems: 'stretch' },
     burdenItem: { flex: 1, alignItems: 'flex-start' },
-    burdenDivider: { width: 1, backgroundColor: colors.divider, marginHorizontal: 12 },
-    burdenLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 4 },
-    burdenValue: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
-    burdenMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+    burdenDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant, marginHorizontal: 12 },
+    burdenLabel: { fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant, marginBottom: 4 },
+    burdenValue: { fontSize: 18, fontWeight: '800', color: colors.onSurface, letterSpacing: -0.3, fontVariant: ['tabular-nums'] },
+    burdenMeta: { fontSize: 11, color: colors.onSurfaceVariant, marginTop: 4 },
 
     summaryCard: {
-        backgroundColor: colors.card, ...withContinuousRadius(RADIUS.lg), padding: 16,
-        borderWidth: 1, borderColor: colors.cardBorder, marginBottom: 6, ...SHADOWS.md,
+        backgroundColor: colors.surfaceContainer, ...withContinuousRadius(RADIUS.md), padding: 16,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant, marginBottom: 6,
         overflow: 'hidden',
     },
     summaryCardAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
@@ -734,8 +712,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     // ── Fixed Project Card ──
     fixedProjectCard: {
         flexDirection: 'row', ...withContinuousRadius(RADIUS.md), marginBottom: 8, borderWidth: 1,
-        overflow: 'hidden', backgroundColor: colors.card,
-        borderColor: colors.textSecondary + '30', ...SHADOWS.sm,
+        overflow: 'hidden', backgroundColor: colors.surfaceContainer,
+        borderColor: colors.outlineVariant, ...SHADOWS.sm,
     },
     fixedProjectStrip: { width: 4 },
     fixedProjectContent: {
@@ -756,9 +734,9 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         height: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         borderWidth: 1,
-        borderColor: colors.cardBorder,
+        borderColor: colors.outlineVariant,
         ...withContinuousRadius(20),
         ...Platform.select({
             android: { elevation: 1 },
@@ -773,8 +751,11 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     // ── Settings Quick Menu ──
     menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     menuCard: {
-        backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-        paddingTop: 12, paddingBottom: 40, paddingHorizontal: 24, ...SHADOWS.lg,
+        backgroundColor: colors.surfaceContainer, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+        paddingTop: 12, paddingBottom: 40, paddingHorizontal: 24,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        borderBottomWidth: 0,
     },
     menuHandle: {
         width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border,
@@ -803,13 +784,14 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
 
     // Month picker
     monthPickerContent: {
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         borderRadius: RADIUS.md,
         padding: 20,
         width: '100%',
         maxWidth: 340,
         alignSelf: 'center',
-        ...SHADOWS.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
     },
     monthPickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     monthPickerTitle: { ...typography.h3 },
@@ -819,11 +801,11 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         paddingVertical: 12,
         alignItems: 'center',
         borderRadius: RADIUS.sm,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.divider,
     },
-    monthCellActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    monthCellActive: { backgroundColor: colors.primaryContainer, borderColor: colors.primaryContainer },
     monthCellText: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
     monthCellTextActive: { color: colors.textWhite, fontWeight: '700' },
 });

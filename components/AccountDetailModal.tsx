@@ -1,22 +1,24 @@
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, memo } from 'react';
 import {
     View, Text, Pressable, Modal, StyleSheet,
-    TouchableWithoutFeedback, ScrollView,
+    TouchableWithoutFeedback, ScrollView, InteractionManager,
 } from 'react-native';
-import { FlatList } from 'react-native-gesture-handler';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppColors, SHADOWS } from '../theme';
+import { AppColors, RADIUS } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
 import ModalBackdrop from './ui/ModalBackdrop';
 import SegmentedControl from './ui/SegmentedControl';
 import { useBottomSheetSwipe } from './ui/useBottomSheetSwipe';
 import BottomSheetGestureWrapper from './ui/BottomSheetGestureWrapper';
 import { RawRecord } from '../types';
-import { transformRecord, initializeAccountData, filterAndSortRecords, updateAccountBalancesAndSnapshots } from '../services/financeService';
+import { transformRecord, initializeAccountData, filterAndSortRecords, updateAccountBalancesAndSnapshots, getCategoryForAccount } from '../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFinance } from '../context/FinanceContext';
+import { useFinanceUI } from '../context/FinanceUIContext';
 import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
 import { EXCHANGE_RATES } from '../constants';
+import { getSettingsForCard } from '../services/creditCardSettingsService';
 
 interface AccountDetailModalProps {
     visible: boolean;
@@ -24,19 +26,125 @@ interface AccountDetailModalProps {
     onClose: () => void;
 }
 
+type AccountDisplayRecord = RawRecord & {
+    isIncome: boolean;
+    displayAmount: number;
+    runningBalance: number;
+    index: number;
+};
+
+const EMPTY_ACCOUNT_DATA = {
+    displayRecords: [] as AccountDisplayRecord[],
+    totalBalance: 0,
+};
+
+const LIST_CONTENT_STYLE = { paddingBottom: 40 } as const;
+
+const AccountRecordSeparator = memo(function AccountRecordSeparator({
+    color,
+}: {
+    color: string;
+}) {
+    return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: color, marginHorizontal: 20 }} />;
+});
+
+type AccountRowProps = {
+    item: AccountDisplayRecord;
+    accountName: string;
+    colors: AppColors;
+    styles: ReturnType<typeof createStyles>;
+    onPress: (item: AccountDisplayRecord) => void;
+};
+
+const AccountRecordRow = memo(function AccountRecordRow({
+    item,
+    accountName,
+    colors,
+    styles,
+    onPress,
+}: AccountRowProps) {
+    const isIncome = item.isIncome;
+    const amount = item.displayAmount;
+
+    let targetAccountText = '';
+    const rawCategory = item['分類'] || item['主類別'];
+    if (rawCategory === '轉帳') {
+        if (isIncome) {
+            targetAccountText = `${item['付款(轉出)']} >> ${accountName} `;
+        } else {
+            targetAccountText = `${accountName} >> ${item['收款(轉入)']} `;
+        }
+    } else {
+        targetAccountText = accountName;
+    }
+
+    const category = item['分類'] || item['主類別'] || '';
+    const subCategory = item['子分類'] || item['子類別'] ? ` - ${item['子分類'] || item['子類別']} ` : '';
+    const categoryDisplay = `${category}${subCategory} `;
+    const note = item['商家'] || item['備註'] ? ` ${item['商家'] || item['備註']} ` : '';
+    const dateStr = item['日期'] ? zeroPadDate(item['日期'].toString()) : '';
+    const formattedDateObj = parseFormattedDate(item['日期']?.toString() || '');
+    const outDateStr = formattedDateObj ? `${formattedDateObj.getFullYear()} -${String(formattedDateObj.getMonth() + 1).padStart(2, '0')} -${String(formattedDateObj.getDate()).padStart(2, '0')} ` : dateStr;
+    const projectStr = item['專案'] ? ` "${item['專案']}"` : '';
+
+    return (
+        <Pressable
+            onPress={() => onPress(item)}
+            accessibilityRole="button"
+            accessibilityLabel={`${categoryDisplay}，金額 ${amount.toLocaleString()}`}
+        >
+            <View style={styles.recordRow}>
+                <View style={[styles.iconContainer, { backgroundColor: isIncome ? colors.greenLight : colors.yellowLight }]}>
+                    <Ionicons name={isIncome ? 'arrow-down' : 'arrow-up'} size={18} color={isIncome ? colors.green : colors.red} />
+                </View>
+                <View style={styles.recordMain}>
+                    <Text style={styles.recordTitle} numberOfLines={1}>{categoryDisplay}</Text>
+                    <Text style={styles.recordDate} numberOfLines={1}>{outDateStr}{projectStr}{note}</Text>
+                </View>
+                <View style={styles.recordRight}>
+                    <View style={styles.amountBalanceRow}>
+                        <Text style={[styles.recordAmount, { color: isIncome ? colors.green : colors.red }]} selectable>
+                            {isIncome ? 'TW$ ' : 'TW$ -'}{amount.toLocaleString()}
+                        </Text>
+                        <Text style={styles.recordBalance}> » {item.runningBalance.toLocaleString()}</Text>
+                    </View>
+                    {targetAccountText ? (
+                        <Text style={[styles.recordTarget, { color: colors.textSecondary }]} numberOfLines={1}>
+                            {targetAccountText}
+                        </Text>
+                    ) : null}
+                </View>
+            </View>
+        </Pressable>
+    );
+});
+
 export default function AccountDetailModal({ visible, accountName, onClose }: AccountDetailModalProps) {
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const { records: rawRecords } = useFinance();
+    const { records: rawRecords, customMappings, creditCardSettings } = useFinance();
+    const { openReconciliation } = useFinanceUI();
     const [viewMode, setViewMode] = useState<'year' | 'month'>('month');
     const [currentDate, setCurrentDate] = useState(() => new Date());
     const [selectedRecord, setSelectedRecord] = useState<any>(null);
-    const swipe = useBottomSheetSwipe(onClose, visible, { enableHorizontalDismiss: true });
+    const [accountData, setAccountData] = useState(EMPTY_ACCOUNT_DATA);
+    const swipe = useBottomSheetSwipe(onClose, visible);
+
+    const isCreditCard = useMemo(
+        () => getCategoryForAccount(accountName, customMappings) === '信用卡',
+        [accountName, customMappings]
+    );
+    const cardSettings = useMemo(
+        () => getSettingsForCard(creditCardSettings, accountName),
+        [creditCardSettings, accountName]
+    );
 
     useEffect(() => {
         if (visible) {
             setCurrentDate(new Date());
+        } else {
+            setAccountData(EMPTY_ACCOUNT_DATA);
         }
     }, [visible]);
 
@@ -64,119 +172,95 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
         ? `${currentDate.getFullYear()}-01-01 ~${currentDate.getFullYear()} -12 - 31`
         : `${currentDate.getFullYear()} -${String(currentDate.getMonth() + 1).padStart(2, '0')}-01 ~${currentDate.getFullYear()} -${String(currentDate.getMonth() + 1).padStart(2, '0')} -${String(periodEnd.getDate()).padStart(2, '0')} `;
 
-    // Calculate balance using the SAME logic as the dashboard (processAndAggregateRecords)
-    const { displayRecords, totalBalance } = useMemo(() => {
-        // 1. Get the authoritative account balance (same as dashboard)
-        //    ALWAYS use TODAY as the end date, so "當前餘額" reflects the real current balance
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const { accountRunningBalances } = initializeAccountData(rawRecords);
-        const balanceCopy = { ...accountRunningBalances };
-        const recordsUpToToday = filterAndSortRecords(rawRecords, null, today);
-        updateAccountBalancesAndSnapshots(recordsUpToToday, balanceCopy);
-        const authoritativeBalance = Math.round(balanceCopy[accountName] || 0);
+    // 餘額與列表較重：僅 visible 時、且等進場互動結束後再算
+    useEffect(() => {
+        if (!visible) return;
+        let cancelled = false;
+        const task = InteractionManager.runAfterInteractions(() => {
+            const today = new Date();
+            today.setHours(23, 59, 59, 999);
+            const { accountRunningBalances } = initializeAccountData(rawRecords);
+            const balanceCopy = { ...accountRunningBalances };
+            const recordsUpToToday = filterAndSortRecords(rawRecords, null, today);
+            updateAccountBalancesAndSnapshots(recordsUpToToday, balanceCopy);
+            const authoritativeBalance = Math.round(balanceCopy[accountName] || 0);
 
-        // 2. Build the display list with per-record running balances
-        //    Process ALL records for this account chronologically to compute running balances
-        const accountRecords = filterAndSortRecords(rawRecords).filter(r =>
-            r['收款(轉入)'] === accountName || r['付款(轉出)'] === accountName
-        );
+            const accountRecords = filterAndSortRecords(rawRecords).filter(r =>
+                r['收款(轉入)'] === accountName || r['付款(轉出)'] === accountName
+            );
 
-        let runBal = 0;
-        const processedRecords = accountRecords.map((r, index) => {
-            const cleanedAmountStr = (r['金額'] || '').toString().replace(/[,￥$€£]/g, '').trim();
-            let amount = parseFloat(cleanedAmountStr) || 0;
-            const currency = r['幣別'];
-            if (currency && currency !== 'TWD' && EXCHANGE_RATES[currency]) {
-                amount *= EXCHANGE_RATES[currency];
+            let runBal = 0;
+            const processedRecords = accountRecords.map((r, index) => {
+                const cleanedAmountStr = (r['金額'] || '').toString().replace(/[,￥$€£]/g, '').trim();
+                let amount = parseFloat(cleanedAmountStr) || 0;
+                const currency = r['幣別'];
+                if (currency && currency !== 'TWD' && EXCHANGE_RATES[currency]) {
+                    amount *= EXCHANGE_RATES[currency];
+                }
+                amount = Math.round(amount);
+
+                let isIncome = false;
+                let displayAmount = 0;
+
+                if (r['收款(轉入)'] === accountName) {
+                    runBal += amount;
+                    displayAmount = amount;
+                    isIncome = true;
+                } else if (r['付款(轉出)'] === accountName) {
+                    runBal -= amount;
+                    displayAmount = amount;
+                    isIncome = false;
+                }
+
+                return {
+                    ...r,
+                    isIncome,
+                    displayAmount,
+                    runningBalance: runBal,
+                    index,
+                };
+            });
+
+            const nextRecords = processedRecords.filter(r => {
+                if (!r.parsedDate) return false;
+                return r.parsedDate >= periodStart && r.parsedDate <= periodEnd;
+            }).sort((a, b) => b.index - a.index);
+
+            if (!cancelled) {
+                setAccountData({ displayRecords: nextRecords, totalBalance: authoritativeBalance });
             }
-            amount = Math.round(amount);
-
-            let isIncome = false;
-            let displayAmount = 0;
-
-            if (r['收款(轉入)'] === accountName) {
-                runBal += amount;
-                displayAmount = amount;
-                isIncome = true;
-            } else if (r['付款(轉出)'] === accountName) {
-                runBal -= amount;
-                displayAmount = amount;
-                isIncome = false;
-            }
-
-            return {
-                ...r,
-                isIncome,
-                displayAmount,
-                runningBalance: runBal,
-                index,
-            };
         });
+        return () => {
+            cancelled = true;
+            task.cancel?.();
+        };
+    }, [visible, rawRecords, accountName, periodStart, periodEnd]);
 
-        // 3. Filter for the selected period
-        const displayRecords = processedRecords.filter(r => {
-            if (!r.parsedDate) return false;
-            return r.parsedDate >= periodStart && r.parsedDate <= periodEnd;
-        }).sort((a, b) => b.index - a.index);
+    const { displayRecords, totalBalance } = accountData;
 
-        return { displayRecords, totalBalance: authoritativeBalance };
-    }, [rawRecords, accountName, periodStart, periodEnd]);
+    const onSelectRecord = useCallback((item: AccountDisplayRecord) => {
+        setSelectedRecord(item);
+    }, []);
 
-    const renderItem = useCallback(({ item }: { item: any }) => {
-        const isIncome = item.isIncome;
-        const amount = item.displayAmount;
+    const renderItem = useCallback(({ item }: { item: AccountDisplayRecord }) => (
+        <AccountRecordRow
+            item={item}
+            accountName={accountName}
+            colors={colors}
+            styles={styles}
+            onPress={onSelectRecord}
+        />
+    ), [accountName, colors, styles, onSelectRecord]);
 
-        let targetAccountText = '';
-        const rawCategory = item['分類'] || item['主類別'];
-        if (rawCategory === '轉帳') {
-            if (isIncome) {
-                targetAccountText = `${item['付款(轉出)']} >> ${accountName} `;
-            } else {
-                targetAccountText = `${accountName} >> ${item['收款(轉入)']} `;
-            }
-        } else {
-            targetAccountText = accountName;
-        }
+    const keyExtractor = useCallback((item: AccountDisplayRecord, index: number) => {
+        const id = item.id != null ? String(item.id) : '';
+        return id || `account-row-${item.index}-${index}`;
+    }, []);
 
-        const category = item['分類'] || item['主類別'] || '';
-        const subCategory = item['子分類'] || item['子類別'] ? ` - ${item['子分類'] || item['子類別']} ` : '';
-        const categoryDisplay = `${category}${subCategory} `;
-        const note = item['商家'] || item['備註'] ? ` ${item['商家'] || item['備註']} ` : '';
-        const dateStr = item['日期'] ? zeroPadDate(item['日期'].toString()) : '';
-        // Date formatting output: YYYY-MM-DD
-        const formattedDateObj = parseFormattedDate(item['日期']?.toString() || '');
-        const outDateStr = formattedDateObj ? `${formattedDateObj.getFullYear()} -${String(formattedDateObj.getMonth() + 1).padStart(2, '0')} -${String(formattedDateObj.getDate()).padStart(2, '0')} ` : dateStr;
-
-        const projectStr = item['專案'] ? ` "${item['專案']}"` : '';
-
-        return (
-            <Pressable onPress={() => setSelectedRecord(item)}>
-                <View style={styles.recordRow}>
-                    <View style={[styles.iconContainer, { backgroundColor: isIncome ? colors.greenLight : colors.yellowLight }]}>
-                        <Ionicons name={isIncome ? 'arrow-down' : 'arrow-up'} size={18} color={isIncome ? colors.green : colors.red} />
-                    </View>
-                    <View style={styles.recordMain}>
-                        <Text style={styles.recordTitle} numberOfLines={1}>{categoryDisplay}</Text>
-                        <Text style={styles.recordDate} numberOfLines={1}>{outDateStr}{projectStr}{note}</Text>
-                    </View>
-                    <View style={styles.recordRight}>
-                        <View style={styles.amountBalanceRow}>
-                            <Text style={[styles.recordAmount, { color: isIncome ? colors.green : colors.red }]}>
-                                {isIncome ? 'TW$ ' : 'TW$ -'}{amount.toLocaleString()}
-                            </Text>
-                            <Text style={styles.recordBalance}> » {item.runningBalance.toLocaleString()}</Text>
-                        </View>
-                        {targetAccountText ? (
-                            <Text style={[styles.recordTarget, { color: colors.textSecondary }]} numberOfLines={1}>
-                                {targetAccountText}
-                            </Text>
-                        ) : null}
-                    </View>
-                </View>
-            </Pressable>
-        );
-    }, [accountName, colors, styles]);
+    const renderSeparator = useCallback(
+        () => <AccountRecordSeparator color={colors.outlineVariant as string} />,
+        [colors.outlineVariant]
+    );
 
     return (
         <Modal visible={visible} animationType="none" transparent presentationStyle="overFullScreen">
@@ -191,66 +275,106 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
                         <>
                             <View style={styles.handleBar} />
                             <View style={styles.header}>
-                            <View style={styles.headerTop}>
-                                <Ionicons name="card" size={28} color={colors.accent} style={{ marginRight: 12 }} />
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.title} numberOfLines={1}>{accountName}</Text>
+                                <View style={styles.headerTop}>
+                                    <Ionicons name="card" size={28} color={colors.primary} style={{ marginRight: 12 }} />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.title} numberOfLines={1}>{accountName}</Text>
+                                    </View>
+                                    <Pressable
+                                        style={styles.closeBtn}
+                                        onPress={onClose}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="關閉帳戶明細"
+                                    >
+                                        <Text style={styles.closeBtnText}>關閉</Text>
+                                    </Pressable>
                                 </View>
-                                <Pressable style={styles.closeBtn} onPress={onClose}>
-                                    <Text style={styles.closeBtnText}>關閉</Text>
-                                </Pressable>
-                            </View>
 
-                            <View style={styles.headerRow}>
-                                <View style={styles.headerStatBox}>
-                                    <Text style={styles.statLabel}>當前餘額</Text>
-                                    <Text style={[styles.statValue, { color: colors.green }]}>TW$ {totalBalance.toLocaleString()}</Text>
+                                <View style={styles.headerRow}>
+                                    <View style={styles.headerStatBox}>
+                                        <Text style={styles.statLabel}>當前餘額</Text>
+                                        <Text style={[styles.statValue, { color: colors.green }]} selectable>
+                                            TW$ {totalBalance.toLocaleString()}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {isCreditCard ? (
+                                    <View style={styles.reconEntryRow}>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.reconEntryLabel}>對帳</Text>
+                                            <Text style={styles.reconEntryHint}>
+                                                {cardSettings.statementGroup
+                                                    ? `${cardSettings.statementGroup} · 每月 ${cardSettings.statementDay} 日`
+                                                    : `每月 ${cardSettings.statementDay} 日結帳`}
+                                            </Text>
+                                        </View>
+                                        <Pressable
+                                            style={styles.reconBtn}
+                                            onPress={() => openReconciliation(accountName)}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="進入對帳模式"
+                                        >
+                                            <Ionicons name="checkmark-done-outline" size={16} color={colors.primary} />
+                                            <Text style={styles.reconBtnText}>對帳</Text>
+                                        </Pressable>
+                                    </View>
+                                ) : null}
+
+                                <View style={styles.modeRow}>
+                                    <SegmentedControl
+                                        options={[
+                                            { value: 'year', label: '年' },
+                                            { value: 'month', label: '月' },
+                                        ]}
+                                        value={viewMode}
+                                        onChange={setViewMode}
+                                        accessibilityLabel="檢視週期"
+                                    />
                                 </View>
                             </View>
-
-                            {/* View Mode Toggle */}
-                            <View style={styles.modeRow}>
-                                <SegmentedControl
-                                    options={[
-                                        { value: 'year', label: '年' },
-                                        { value: 'month', label: '月' },
-                                    ]}
-                                    value={viewMode}
-                                    onChange={setViewMode}
-                                    accessibilityLabel="檢視週期"
-                                />
-                            </View>
-                        </View>
                         </>
                     )}
                 >
-                    {/* Date Navigator */}
                     <View style={styles.navigatorContainer}>
-                        <Pressable onPress={() => shiftDate(-1)} style={styles.navButton}>
+                        <Pressable
+                            onPress={() => shiftDate(-1)}
+                            style={styles.navButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="上一個期間"
+                        >
                             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
                         </Pressable>
                         <Text style={styles.navDateText}>{dateDisplay}</Text>
-                        <Pressable onPress={() => shiftDate(1)} style={styles.navButton}>
+                        <Pressable
+                            onPress={() => shiftDate(1)}
+                            style={styles.navButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="下一個期間"
+                        >
                             <Ionicons name="chevron-forward" size={24} color={colors.textPrimary} />
                         </Pressable>
                     </View>
 
-                    <FlatList
-                        data={displayRecords}
-                        renderItem={renderItem}
-                        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-                        contentContainerStyle={{ paddingBottom: 40 }}
-                        onScroll={swipe.handleScroll}
-                        scrollEventThrottle={swipe.scrollEventThrottle}
-                        ItemSeparatorComponent={() => <View style={styles.separator} />}
-                        ListEmptyComponent={
-                            <View style={styles.emptyView}>
-                                <Text style={styles.emptyText}>無交易記錄</Text>
-                            </View>
-                        }
-                    />
+                    <View style={styles.listWrap}>
+                        <FlashList
+                            data={displayRecords}
+                            renderItem={renderItem}
+                            keyExtractor={keyExtractor}
+                            contentContainerStyle={LIST_CONTENT_STYLE}
+                            onScroll={swipe.handleScroll}
+                            scrollEventThrottle={swipe.scrollEventThrottle}
+                            // @ts-expect-error FlashList v2 estimatedItemSize
+                            estimatedItemSize={72}
+                            ItemSeparatorComponent={renderSeparator}
+                            ListEmptyComponent={
+                                <View style={styles.emptyView}>
+                                    <Text style={styles.emptyText}>無交易記錄</Text>
+                                </View>
+                            }
+                        />
+                    </View>
 
-                    {/* Detail Modal Pop-up inner overlay */}
                     <Modal visible={!!selectedRecord} transparent animationType="slide" onRequestClose={() => setSelectedRecord(null)}>
                         <ModalBackdrop colors={colors} style={styles.innerModalOverlay}>
                             <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedRecord(null)} />
@@ -308,61 +432,72 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    blurOverlay: { flex: 1, justifyContent: 'flex-end' },
     dismissArea: { flex: 1, width: '100%' },
-    container: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '90%', ...SHADOWS.lg },
-    handleBar: { width: 40, height: 5, backgroundColor: colors.border, borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
-
-    // Header
-    header: { paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.divider, backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    title: { ...typography.h3, letterSpacing: -0.3 },
-    closeBtn: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.accentLight, borderRadius: 16, borderWidth: 1, borderColor: colors.accentBorder },
-    closeBtnText: { color: colors.accent, fontWeight: '700', fontSize: 14 },
-
-    // Header Stat Box
+    container: { backgroundColor: colors.surfaceContainer, borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, height: '90%', overflow: 'hidden' },
+    handleBar: { width: 32, height: 4, backgroundColor: colors.outline, borderRadius: RADIUS.full, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
+    header: { paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant, backgroundColor: colors.surfaceContainer, borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet },
+    headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
+    title: { ...typography.h3, letterSpacing: -0.3, flex: 1 },
+    closeBtn: { paddingHorizontal: 16, paddingVertical: 8, minHeight: 40, justifyContent: 'center', backgroundColor: colors.primaryContainer, borderRadius: RADIUS.full },
+    closeBtnText: { color: colors.onPrimaryContainer, fontWeight: '700', fontSize: 14 },
     headerRow: { flexDirection: 'row', marginBottom: 16 },
-    headerStatBox: { flex: 1, padding: 16, borderRadius: 16, alignItems: 'center', backgroundColor: colors.greenLight, ...SHADOWS.sm },
+    headerStatBox: { flex: 1, padding: 16, borderRadius: RADIUS.md, alignItems: 'center', backgroundColor: colors.greenLight, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     statLabel: { ...typography.caption, color: colors.green },
-    statValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5 },
-
-    // Tabs
+    statValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+    reconEntryRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        minHeight: 52,
+        backgroundColor: colors.primaryContainer,
+        borderRadius: RADIUS.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+    },
+    reconEntryLabel: { ...typography.subtitle, fontWeight: '700', color: colors.textPrimary },
+    reconEntryHint: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+    reconBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        minHeight: 40,
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+    },
+    reconBtnText: { color: colors.primary, fontWeight: '800', fontSize: 14 },
     modeRow: { paddingBottom: 4 },
-    modeToggle: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 16, padding: 4, borderWidth: 1, borderColor: colors.divider, ...SHADOWS.sm },
-    modeBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center' },
-    modeBtnActive: { backgroundColor: colors.accentLight, ...SHADOWS.sm },
-    modeBtnText: { ...typography.subtitle, color: colors.textMuted },
-    modeBtnTextActive: { color: colors.accent, fontWeight: '700' },
-
-    // Navigator
-    navigatorContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.bg, borderBottomWidth: 1, borderBottomColor: colors.divider },
+    navigatorContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant },
     navDateText: { ...typography.body, fontWeight: '600', color: colors.textSecondary, flex: 1, textAlign: 'center' },
-    navButton: { padding: 8, backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
-
-    // List
-    recordRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: colors.card },
+    navButton: { padding: 8, minWidth: 40, minHeight: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceVariant, borderRadius: RADIUS.full },
+    listWrap: { flex: 1, minHeight: 120 },
+    recordRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, minHeight: 56, backgroundColor: colors.surfaceContainer },
     iconContainer: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     recordMain: { flex: 1, marginRight: 8 },
     recordTitle: { ...typography.body, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
     recordDate: { ...typography.caption, color: colors.textMuted, marginTop: 4 },
     recordRight: { alignItems: 'flex-end' },
     amountBalanceRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    recordAmount: { ...typography.body, fontWeight: '700', letterSpacing: -0.5 },
-    recordBalance: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+    recordAmount: { ...typography.body, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+    recordBalance: { fontSize: 13, color: colors.textSecondary, fontWeight: '500', fontVariant: ['tabular-nums'] },
     recordTarget: { ...typography.caption, marginTop: 4 },
-
-    separator: { height: 1, backgroundColor: colors.divider, marginHorizontal: 20 },
+    separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant, marginHorizontal: 20 },
     emptyView: { alignItems: 'center', paddingVertical: 60 },
     emptyText: { ...typography.bodySm },
-
-    // Single Record Detail Inner Modal
     innerModalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     detailModal: {
         width: '85%',
         maxHeight: '80%',
-        backgroundColor: colors.card,
-        borderRadius: 24,
-        padding: 24, ...SHADOWS.lg
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.md,
+        padding: 24,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
     },
     detailHeader: { alignItems: 'center', marginBottom: 20 },
     typeTag: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginBottom: 16 },

@@ -25,7 +25,7 @@ export default function TravelDetailRoute() {
 
     if (!project) {
         return (
-            <View style={[styles.emptyRoot, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+            <View style={[styles.emptyRoot, { backgroundColor: colors.surface, paddingTop: insets.top }]}>
                 <EmptyState
                     icon="airplane-outline"
                     title="找不到此旅遊專案"

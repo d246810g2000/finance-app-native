@@ -79,7 +79,7 @@ export const saveBudgetConfig = async (config: BudgetGlobalConfig): Promise<void
 /**
  * 判斷專案屬於哪個群組
  */
-const getProjectGroup = (project: string, config: BudgetGlobalConfig): 'fixed' | 'daily' => {
+export const getProjectGroup = (project: string, config: BudgetGlobalConfig): 'fixed' | 'daily' => {
   return config.projectGroups[project] || 'daily';
 };
 

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Modal, Pressable, TouchableWithoutFeedback } fr
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, SHADOWS } from '../../theme';
+import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import ModalBackdrop from '../ui/ModalBackdrop';
 import SegmentedControl from '../ui/SegmentedControl';
@@ -97,7 +97,12 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
                                 {hasUnmapped ? '偵測到未分類的新帳戶，請為其選擇歸屬' : '目前所有帳戶皆已分類完成'}
                             </Text>
                         </View>
-                        <Pressable onPress={hasUnmapped ? handleSave : onClose} style={styles.saveBtn}>
+                        <Pressable
+                            onPress={hasUnmapped ? handleSave : onClose}
+                            style={styles.saveBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={hasUnmapped ? '確定帳戶分類' : '關閉'}
+                        >
                             <Text style={styles.saveBtnText}>
                                 {hasUnmapped ? '確定' : '關閉'}
                             </Text>
@@ -181,17 +186,17 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     dismissArea: { flex: 1, width: '100%' },
     modalContent: {
-        backgroundColor: colors.bg,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        backgroundColor: colors.surfaceContainer,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         height: '75%',
-        ...SHADOWS.lg,
+        overflow: 'hidden',
     },
     dragHandle: {
-        width: 40,
-        height: 5,
-        backgroundColor: colors.border,
-        borderRadius: 3,
+        width: 32,
+        height: 4,
+        backgroundColor: colors.outline,
+        borderRadius: RADIUS.full,
         alignSelf: 'center',
         marginTop: 12,
         marginBottom: 8,
@@ -217,7 +222,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     saveBtn: {
         paddingHorizontal: 18,
         paddingVertical: 8,
-        backgroundColor: colors.accent,
+        backgroundColor: colors.primary,
         borderRadius: 16,
     },
     saveBtnText: {
@@ -232,13 +237,12 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         padding: 16,
     },
     accountCard: {
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         borderRadius: 18,
         borderWidth: 1,
-        borderColor: colors.divider,
+        borderColor: colors.outlineVariant,
         padding: 16,
         marginBottom: 16,
-        ...SHADOWS.sm,
     },
     cardHeader: {
         marginBottom: 12,
@@ -261,7 +265,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     buttonGroup: {
         flexDirection: 'row',
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderRadius: 10,
         padding: 2,
         borderWidth: 1,
@@ -273,8 +277,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         borderRadius: 8,
     },
     groupBtnActive: {
-        backgroundColor: colors.card,
-        ...SHADOWS.sm,
+        backgroundColor: colors.primaryContainer,
     },
     groupBtnText: {
         fontSize: 12,
@@ -282,7 +285,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         color: colors.textMuted,
     },
     groupBtnTextActive: {
-        color: colors.accent,
+        color: colors.primary,
         fontWeight: '700',
     },
     categoryContainer: {
@@ -295,13 +298,13 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 10,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.divider,
     },
     categoryChipActive: {
-        backgroundColor: colors.accentLight,
-        borderColor: colors.accentBorder,
+        backgroundColor: colors.primaryContainer,
+        borderColor: colors.outlineVariant,
     },
     categoryChipText: {
         fontSize: 12,
@@ -309,7 +312,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         color: colors.textSecondary,
     },
     categoryChipTextActive: {
-        color: colors.accent,
+        color: colors.primary,
         fontWeight: '700',
     },
 });

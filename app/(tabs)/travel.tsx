@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
-import { AppColors, CATEGORY_COLORS, RADIUS, SHADOWS } from '../../theme';
+import { AppColors, CATEGORY_COLORS, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
@@ -16,6 +16,58 @@ import DateRangeSelector from '../../components/DateRangeSelector';
 import { parseFormattedDate } from '../../utils/dateUtils';
 
 type SortKey = 'date_desc' | 'date_asc' | 'expense_desc' | 'expense_asc' | 'duration_desc' | 'duration_asc' | 'dailyAvg_desc' | 'dailyAvg_asc';
+type TravelStyles = ReturnType<typeof createStyles>;
+
+const TravelProjectCard = memo(function TravelProjectCard({
+    item,
+    styles,
+    onPress,
+}: {
+    item: TravelProject;
+    styles: TravelStyles;
+    onPress: (project: TravelProject) => void;
+}) {
+    const displayName = item.name.replace(/^\d{6}-/, '');
+    const totalCatExpense = item.categoryBreakdown.reduce((s, c) => s + c.amount, 0);
+    return (
+        <AccentListCard
+            onPress={() => onPress(item)}
+            title={displayName}
+            amount={`$${item.totalExpense.toLocaleString()}`}
+            meta={[
+                { icon: 'calendar-outline', text: `${item.durationDays} 天` },
+                { icon: 'cafe-outline', text: `日均 $${item.dailyAvg.toLocaleString()}` },
+                { icon: 'documents-outline', text: `${item.records.length} 筆` },
+            ]}
+            accessibilityLabel={`旅遊 ${displayName}，總花費 ${item.totalExpense} 元`}
+        >
+            <Text style={styles.dateRange}>{item.startDate} → {item.endDate}</Text>
+            <View style={styles.distBar}>
+                {item.categoryBreakdown.map((cat, idx) => (
+                    <View
+                        key={cat.category}
+                        style={[
+                            styles.distSeg,
+                            {
+                                width: `${totalCatExpense > 0 ? (cat.amount / totalCatExpense) * 100 : 0}%` as `${number}%`,
+                                backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length],
+                            },
+                        ]}
+                    />
+                ))}
+            </View>
+            <View style={styles.topCatRow}>
+                {item.categoryBreakdown.slice(0, 3).map((cat, idx) => (
+                    <View key={cat.category} style={styles.topCatItem}>
+                        <View style={[styles.topCatDot, { backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }]} />
+                        <Text style={styles.topCatName}>{cat.category}</Text>
+                        <Text style={styles.topCatAmount} selectable>${cat.amount.toLocaleString()}</Text>
+                    </View>
+                ))}
+            </View>
+        </AccentListCard>
+    );
+});
 
 export default function TravelScreen() {
     const { colors, typography } = useAppTheme();
@@ -94,41 +146,9 @@ export default function TravelScreen() {
         }
     }, [sortKey, startDate, endDate, yearFilter]);
 
-    const renderProjectCard = useCallback(({ item }: { item: TravelProject }) => {
-        const totalCatExpense = item.categoryBreakdown.reduce((s, c) => s + c.amount, 0);
-        return (
-            <AccentListCard
-                onPress={() => handleProjectClick(item)}
-                title={item.name.replace(/^\d{6}-/, '')}
-                amount={`$${item.totalExpense.toLocaleString()}`}
-                meta={[
-                    { icon: 'calendar-outline', text: `${item.durationDays} 天` },
-                    { icon: 'cafe-outline', text: `日均 $${item.dailyAvg.toLocaleString()}` },
-                    { icon: 'documents-outline', text: `${item.records.length} 筆` },
-                ]}
-                accessibilityLabel={`旅遊 ${item.name.replace(/^\d{6}-/, '')}，總花費 ${item.totalExpense} 元`}
-            >
-                <Text style={styles.dateRange}>{item.startDate} → {item.endDate}</Text>
-                <View style={styles.distBar}>
-                    {item.categoryBreakdown.map((cat, idx) => (
-                        <View key={cat.category} style={{
-                            width: `${totalCatExpense > 0 ? (cat.amount / totalCatExpense) * 100 : 0}%` as any,
-                            backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length], height: '100%',
-                        }} />
-                    ))}
-                </View>
-                <View style={styles.topCatRow}>
-                    {item.categoryBreakdown.slice(0, 3).map((cat, idx) => (
-                        <View key={cat.category} style={styles.topCatItem}>
-                            <View style={[styles.topCatDot, { backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }]} />
-                            <Text style={styles.topCatName}>{cat.category}</Text>
-                            <Text style={styles.topCatAmount}>${cat.amount.toLocaleString()}</Text>
-                        </View>
-                    ))}
-                </View>
-            </AccentListCard>
-        );
-    }, [handleProjectClick, styles]);
+    const renderProjectCard = useCallback(({ item }: { item: TravelProject }) => (
+        <TravelProjectCard item={item} styles={styles} onPress={handleProjectClick} />
+    ), [handleProjectClick, styles]);
 
     const listHeader = useMemo(() => (
         <View style={styles.listHeaderWrapper}>
@@ -218,25 +238,31 @@ export default function TravelScreen() {
 }
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
+    container: { flex: 1, backgroundColor: colors.surface },
     listHeaderWrapper: { marginHorizontal: -16 },
     sectionHeader: { marginHorizontal: 16, marginTop: 22, marginBottom: 2 },
     sortContainer: { marginTop: 12, marginBottom: 0 },
     yearSection: { marginTop: 4 },
     yearScroll: { paddingHorizontal: 16, gap: 10, paddingTop: 10, paddingBottom: 4 },
     yearCard: {
-        minWidth: 112, backgroundColor: colors.card, borderRadius: RADIUS.lg, padding: 14,
-        borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm,
+        minWidth: 112,
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.md,
+        padding: 14,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        minHeight: 88,
     },
-    yearCardActive: { borderColor: colors.accent, backgroundColor: colors.accentLight },
-    yearLabel: { fontSize: 13, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
-    yearAmount: { fontSize: 16, fontWeight: '800', color: colors.accent },
-    yearMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+    yearCardActive: { borderColor: colors.primary, backgroundColor: colors.primaryContainer },
+    yearLabel: { fontSize: 13, fontWeight: '700', color: colors.onSurfaceVariant, marginBottom: 4 },
+    yearAmount: { fontSize: 16, fontWeight: '800', color: colors.primary, fontVariant: ['tabular-nums'] },
+    yearMeta: { fontSize: 11, color: colors.onSurfaceVariant, marginTop: 4 },
     dateRange: { ...typography.caption, marginTop: 8, marginBottom: 10 },
-    distBar: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.divider, marginBottom: 10 },
+    distBar: { flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.surfaceVariant, marginBottom: 10 },
+    distSeg: { height: '100%' },
     topCatRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap', rowGap: 6, marginBottom: 10 },
     topCatItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     topCatDot: { width: 8, height: 8, borderRadius: 4 },
     topCatName: { ...typography.bodySm },
-    topCatAmount: { ...typography.bodySm, fontWeight: '700', color: colors.textPrimary },
+    topCatAmount: { ...typography.bodySm, fontWeight: '700', color: colors.onSurface, fontVariant: ['tabular-nums'] },
 });

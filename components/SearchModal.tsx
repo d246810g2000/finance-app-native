@@ -4,8 +4,9 @@ import { View, Text, StyleSheet, Modal, TextInput, ScrollView, Pressable, Animat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../context/ThemeContext';
-import { useFinance, SearchFilters } from '../context/FinanceContext';
-import { AppColors, RADIUS, SCREEN_EDGE_MIN, SHADOWS, withContinuousRadius } from '../theme';
+import { useFinance, buildSearchMetadata, SearchFilters } from '../context/FinanceContext';
+import { useFinanceUI } from '../context/FinanceUIContext';
+import { AppColors, RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../theme';
 import HeaderMenuButton from './layout/HeaderMenuButton';
 
 interface SearchModalProps {
@@ -91,7 +92,12 @@ function DrumDatePicker({ initialDate, onConfirm, onCancel, colors, styles }: an
 export default function SearchModal({ visible, onClose, onApply }: SearchModalProps) {
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
-    const { searchFilters, searchMetadata: metadata } = useFinance();
+    const { records } = useFinance();
+    const { searchFilters } = useFinanceUI();
+    const metadata = useMemo(
+        () => (visible ? buildSearchMetadata(records) : buildSearchMetadata([])),
+        [visible, records]
+    );
     const edgeH = Math.max(insets.left, insets.right, SCREEN_EDGE_MIN);
     const styles = useMemo(() => createStyles(colors, typography, edgeH), [colors, typography, edgeH]);
 
@@ -188,10 +194,15 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
     };
 
     const renderFilterRow = (icon: React.ComponentProps<typeof Ionicons>['name'], label: string, value: string, type: typeof pickerType, placeholder: string = '全部') => (
-        <Pressable style={({ pressed }) => [styles.filterRow, pressed && { opacity: 0.7 }]} onPress={() => openPicker(type)}>
+        <Pressable
+            style={({ pressed }) => [styles.filterRow, pressed && { opacity: 0.7 }]}
+            onPress={() => openPicker(type)}
+            accessibilityRole="button"
+            accessibilityLabel={`篩選${label}，目前 ${value || placeholder}`}
+        >
             <View style={styles.filterIconLabel}>
                 <View style={styles.filterIconBg}>
-                    <Ionicons name={icon} size={18} color={colors.accent} />
+                    <Ionicons name={icon} size={18} color={colors.primary} />
                 </View>
                 <Text style={styles.rowLabel}>{label}</Text>
             </View>
@@ -229,6 +240,8 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                             onPress={handleReset}
                             hitSlop={8}
                             style={({ pressed }) => [styles.resetBtn, pressed && { opacity: 0.7 }]}
+                            accessibilityRole="button"
+                            accessibilityLabel="重設搜尋條件"
                         >
                             <Text style={styles.resetText}>重設</Text>
                         </Pressable>
@@ -260,13 +273,17 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                             <View style={styles.filterRow}>
                                 <View style={styles.filterIconLabel}>
                                     <View style={styles.filterIconBg}>
-                                        <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                                        <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                                     </View>
                                     <Text style={styles.rowLabel}>日期</Text>
                                 </View>
-                                <Pressable onPress={() => {
+                                <Pressable
+                                    onPress={() => {
                                     setFilters(prev => ({ ...prev, startDate: null, endDate: null }));
-                                }}>
+                                }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="清除日期篩選"
+                                >
                                     <Text style={styles.resetTextSmall}>清除日期</Text>
                                 </Pressable>
                             </View>
@@ -300,7 +317,7 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                             <View style={styles.filterRow}>
                                 <View style={styles.filterIconLabel}>
                                     <View style={styles.filterIconBg}>
-                                        <Ionicons name="cash-outline" size={18} color={colors.accent} />
+                                        <Ionicons name="cash-outline" size={18} color={colors.primary} />
                                     </View>
                                     <Text style={styles.rowLabel}>金額區間</Text>
                                 </View>
@@ -347,7 +364,12 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                                             pickerType === 'account' ? '選擇帳戶' :
                                                 pickerType === 'project' ? '選擇專案' : '選擇日期'}
                                     </Text>
-                                    <Pressable onPress={() => setPickerType(null)} hitSlop={8}>
+                                    <Pressable
+                                        onPress={() => setPickerType(null)}
+                                        hitSlop={8}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="關閉選擇器"
+                                    >
                                         <Ionicons name="close" size={24} color={colors.textPrimary} />
                                     </Pressable>
                                 </View>
@@ -366,11 +388,11 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                                     />
                                 ) : (
                                     <ScrollView style={styles.pickerList}>
-                                        <Pressable style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.bg }]} onPress={() => selectValue('')}>
-                                            <Text style={[styles.pickerItemText, { color: colors.accent }]}>全部</Text>
+                                        <Pressable style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.surface }]} onPress={() => selectValue('')}>
+                                            <Text style={[styles.pickerItemText, { color: colors.primary }]}>全部</Text>
                                         </Pressable>
                                         {(metadata as any)[pickerType === 'category' ? 'categories' : pickerType === 'account' ? 'accounts' : 'projects'].map((item: string) => (
-                                            <Pressable key={item} style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.bg }]} onPress={() => selectValue(item)}>
+                                            <Pressable key={item} style={({ pressed }) => [styles.pickerItem, pressed && { backgroundColor: colors.surface }]} onPress={() => selectValue(item)}>
                                                 <Text style={styles.pickerItemText}>{item}</Text>
                                             </Pressable>
                                         ))}
@@ -384,12 +406,16 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                         <Pressable
                             style={({ pressed }) => [styles.footerBtn, styles.cancelButton, pressed && styles.footerBtnPressed]}
                             onPress={onClose}
+                            accessibilityRole="button"
+                            accessibilityLabel="取消搜尋"
                         >
                             <Text style={styles.cancelButtonText}>取消</Text>
                         </Pressable>
                         <Pressable
                             style={({ pressed }) => [styles.footerBtn, styles.confirmButton, pressed && styles.footerBtnPressed]}
                             onPress={handleConfirm}
+                            accessibilityRole="button"
+                            accessibilityLabel="執行搜尋"
                         >
                             <Text style={styles.confirmButtonText}>搜尋</Text>
                         </Pressable>
@@ -407,7 +433,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     container: {
         flex: 1,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         width: '100%',
         height: '100%',
     },
@@ -419,7 +445,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         paddingBottom: 12,
         backgroundColor: colors.headerBg,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.cardBorder,
+        borderBottomColor: colors.outlineVariant,
         gap: 8,
     },
     headerTitle: {
@@ -435,7 +461,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         justifyContent: 'center',
         paddingHorizontal: 4,
     },
-    resetText: { color: colors.accent, fontWeight: '700', fontSize: 14, includeFontPadding: false },
+    resetText: { color: colors.primary, fontWeight: '700', fontSize: 14, includeFontPadding: false },
     content: { flex: 1 },
     contentInner: {
         paddingHorizontal: edgeH,
@@ -452,18 +478,17 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         includeFontPadding: false,
     },
     card: {
-        backgroundColor: colors.card,
-        borderRadius: RADIUS.lg,
-        borderWidth: 1,
-        borderColor: colors.cardBorder,
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
         overflow: 'hidden',
         marginBottom: 20,
-        ...SHADOWS.sm,
     },
     keywordInput: {
         height: 48,
         margin: 14,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderRadius: RADIUS.sm,
         paddingHorizontal: 14,
         fontSize: 16,
@@ -484,7 +509,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         width: 36,
         height: 36,
         borderRadius: 12,
-        backgroundColor: colors.accentLight,
+        backgroundColor: colors.primaryContainer,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 12,
@@ -495,7 +520,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     rowValue: { fontSize: 14, color: colors.textSecondary, marginRight: 4, fontWeight: '600', includeFontPadding: false },
     rowPlaceholder: { color: colors.textMuted, fontWeight: '500' },
     divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 62 },
-    resetTextSmall: { color: colors.accent, fontSize: 12, fontWeight: '700', includeFontPadding: false },
+    resetTextSmall: { color: colors.primary, fontSize: 12, fontWeight: '700', includeFontPadding: false },
 
     datePickerContainer: {
         flexDirection: 'row',
@@ -506,7 +531,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     dateBox: {
         flex: 1,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderRadius: RADIUS.sm,
         padding: 12,
         borderWidth: 1,
@@ -527,7 +552,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         borderRadius: RADIUS.sm,
         paddingHorizontal: 10,
         height: 44,
@@ -538,39 +563,42 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     amountInput: { flex: 1, fontSize: 14, color: colors.textPrimary, fontWeight: '600', includeFontPadding: false },
     amountSeparator: { fontSize: 14, color: colors.textMuted },
 
-    pickerOverlay: { flex: 1, backgroundColor: colors.blackOverlay, justifyContent: 'flex-end' },
+    pickerOverlay: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
     pickerContent: {
-        backgroundColor: colors.card,
-        borderTopLeftRadius: RADIUS.xl,
-        borderTopRightRadius: RADIUS.xl,
+        backgroundColor: colors.surfaceContainer,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         maxHeight: '70%',
         paddingBottom: 20,
+        overflow: 'hidden',
     },
     pickerHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: 20,
+        minHeight: 56,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.divider,
+        borderBottomColor: colors.outlineVariant,
     },
     pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, includeFontPadding: false },
     pickerList: { maxHeight: 400 },
     pickerItem: {
         paddingVertical: 14,
         paddingHorizontal: 20,
+        minHeight: 48,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.divider,
+        borderBottomColor: colors.outlineVariant,
     },
     pickerItemText: { fontSize: 16, color: colors.textPrimary, includeFontPadding: false },
 
-    drumContainer: { backgroundColor: colors.card, padding: 16 },
+    drumContainer: { backgroundColor: colors.surfaceContainer, padding: 16 },
     drumPickerRow: { flexDirection: 'row', alignItems: 'center', height: 132 },
     wheelSelectionLine: { position: 'absolute', left: 0, right: 0, height: 1 },
     wheelText: { fontSize: 18, fontWeight: '400' },
     wheelTextActive: { fontSize: 22, fontWeight: '700' },
     drumFooter: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 20, gap: 20 },
-    drumButton: { padding: 8 },
+    drumButton: { padding: 8, minHeight: 40, justifyContent: 'center' },
     drumCancelText: { color: colors.textMuted, fontSize: 16 },
     drumConfirmText: { color: colors.green, fontSize: 16, fontWeight: '700' },
 
@@ -580,26 +608,25 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         paddingHorizontal: edgeH,
         paddingTop: 12,
         borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: colors.divider,
-        backgroundColor: colors.card,
-        ...SHADOWS.md,
+        borderTopColor: colors.outlineVariant,
+        backgroundColor: colors.surfaceContainer,
     },
     footerBtn: {
         flex: 1,
         height: 48,
         alignItems: 'center',
         justifyContent: 'center',
-        ...withContinuousRadius(RADIUS.md),
+        ...withContinuousRadius(RADIUS.full),
     },
-    footerBtnPressed: { opacity: 0.88, transform: [{ scale: 0.98 }] },
+    footerBtnPressed: { opacity: 0.88 },
     cancelButton: {
-        backgroundColor: colors.bg,
-        borderWidth: 1,
-        borderColor: colors.cardBorder,
+        backgroundColor: colors.surfaceVariant,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
     },
     cancelButtonText: { color: colors.textSecondary, fontSize: 15, fontWeight: '700', includeFontPadding: false },
     confirmButton: {
-        backgroundColor: colors.accent,
+        backgroundColor: colors.primary,
     },
     confirmButtonText: { color: colors.textWhite, fontSize: 15, fontWeight: '700', includeFontPadding: false },
 });

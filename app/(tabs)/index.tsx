@@ -1,12 +1,12 @@
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, memo } from 'react';
 import { View, Text, ScrollView, Dimensions, Pressable, StyleSheet, LayoutAnimation, Platform, UIManager, Modal, TouchableWithoutFeedback } from 'react-native';
 import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { BarChart, LineChartBicolor } from 'react-native-gifted-charts';
 import Animated, { FadeInDown, FadeInLeft } from 'react-native-reanimated';
 import { useFinance } from '../../context/FinanceContext';
 import { processAndAggregateRecords, transformRecordsForExport, filterAndSortRecords } from '../../services/financeService';
-import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS, ASSET_CLASSES, ASSET_CLASS_COLORS, getAssetClass } from '../../constants';
+import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS, ASSET_CLASSES, getAssetClass } from '../../constants';
 import { TrendDataPoint, AccountsSummaryMap, TransformedRecord } from '../../types';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
@@ -37,11 +37,11 @@ type AccountViewType = 'all' | 'personal' | 'shared';
 // ─── Summary Card ───
 type DashboardStyles = ReturnType<typeof createStyles>;
 
-const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, onPress, index, fullWidth, colors, styles }: {
+const SummaryCard = memo(function SummaryCard({ title, value, previousValue, isPercentage, invertColor, onPress, index, fullWidth, colors, styles }: {
     title: string; value: number; previousValue: number;
     isPercentage?: boolean; invertColor?: boolean; onPress?: () => void; index?: number; fullWidth?: boolean;
     colors: AppColors; styles: DashboardStyles;
-}) => {
+}) {
     const diff = value - previousValue;
     const pctChange = previousValue !== 0
         ? ((diff / Math.abs(previousValue)) * 100).toFixed(1)
@@ -63,7 +63,7 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
         '儲蓄率': 'pie-chart-outline', '日均消費': 'cafe-outline',
     };
     const accentMap: Record<string, string> = {
-        '資產': colors.accent, '收入': colors.green, '支出': colors.red,
+        '資產': colors.primary, '收入': colors.green, '支出': colors.red,
         '儲蓄率': colors.blue, '日均消費': colors.yellow,
     };
 
@@ -77,19 +77,19 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
                     pressed && onPress ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null,
                 ]}
             >
-                <View style={[styles.summaryCardInner, { borderColor: colors.cardBorder }]}>
-                    <View style={[styles.summaryAccentStrip, { backgroundColor: accentMap[title] || colors.accent }]} />
+                <View style={[styles.summaryCardInner, { borderColor: colors.outlineVariant }]}>
+                    <View style={[styles.summaryAccentStrip, { backgroundColor: accentMap[title] || colors.primary }]} />
                     <View style={styles.summaryCardBody}>
                         <View style={styles.summaryCardHeader}>
                             <IconCircle
                                 name={iconMap[title] || 'stats-chart-outline'}
-                                color={accentMap[title] || colors.accent}
+                                color={accentMap[title] || colors.primary}
                                 size={34}
                                 iconSize={18}
                             />
                             <Text style={styles.summaryCardTitle}>{title}</Text>
                         </View>
-                        <Text style={styles.summaryCardValue} numberOfLines={1} adjustsFontSizeToFit>
+                        <Text style={styles.summaryCardValue} numberOfLines={1} adjustsFontSizeToFit selectable>
                             {displayValue}
                         </Text>
                         {!isNaN(previousValue) ? (
@@ -110,11 +110,113 @@ const SummaryCard = ({ title, value, previousValue, isPercentage, invertColor, o
             </Pressable>
         </Animated.View>
     );
+});
+
+type AccountGroupForRatio = {
+    category: string;
+    totalBalance: number;
 };
+
+const AccountRatioPanel = memo(function AccountRatioPanel({
+    groups,
+    colors,
+    assetClassColors,
+}: {
+    groups: AccountGroupForRatio[];
+    colors: AppColors;
+    assetClassColors: Record<string, string>;
+}) {
+    const assetGroups = useMemo(
+        () => groups.filter(g => g.category !== '負債' && Math.abs(g.totalBalance) > 0),
+        [groups]
+    );
+    const totalAssets = useMemo(
+        () => assetGroups.reduce((sum, g) => sum + Math.abs(g.totalBalance), 0),
+        [assetGroups]
+    );
+    const liabilityGroup = useMemo(
+        () => groups.find(g => g.category === '負債'),
+        [groups]
+    );
+    const totalLiabilities = liabilityGroup ? Math.abs(liabilityGroup.totalBalance) : 0;
+    const hasLiabilities = totalLiabilities > 0;
+    const liabilityPercentage = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
+    const liabilityDisplayHeight = Math.min(Math.max(liabilityPercentage, 15), 90);
+
+    return (
+        <Animated.View entering={FadeInLeft.duration(300).springify().damping(15)} style={{ paddingHorizontal: 20, height: 420, flexDirection: 'row', width: '100%' }}>
+            {hasLiabilities ? (
+                <View style={{ flex: 0.8, justifyContent: 'flex-end', marginRight: 0 }}>
+                    <View style={{
+                        height: `${liabilityDisplayHeight}%`,
+                        minHeight: 100,
+                        backgroundColor: assetClassColors['負債'],
+                        borderTopLeftRadius: RADIUS.sheet,
+                        borderBottomLeftRadius: RADIUS.sheet,
+                        padding: 16,
+                        paddingTop: 24,
+                        justifyContent: 'flex-start',
+                    }}>
+                        <Text style={{ color: colors.textPrimary, fontSize: 28, fontWeight: '800', opacity: 0.8, letterSpacing: -1, fontVariant: ['tabular-nums'] }} selectable>
+                            {Math.round(liabilityPercentage)}%
+                        </Text>
+                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600', opacity: 0.6, marginTop: 4 }}>
+                            負債
+                        </Text>
+                    </View>
+                </View>
+            ) : null}
+
+            <View style={{
+                flex: 2,
+                borderTopLeftRadius: RADIUS.sheet,
+                borderTopRightRadius: RADIUS.sheet,
+                borderBottomRightRadius: RADIUS.sheet,
+                borderBottomLeftRadius: hasLiabilities ? 0 : RADIUS.sheet,
+                overflow: 'hidden',
+                flexDirection: 'column',
+            }}>
+                {assetGroups.map(group => {
+                    const percentage = totalAssets > 0 ? (Math.abs(group.totalBalance) / totalAssets) * 100 : 0;
+                    if (percentage === 0) return null;
+                    return (
+                        <View key={`ratio-${group.category}`} style={{
+                            height: `${percentage}%`,
+                            backgroundColor: assetClassColors[group.category],
+                            justifyContent: 'flex-start',
+                            padding: 16,
+                            paddingTop: 24,
+                        }}>
+                            {percentage > 12 ? (
+                                <View>
+                                    <Text style={{ color: colors.textPrimary, fontSize: 36, fontWeight: '800', opacity: 0.8, letterSpacing: -1, lineHeight: 38, fontVariant: ['tabular-nums'] }} selectable>
+                                        {Math.round(percentage)}%
+                                    </Text>
+                                    <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600', opacity: 0.7, marginTop: 2 }}>
+                                        {group.category}
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+                                    <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800', opacity: 0.8, fontVariant: ['tabular-nums'] }} selectable>
+                                        {Math.round(percentage)}%
+                                    </Text>
+                                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600', opacity: 0.7, paddingBottom: 1 }}>
+                                        {group.category}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                    );
+                })}
+            </View>
+        </Animated.View>
+    );
+});
 
 export default function DashboardScreen() {
     const { records, budgetConfig } = useFinance();
-    const { colors, typography } = useAppTheme();
+    const { colors, typography, assetClassColors } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
     const navigation = useNavigation();
     const [accountViewType, setAccountViewType] = useState<AccountViewType>('personal');
@@ -480,109 +582,22 @@ export default function DashboardScreen() {
                     </View>
 
                     {showRatioView ? (
-                        <Animated.View entering={FadeInLeft.duration(300).springify().damping(15)} style={{ paddingHorizontal: 20, height: 420, flexDirection: 'row', width: '100%' }}>
-                            {(() => {
-                                // 1. Calculate the core total of purely Assets (excluding Liabilities)
-                                const assetGroups = accountTableData.groups.filter(g => g.category !== '負債' && Math.abs(g.totalBalance) > 0);
-                                const totalAssets = assetGroups.reduce((sum, g) => sum + Math.abs(g.totalBalance), 0);
-
-                                // 2. Identify Liability group
-                                const liabilityGroup = accountTableData.groups.find(g => g.category === '負債');
-                                const totalLiabilities = liabilityGroup ? Math.abs(liabilityGroup.totalBalance) : 0;
-                                const hasLiabilities = totalLiabilities > 0;
-
-                                // Calculate percentages relative to Total Assets
-                                const liabilityPercentage = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
-                                // Constrain liability percentage height visually so it looks decent even if ratio is extreme
-                                const liabilityDisplayHeight = Math.min(Math.max(liabilityPercentage, 15), 90);
-
-                                return (
-                                    <>
-                                        {/* Left Column: Liabilities */}
-                                        {hasLiabilities && (
-                                            <View style={{ flex: 0.8, justifyContent: 'flex-end', marginRight: 0 }}>
-                                                <View style={{
-                                                    height: `${liabilityDisplayHeight}%`,
-                                                    minHeight: 100,
-                                                    backgroundColor: ASSET_CLASS_COLORS['負債'],
-                                                    borderTopLeftRadius: 28,
-                                                    borderBottomLeftRadius: 28,
-                                                    padding: 16,
-                                                    paddingTop: 24,
-                                                    justifyContent: 'flex-start'
-                                                }}>
-                                                    <Text style={{ color: colors.textPrimary, fontSize: 28, fontWeight: '800', opacity: 0.8, letterSpacing: -1 }}>
-                                                        {Math.round(liabilityPercentage)}%
-                                                    </Text>
-                                                    <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600', opacity: 0.6, marginTop: 4 }}>
-                                                        負債
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                        )}
-
-                                        {/* Right Column: Positive Assets */}
-                                        <View style={{
-                                            flex: 2,
-                                            borderTopLeftRadius: 28,
-                                            borderTopRightRadius: 28,
-                                            borderBottomRightRadius: 28,
-                                            borderBottomLeftRadius: hasLiabilities ? 0 : 28,
-                                            overflow: 'hidden',
-                                            flexDirection: 'column'
-                                        }}>
-                                            {assetGroups.map(group => {
-                                                const percentage = totalAssets > 0 ? (Math.abs(group.totalBalance) / totalAssets) * 100 : 0;
-                                                // Only render if non-zero
-                                                if (percentage === 0) return null;
-
-                                                return (
-                                                    <View key={`ratio-${group.category}`} style={{
-                                                        height: `${percentage}%`,
-                                                        backgroundColor: ASSET_CLASS_COLORS[group.category],
-                                                        justifyContent: 'flex-start',
-                                                        padding: 16,
-                                                        paddingTop: 24
-                                                    }}>
-                                                        {/* Arrange percentage and label depending on height available */}
-                                                        {percentage > 12 ? (
-                                                            <View>
-                                                                <Text style={{ color: colors.textPrimary, fontSize: 36, fontWeight: '800', opacity: 0.8, letterSpacing: -1, lineHeight: 38 }}>
-                                                                    {Math.round(percentage)}%
-                                                                </Text>
-                                                                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600', opacity: 0.7, marginTop: 2 }}>
-                                                                    {group.category}
-                                                                </Text>
-                                                            </View>
-                                                        ) : (
-                                                            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
-                                                                <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800', opacity: 0.8 }}>
-                                                                    {Math.round(percentage)}%
-                                                                </Text>
-                                                                <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600', opacity: 0.7, paddingBottom: 1 }}>
-                                                                    {group.category}
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
-                                                );
-                                            })}
-                                        </View>
-                                    </>
-                                );
-                            })()}
-                        </Animated.View>
+                        <AccountRatioPanel
+                            groups={accountTableData.groups}
+                            colors={colors}
+                            assetClassColors={assetClassColors}
+                        />
                     ) : (
                         <Animated.View entering={FadeInDown.duration(400).springify()} style={{ marginHorizontal: 20, gap: 12 }}>
                             {accountTableData.groups.filter(g => g.accounts.length > 0).map((group) => {
-                                const color = ASSET_CLASS_COLORS[group.category];
+                                const color = assetClassColors[group.category];
 
                                 return (
                                     <View key={`list-${group.category}`}>
                                         {/* Top Level Card - color accent is INSIDE the card */}
                                         <View style={[{
                                             borderRadius: 20,
-                                            backgroundColor: group.isCollapsed ? colors.card : color,
+                                            backgroundColor: group.isCollapsed ? colors.surfaceContainer : color,
                                             overflow: 'hidden',
                                         }, group.isCollapsed && SHADOWS.sm]}>
                                             <Pressable
@@ -590,7 +605,7 @@ export default function DashboardScreen() {
                                                     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                                                     toggleGroup(group.category);
                                                 }}
-                                                android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false, radius: 200 }}
+                                                android_ripple={{ color: colors.statePressed, borderless: false, radius: 200 }}
                                                 style={({ pressed }) => [
                                                     pressed && { opacity: 0.8 }
                                                 ]}
@@ -611,7 +626,7 @@ export default function DashboardScreen() {
                                                                     {group.category}
                                                                 </Text>
                                                                 {group.accounts.length > 0 && (
-                                                                    <View style={{ backgroundColor: color + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                                                    <View style={{ backgroundColor: colors.primaryContainer, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
                                                                         <Text style={{ fontSize: 10, color: color, fontWeight: '700' }}>
                                                                             {group.accounts.length} 筆資產
                                                                         </Text>
@@ -649,7 +664,7 @@ export default function DashboardScreen() {
                                                     const isSubExpanded = expandedSubGroups[subId];
 
                                                     return (
-                                                        <View key={subId} style={[{ borderRadius: 16, backgroundColor: colors.card, overflow: 'hidden' }, SHADOWS.sm]}>
+                                                        <View key={subId} style={[{ borderRadius: 16, backgroundColor: colors.surfaceContainer, overflow: 'hidden' }, SHADOWS.sm]}>
                                                             {/* Internal color accent strip */}
                                                             <View style={{
                                                                 position: 'absolute',
@@ -666,9 +681,9 @@ export default function DashboardScreen() {
                                                                     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                                                                     toggleSubGroup(subId);
                                                                 }}
-                                                                android_ripple={{ color: 'rgba(0,0,0,0.05)', borderless: false }}
+                                                                android_ripple={{ color: colors.statePressed, borderless: false }}
                                                                 style={({ pressed }) => [
-                                                                    pressed && { backgroundColor: colors.bg }
+                                                                    pressed && { backgroundColor: colors.surface }
                                                                 ]}
                                                             >
                                                                 <View style={{
@@ -679,7 +694,7 @@ export default function DashboardScreen() {
                                                                     justifyContent: 'space-between',
                                                                 }}>
                                                                 <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-                                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color + '15', justifyContent: 'center', alignItems: 'center' }}>
+                                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
                                                                         <Ionicons name="wallet-outline" size={18} color={color} />
                                                                     </View>
                                                                     <View style={{ flex: 1, marginRight: 8 }}>
@@ -781,13 +796,15 @@ export default function DashboardScreen() {
                     <BottomSheetGestureWrapper
                         swipe={balanceSwipe}
                         style={{
-                            backgroundColor: colors.bg,
+                            backgroundColor: colors.surface,
                             ...withContinuousRadius(RADIUS.xl),
                             borderBottomLeftRadius: 0,
                             borderBottomRightRadius: 0,
                             paddingBottom: 40,
                             height: '85%',
-                            ...SHADOWS.lg,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: colors.outlineVariant,
+                            borderBottomWidth: 0,
                         }}
                         header={(
                             <>
@@ -806,16 +823,16 @@ export default function DashboardScreen() {
                             {(() => {
                                 const avgNetIncome = past12PeriodsData.reduce((sum, d) => sum + d.net, 0) / 12;
                                 return (
-                                    <View style={{ backgroundColor: colors.accentLight, borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: colors.accentBorder }}>
+                                    <View style={{ backgroundColor: colors.primaryContainer, borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: colors.outlineVariant }}>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                                            <Ionicons name="sparkles-outline" size={18} color={colors.accent} style={{ marginRight: 8 }} />
-                                            <Text style={{ ...typography.body, fontWeight: '800', color: colors.accent }}>未來財富預估</Text>
+                                            <Ionicons name="sparkles-outline" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                                            <Text style={{ ...typography.body, fontWeight: '800', color: colors.primary }}>未來財富預估</Text>
                                         </View>
                                         <Text style={{ ...typography.bodySm, color: colors.textSecondary, marginBottom: 16, lineHeight: 20 }}>
                                             根據過去 12 期平均淨存額 <Text style={{ fontWeight: '700', color: avgNetIncome >= 0 ? colors.green : colors.red }}>${Math.round(avgNetIncome).toLocaleString()}</Text> 推算：
                                         </Text>
 
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.card, padding: 12, borderRadius: 12, ...SHADOWS.sm }}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceContainer, padding: 12, borderRadius: 12, ...SHADOWS.sm }}>
                                             <View style={{ alignItems: 'center', flex: 1, borderRightWidth: 1, borderRightColor: colors.divider }}>
                                                 <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>半年後</Text>
                                                 <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>${Math.round(periodSummary.totalBalance + avgNetIncome * 6).toLocaleString()}</Text>
@@ -834,12 +851,12 @@ export default function DashboardScreen() {
                             })()}
 
                             {past12PeriodsData.length > 0 && (
-                                <View style={{ backgroundColor: colors.card, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
+                                <View style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
                                     <Text style={{ ...typography.caption, color: colors.textMuted, alignSelf: 'flex-start', marginLeft: 16, marginBottom: 12 }}>過去 12 期資產與收支組合走勢</Text>
 
                                     <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16, gap: 16 }}>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent }} />
+                                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
                                             <Text style={{ color: colors.textMuted, fontSize: 11 }}>資產折線</Text>
                                         </View>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -881,9 +898,9 @@ export default function DashboardScreen() {
                                                 showLine
                                                 lineData={comboLineData}
                                                 lineConfig={{
-                                                    color: colors.accent,
+                                                    color: colors.primary,
                                                     thickness: 3,
-                                                    dataPointsColor: colors.accent,
+                                                    dataPointsColor: colors.primary,
                                                     dataPointsRadius: 4,
                                                     shiftX: 5, // Slightly reduced to center perfectly against the visual weight of the double bars
                                                     spacing: 34, // 12(barWidth) + 34 = 46px (total group step: 12+2+12+20)
@@ -909,7 +926,7 @@ export default function DashboardScreen() {
                             )}
 
                             {past12PeriodsData.map((data, index) => (
-                                <View key={index} style={{ backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm }}>
+                                <View key={index} style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                         <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>{data.monthLabel}</Text>
                                         <Text style={{ ...typography.h3, color: colors.textPrimary }}>
@@ -948,13 +965,15 @@ export default function DashboardScreen() {
                     <BottomSheetGestureWrapper
                         swipe={savingsSwipe}
                         style={{
-                            backgroundColor: colors.bg,
+                            backgroundColor: colors.surface,
                             ...withContinuousRadius(RADIUS.xl),
                             borderBottomLeftRadius: 0,
                             borderBottomRightRadius: 0,
                             paddingBottom: 40,
                             height: '80%',
-                            ...SHADOWS.lg,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: colors.outlineVariant,
+                            borderBottomWidth: 0,
                         }}
                         header={(
                             <>
@@ -970,7 +989,7 @@ export default function DashboardScreen() {
                         >
                             {/* Trend Chart (BarChart with dynamic red/green bars based on net amount) */}
                             {past12PeriodsData.length > 0 && (
-                                <View style={{ backgroundColor: colors.card, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
+                                <View style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
                                     <Text style={{ ...typography.caption, color: colors.textMuted, alignSelf: 'flex-start', marginLeft: 16, marginBottom: 12 }}>過去 12 期淨存額與儲蓄率</Text>
                                     {(() => {
                                         const maxRate = Math.max(...past12PeriodsData.map(d => d.rate));
@@ -1018,7 +1037,7 @@ export default function DashboardScreen() {
 
                             {/* List items ordered with newest period on top */}
                             {past12PeriodsData.map((data, index) => (
-                                <View key={index} style={{ backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm }}>
+                                <View key={index} style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                         <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>{data.monthLabel}</Text>
                                         <View style={{ backgroundColor: data.rate >= 0 ? colors.greenLight : colors.redLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
@@ -1054,9 +1073,8 @@ export default function DashboardScreen() {
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
-    // Empty
-    emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 20 },
+    container: { flex: 1, backgroundColor: colors.surface },
+    emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface, padding: 20 },
     filterSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1066,57 +1084,61 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
         paddingBottom: 4,
         gap: 12,
     },
-    controlLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+    controlLabel: { color: colors.onSurfaceVariant, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
     accountViewToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 14, gap: 12 },
     accountViewCopy: { flex: 1 },
-    accountViewTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-    accountViewSubtitle: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 3 },
-    // Summary Grid
+    accountViewTitle: { color: colors.onSurface, fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+    accountViewSubtitle: { color: colors.onSurfaceVariant, fontSize: 12, fontWeight: '600', marginTop: 3 },
     summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, gap: 14 },
     summaryCardContainer: { marginBottom: 0 },
-    summaryCardWrapper: { ...withContinuousRadius(RADIUS.lg), backgroundColor: colors.bg, ...SHADOWS.sm },
+    summaryCardWrapper: { ...withContinuousRadius(RADIUS.md), backgroundColor: colors.surface },
     summaryCardInner: {
         flexDirection: 'row',
-        backgroundColor: colors.card,
-        ...withContinuousRadius(RADIUS.lg),
-        borderWidth: 1,
+        backgroundColor: colors.surfaceContainer,
+        ...withContinuousRadius(RADIUS.md),
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
         minHeight: 124,
         overflow: 'hidden',
     },
-    summaryAccentStrip: { width: 4 },
-    summaryCardBody: { flex: 1, padding: 14, justifyContent: 'space-between' },
+    summaryAccentStrip: { width: 3 },
+    summaryCardBody: { flex: 1, padding: 14, justifyContent: 'space-between', gap: 4 },
     summaryCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-    summaryCardTitle: { color: colors.textSecondary, fontSize: 13, fontWeight: '700', letterSpacing: -0.1 },
-    summaryCardValue: { color: colors.textPrimary, fontSize: 24, fontWeight: '800', letterSpacing: -0.6 },
+    summaryCardTitle: { color: colors.onSurfaceVariant, fontSize: 13, fontWeight: '700', letterSpacing: -0.1 },
+    summaryCardValue: { color: colors.onSurface, fontSize: 24, fontWeight: '800', letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
     summaryCardChange: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 },
     summaryCardBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: RADIUS.xs },
-    summaryCardChangeText: { fontSize: 11, fontWeight: '800' },
-    summaryCardChangeLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '500' },
-    tapHint: { fontSize: 11, color: colors.textMuted, marginTop: 8, textAlign: 'right', fontWeight: '500' },
-    // Chart Cards
-    chartCard: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 20, ...withContinuousRadius(RADIUS.xl), padding: 20, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.md },
-    chartYLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '500' },
-    chartXLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '500' },
-    chartEmpty: { color: colors.textSecondary, textAlign: 'center', paddingVertical: 40 },
-    // Legend
+    summaryCardChangeText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'] },
+    summaryCardChangeLabel: { color: colors.onSurfaceVariant, fontSize: 11, fontWeight: '500' },
+    tapHint: { fontSize: 11, color: colors.onSurfaceVariant, marginTop: 8, textAlign: 'right', fontWeight: '500' },
+    chartCard: {
+        backgroundColor: colors.surfaceContainer,
+        marginHorizontal: 16,
+        marginTop: 20,
+        ...withContinuousRadius(RADIUS.md),
+        padding: 20,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+    },
+    chartYLabel: { color: colors.onSurfaceVariant, fontSize: 10, fontWeight: '500' },
+    chartXLabel: { color: colors.onSurfaceVariant, fontSize: 10, fontWeight: '500' },
+    chartEmpty: { color: colors.onSurfaceVariant, textAlign: 'center', paddingVertical: 40 },
     legendRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 },
     legendItem: { flexDirection: 'row', alignItems: 'center' },
     legendDot: { width: 12, height: 12, borderRadius: 4, marginRight: 6 },
-    legendText: { color: colors.textSecondary, fontSize: 12, fontWeight: '500' },
-    // Account
+    legendText: { color: colors.onSurfaceVariant, fontSize: 12, fontWeight: '500' },
     accountGroup: { backgroundColor: 'transparent' },
-    accountGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: colors.divider },
-    accountGroupTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '800' },
-    accountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'transparent' },
-    accountName: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', flexShrink: 1 },
-    accountBalance: { fontSize: 14, fontWeight: '800', flexShrink: 0 },
-    // Category
-    distBar: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.bg, marginBottom: 16 },
-    catRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'transparent' },
+    accountGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant, minHeight: 48 },
+    accountGroupTitle: { color: colors.onSurface, fontSize: 14, fontWeight: '800' },
+    accountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'transparent', minHeight: 48 },
+    accountName: { color: colors.onSurface, fontSize: 14, fontWeight: '600', flexShrink: 1 },
+    accountBalance: { fontSize: 14, fontWeight: '800', flexShrink: 0, fontVariant: ['tabular-nums'] },
+    distBar: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.surfaceVariant, marginBottom: 16 },
+    catRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'transparent', minHeight: 40 },
     catRowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
     catDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
-    catName: { color: colors.textPrimary, fontSize: 14, fontWeight: '500' },
+    catName: { color: colors.onSurface, fontSize: 14, fontWeight: '500' },
     catRowRight: { flexDirection: 'row', alignItems: 'center' },
-    catAmount: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginRight: 10 },
-    catPct: { color: colors.textMuted, fontSize: 12, width: 45, textAlign: 'right', fontWeight: '500' },
+    catAmount: { color: colors.onSurface, fontSize: 14, fontWeight: '700', marginRight: 10, fontVariant: ['tabular-nums'] },
+    catPct: { color: colors.onSurfaceVariant, fontSize: 12, width: 45, textAlign: 'right', fontWeight: '500' },
 });

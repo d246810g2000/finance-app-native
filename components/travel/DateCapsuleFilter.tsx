@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { parseFormattedDate } from '../../utils/dateUtils';
+import { hapticSelection } from '../../utils/haptics';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'] as const;
 
@@ -33,8 +34,16 @@ function Capsule({
 }) {
     return (
         <Pressable
-            onPress={onPress}
-            style={[styles.capsule, active ? styles.capsuleActive : null]}
+            onPress={() => {
+                hapticSelection();
+                onPress();
+            }}
+            hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+            style={({ pressed }) => [
+                styles.capsule,
+                active ? styles.capsuleActive : null,
+                pressed && { opacity: 0.88 },
+            ]}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={label}
@@ -95,26 +104,26 @@ const createStyles = (colors: AppColors) =>
         capsule: {
             paddingHorizontal: 14,
             paddingVertical: 8,
-            minHeight: 36,
+            minHeight: 40,
             justifyContent: 'center',
             alignItems: 'center',
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
+            backgroundColor: colors.surfaceContainer,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
             overflow: 'hidden',
-            ...withContinuousRadius(RADIUS.chip),
+            ...withContinuousRadius(RADIUS.full),
         },
         capsuleActive: {
-            backgroundColor: colors.accent,
-            borderColor: colors.accent,
+            backgroundColor: colors.primaryContainer,
+            borderColor: colors.primaryContainer,
         },
         capsuleText: {
             fontSize: 13,
             fontWeight: '700',
-            color: colors.textPrimary,
+            color: colors.onSurfaceVariant,
             includeFontPadding: false,
         },
         capsuleTextActive: {
-            color: '#FFFFFF',
+            color: colors.onPrimaryContainer,
         },
     });

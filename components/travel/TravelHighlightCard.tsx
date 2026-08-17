@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 
 type IonName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -37,14 +37,14 @@ export default function TravelHighlightCard({
     const styles = createStyles(colors, compact);
 
     const body = (
-        <View style={[styles.card, !compact && SHADOWS.sm]}>
+        <View style={styles.card}>
             <View style={styles.header}>
-                <View style={[styles.iconWrap, { backgroundColor: `${iconColor}22` }]}>
+                <View style={[styles.iconWrap, { backgroundColor: colors.primaryContainer }]}>
                     <Ionicons name={icon} size={compact ? 14 : 16} color={iconColor} />
                 </View>
                 <Text style={styles.title}>{title}</Text>
                 {showChevron && onPress ? (
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} />
+                    <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.chevron} />
                 ) : null}
             </View>
             <View style={styles.body}>
@@ -54,7 +54,7 @@ export default function TravelHighlightCard({
                         <Text style={styles.secondary} numberOfLines={1}>{secondary}</Text>
                     ) : null}
                 </View>
-                <Text style={styles.amount}>{amount}</Text>
+                <Text style={styles.amount} selectable>{amount}</Text>
             </View>
         </View>
     );
@@ -76,21 +76,23 @@ export default function TravelHighlightCard({
 const createStyles = (colors: AppColors, compact: boolean) =>
     StyleSheet.create({
         card: {
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
+            backgroundColor: colors.surfaceContainer,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
             padding: compact ? 12 : 16,
-            ...withContinuousRadius(RADIUS.lg),
+            ...withContinuousRadius(RADIUS.md),
+            minHeight: compact ? 72 : 88,
         },
         header: {
             flexDirection: 'row',
             alignItems: 'center',
             marginBottom: compact ? 8 : 10,
+            gap: 4,
         },
         iconWrap: {
-            width: compact ? 26 : 28,
-            height: compact ? 26 : 28,
-            borderRadius: 14,
+            width: compact ? 28 : 32,
+            height: compact ? 28 : 32,
+            borderRadius: RADIUS.full,
             alignItems: 'center',
             justifyContent: 'center',
             marginRight: 8,
@@ -99,7 +101,7 @@ const createStyles = (colors: AppColors, compact: boolean) =>
             flex: 1,
             fontSize: compact ? 12 : 13,
             fontWeight: '700',
-            color: colors.textSecondary,
+            color: colors.onSurfaceVariant,
         },
         chevron: { marginLeft: 4 },
         body: {
@@ -110,21 +112,22 @@ const createStyles = (colors: AppColors, compact: boolean) =>
             flex: 1,
             minWidth: 0,
             marginRight: 12,
+            gap: 2,
         },
         primary: {
             fontSize: compact ? 14 : 15,
             fontWeight: '700',
-            color: colors.textPrimary,
+            color: colors.onSurface,
         },
         secondary: {
             fontSize: compact ? 11 : 12,
-            color: colors.textMuted,
-            marginTop: 2,
+            color: colors.onSurfaceVariant,
         },
         amount: {
             fontSize: compact ? 15 : 16,
             fontWeight: '800',
-            color: colors.textPrimary,
+            color: colors.onSurface,
             letterSpacing: -0.3,
+            fontVariant: ['tabular-nums'],
         },
     });

@@ -1,11 +1,12 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, memo } from 'react';
 import {
     View, Text, Pressable, Modal, StyleSheet,
     TouchableWithoutFeedback,
 } from 'react-native';
-import { FlatList, ScrollView } from 'react-native-gesture-handler';
+import { ScrollView } from 'react-native-gesture-handler';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppColors, SHADOWS, CATEGORY_COLORS, RADIUS, withContinuousRadius } from '../theme';
+import { AppColors, CATEGORY_COLORS, RADIUS, withContinuousRadius } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import ModalBackdrop from './ui/ModalBackdrop';
@@ -94,9 +95,9 @@ function StatsView({ records, onScroll, colors, statsStyles }: { records: Transf
         >
             {/* Summary Stats Cards */}
             <View style={statsStyles.cardsRow}>
-                <View style={[statsStyles.statCard, { backgroundColor: colors.accentLight }]}>
+                <View style={[statsStyles.statCard, { backgroundColor: colors.primaryContainer }]}>
                     <Text style={statsStyles.statLabel}>筆數</Text>
-                    <Text style={[statsStyles.statValue, { color: colors.accent }]}>{records.length}</Text>
+                    <Text style={[statsStyles.statValue, { color: colors.primary }]}>{records.length}</Text>
                     <Text style={statsStyles.statSub}>{stats.expCount} 支出 · {stats.incCount} 收入</Text>
                 </View>
                 <View style={[statsStyles.statCard, { backgroundColor: colors.redLight }]}>
@@ -178,6 +179,32 @@ function StatsView({ records, onScroll, colors, statsStyles }: { records: Transf
     );
 }
 
+const DETAIL_LIST_CONTENT = { paddingBottom: 40 } as const;
+
+const DetailRow = memo(function DetailRow({
+    item,
+    styles,
+}: {
+    item: TransformedRecord;
+    styles: ReturnType<typeof createStyles>;
+}) {
+    return (
+        <View style={styles.row}>
+            <View style={styles.rowLeft}>
+                <Text style={styles.rowName} numberOfLines={1}>{getRecordName(item)}</Text>
+                <Text style={styles.rowMeta}>{item['日期']}{item['專案'] ? ` · ${item['專案']}` : ''}</Text>
+                {item['描述'] ? <Text style={styles.rowDesc} numberOfLines={1}>{item['描述']}</Text> : null}
+            </View>
+            <Text
+                style={[styles.rowAmount, item['金額'] >= 0 ? styles.amountGreen : styles.amountRed]}
+                selectable
+            >
+                {item['金額'] >= 0 ? '+' : '-'}${Math.abs(item['金額']).toLocaleString()}
+            </Text>
+        </View>
+    );
+});
+
 // ─── Main Component ───
 export default function DetailModal({ visible, title, records, onClose }: DetailModalProps) {
     const { colors, typography, isDark } = useAppTheme();
@@ -188,7 +215,7 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
     const [sortKey, setSortKey] = useState<SortKey>('日期');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-    const swipe = useBottomSheetSwipe(onClose, visible, { enableHorizontalDismiss: true });
+    const swipe = useBottomSheetSwipe(onClose, visible);
 
     const sorted = useMemo(() => {
         const data = [...records];
@@ -213,17 +240,13 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
     const totalExpense = useMemo(() => sorted.filter(r => r['金額'] < 0).reduce((s, r) => s + Math.abs(r['金額']), 0), [sorted]);
 
     const renderItem = useCallback(({ item }: { item: TransformedRecord }) => (
-        <View style={styles.row}>
-            <View style={styles.rowLeft}>
-                <Text style={styles.rowName} numberOfLines={1}>{getRecordName(item)}</Text>
-                <Text style={styles.rowMeta}>{item['日期']}{item['專案'] ? ` · ${item['專案']}` : ''}</Text>
-                {item['描述'] ? <Text style={styles.rowDesc} numberOfLines={1}>{item['描述']}</Text> : null}
-            </View>
-            <Text style={[styles.rowAmount, item['金額'] >= 0 ? styles.amountGreen : styles.amountRed]}>
-                {item['金額'] >= 0 ? '+' : '-'}${Math.abs(item['金額']).toLocaleString()}
-            </Text>
-        </View>
+        <DetailRow item={item} styles={styles} />
     ), [styles]);
+
+    const keyExtractor = useCallback((item: TransformedRecord, index: number) => {
+        if (item.id != null && String(item.id).length > 0) return String(item.id);
+        return `${item['日期']}-${item['金額']}-${item['主類別']}-${index}`;
+    }, []);
 
     return (
         <Modal visible={visible} animationType="none" transparent presentationStyle="overFullScreen">
@@ -292,21 +315,23 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
                             </View>
 
                             {/* Records List */}
-                            <FlatList
-                                data={sorted}
-                                renderItem={renderItem}
-                                keyExtractor={(_, i) => i.toString()}
-                                contentContainerStyle={{ paddingBottom: 40 }}
-                                initialNumToRender={15}
-                                onScroll={swipe.handleScroll}
-                                scrollEventThrottle={swipe.scrollEventThrottle}
-                                maxToRenderPerBatch={10}
-                                ListEmptyComponent={
-                                    <View style={styles.emptyView}>
-                                        <Text style={styles.emptyText}>無交易記錄</Text>
-                                    </View>
-                                }
-                            />
+                            <View style={{ flex: 1, minHeight: 120 }}>
+                                <FlashList
+                                    data={sorted}
+                                    renderItem={renderItem}
+                                    keyExtractor={keyExtractor}
+                                    contentContainerStyle={DETAIL_LIST_CONTENT}
+                                    onScroll={swipe.handleScroll}
+                                    scrollEventThrottle={swipe.scrollEventThrottle}
+                                    // @ts-expect-error FlashList v2 estimatedItemSize
+                                    estimatedItemSize={56}
+                                    ListEmptyComponent={
+                                        <View style={styles.emptyView}>
+                                            <Text style={styles.emptyText}>無交易記錄</Text>
+                                        </View>
+                                    }
+                                />
+                            </View>
                         </>
                     ) : (
                         <StatsView
@@ -325,30 +350,30 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     blurOverlay: { flex: 1, justifyContent: 'flex-end' },
     dismissArea: { flex: 1, width: '100%' },
-    container: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '90%', ...SHADOWS.lg },
-    handleBar: { width: 40, height: 5, backgroundColor: colors.border, borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
+    container: { backgroundColor: colors.surfaceContainer, borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, height: '90%', overflow: 'hidden' },
+    handleBar: { width: 32, height: 4, backgroundColor: colors.outline, borderRadius: RADIUS.full, alignSelf: 'center', marginTop: 12, marginBottom: 8 },
     // Summary
     summaryRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-    summaryItem: { flex: 1, padding: 14, ...withContinuousRadius(RADIUS.md), alignItems: 'center', borderWidth: 1, ...SHADOWS.sm },
+    summaryItem: { flex: 1, padding: 14, ...withContinuousRadius(RADIUS.md), alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     summaryBadgeHeader: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     summaryLabel: { ...typography.caption, fontWeight: '700' },
-    summaryValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5 },
+    summaryValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
     // Mode Toggle
     modeRow: { paddingHorizontal: 16, paddingBottom: 12 },
-    modeToggle: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 16, padding: 4, borderWidth: 1, borderColor: colors.divider, ...SHADOWS.sm },
-    modeBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center' },
-    modeBtnActive: { backgroundColor: colors.accentLight, ...SHADOWS.sm },
+    modeToggle: { flexDirection: 'row', backgroundColor: colors.surfaceVariant, borderRadius: RADIUS.full, padding: 4 },
+    modeBtn: { flex: 1, paddingVertical: 10, minHeight: 40, borderRadius: RADIUS.full, alignItems: 'center', justifyContent: 'center' },
+    modeBtnActive: { backgroundColor: colors.primaryContainer },
     modeBtnText: { ...typography.subtitle, color: colors.textMuted },
-    modeBtnTextActive: { color: colors.accent, fontWeight: '700' },
+    modeBtnTextActive: { color: colors.onPrimaryContainer, fontWeight: '700' },
     // Sort
     sortRowWrapper: { paddingBottom: 12 },
     // Rows
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.divider },
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, minHeight: 56, backgroundColor: colors.surfaceContainer, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant },
     rowLeft: { flex: 1, marginRight: 16 },
     rowName: { ...typography.body, fontWeight: '600', color: colors.textPrimary },
     rowMeta: { ...typography.caption, marginTop: 4 },
     rowDesc: { ...typography.bodySm, marginTop: 4 },
-    rowAmount: { fontSize: 16, fontWeight: '700', letterSpacing: -0.5 },
+    rowAmount: { fontSize: 16, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
     amountGreen: { color: colors.green },
     amountRed: { color: colors.red },
     // Empty
@@ -359,12 +384,12 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
 const createStatsStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) => StyleSheet.create({
     // Stats cards
     cardsRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
-    statCard: { flex: 1, padding: 16, borderRadius: 16, alignItems: 'center', ...SHADOWS.sm },
+    statCard: { flex: 1, padding: 16, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainer },
     statLabel: { ...typography.caption, color: colors.textSecondary },
-    statValue: { fontSize: 24, fontWeight: '800', marginTop: 6, letterSpacing: -0.5 },
+    statValue: { fontSize: 24, fontWeight: '800', marginTop: 6, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
     statSub: { ...typography.caption, marginTop: 4 },
     // Max
-    maxCard: { marginHorizontal: 16, padding: 16, backgroundColor: colors.yellowLight, borderRadius: 16, marginBottom: 20, borderWidth: 1, borderColor: colors.yellow, ...SHADOWS.sm },
+    maxCard: { marginHorizontal: 16, padding: 16, backgroundColor: colors.yellowLight, borderRadius: RADIUS.md, marginBottom: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     maxHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
     maxIcon: { fontSize: 18 },
     maxTitle: { ...typography.subtitle, fontWeight: '700', color: colors.yellow },
@@ -373,9 +398,9 @@ const createStatsStyles = (colors: AppColors, typography: ReturnType<typeof useA
     maxAmount: { fontSize: 18, fontWeight: '800', color: colors.red, letterSpacing: -0.5 },
     maxDate: { ...typography.caption, color: colors.textSecondary, marginTop: 6 },
     // Category
-    section: { marginHorizontal: 16, marginBottom: 20, backgroundColor: colors.card, padding: 20, borderRadius: 24, borderWidth: 1, borderColor: colors.cardBorder, ...SHADOWS.sm },
+    section: { marginHorizontal: 16, marginBottom: 20, backgroundColor: colors.surfaceContainer, padding: 20, borderRadius: RADIUS.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     sectionTitle: { ...typography.h3, marginBottom: 16 },
-    distBar: { flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden', backgroundColor: colors.bg, marginBottom: 16 },
+    distBar: { flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden', backgroundColor: colors.surface, marginBottom: 16 },
     catRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
     catLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
     catDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
@@ -388,8 +413,8 @@ const createStatsStyles = (colors: AppColors, typography: ReturnType<typeof useA
     merchantLeft: { flexDirection: 'row', alignItems: 'center', width: 110 },
     merchantRank: { width: 20, ...typography.caption, fontWeight: '700', textAlign: 'center' },
     merchantName: { ...typography.body, fontWeight: '500', flex: 1 },
-    merchantBarContainer: { flex: 1, height: 12, backgroundColor: colors.bg, borderRadius: 6, overflow: 'hidden', marginHorizontal: 10 },
-    merchantBar: { height: '100%', backgroundColor: colors.accent, borderRadius: 6 },
+    merchantBarContainer: { flex: 1, height: 12, backgroundColor: colors.surface, borderRadius: 6, overflow: 'hidden', marginHorizontal: 10 },
+    merchantBar: { height: '100%', backgroundColor: colors.primary, borderRadius: 6 },
     merchantAmount: { ...typography.body, fontWeight: '700', width: 75, textAlign: 'right' },
     // Empty
     emptyView: { alignItems: 'center', paddingVertical: 60 },

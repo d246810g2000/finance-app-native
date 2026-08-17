@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useFinance } from '../../context/FinanceContext';
@@ -26,6 +26,48 @@ import { TransformedRecord } from '../../types';
 
 type TabKey = 'merchant' | 'product';
 type SortKey = 'expense_desc' | 'expense_asc' | 'count_desc' | 'count_asc' | 'avg_desc' | 'avg_asc' | 'name_asc' | 'name_desc';
+
+const MerchantRow = memo(function MerchantRow({
+    item,
+    onPress,
+}: {
+    item: MerchantAggregate;
+    onPress: (m: MerchantAggregate) => void;
+}) {
+    return (
+        <AccentListCard
+            onPress={() => onPress(item)}
+            title={item.shortName}
+            amount={`$${item.total.toLocaleString()}`}
+            meta={[
+                { icon: 'documents-outline', text: `${item.count} 筆` },
+                { icon: 'analytics-outline', text: `均 $${item.avg.toLocaleString()}` },
+            ]}
+            accessibilityLabel={`商家 ${item.shortName}，${item.total} 元`}
+        />
+    );
+});
+
+const ProductRow = memo(function ProductRow({
+    item,
+    onPress,
+}: {
+    item: ProductAggregate;
+    onPress: (p: ProductAggregate) => void;
+}) {
+    return (
+        <AccentListCard
+            onPress={() => onPress(item)}
+            title={item.name}
+            amount={`$${item.total.toLocaleString()}`}
+            meta={[
+                { icon: 'documents-outline', text: `${item.count} 次` },
+                { icon: 'analytics-outline', text: `均 $${item.avg.toLocaleString()}` },
+            ]}
+            accessibilityLabel={`品項 ${item.name}，${item.total} 元`}
+        />
+    );
+});
 
 export default function MerchantScreen() {
     const { colors } = useAppTheme();
@@ -124,29 +166,11 @@ export default function MerchantScreen() {
     }, [records, startDate, endDate]);
 
     const renderMerchant = useCallback(({ item }: { item: MerchantAggregate }) => (
-        <AccentListCard
-            onPress={() => openMerchantDetail(item)}
-            title={item.shortName}
-            amount={`$${item.total.toLocaleString()}`}
-            meta={[
-                { icon: 'documents-outline', text: `${item.count} 筆` },
-                { icon: 'analytics-outline', text: `均 $${item.avg.toLocaleString()}` },
-            ]}
-            accessibilityLabel={`商家 ${item.shortName}，${item.total} 元`}
-        />
+        <MerchantRow item={item} onPress={openMerchantDetail} />
     ), [openMerchantDetail]);
 
     const renderProduct = useCallback(({ item }: { item: ProductAggregate }) => (
-        <AccentListCard
-            onPress={() => openProductDetail(item)}
-            title={item.name}
-            amount={`$${item.total.toLocaleString()}`}
-            meta={[
-                { icon: 'documents-outline', text: `${item.count} 次` },
-                { icon: 'analytics-outline', text: `均 $${item.avg.toLocaleString()}` },
-            ]}
-            accessibilityLabel={`品項 ${item.name}，${item.total} 元`}
-        />
+        <ProductRow item={item} onPress={openProductDetail} />
     ), [openProductDetail]);
 
     const listHeader = useMemo(() => (
@@ -207,9 +231,9 @@ export default function MerchantScreen() {
                     ListEmptyComponent={
                         <EmptyState icon="storefront-outline" title="該期間無商家資料" description="請確認已匯入含發票備註的紀錄" />
                     }
-                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+                    contentContainerStyle={styles.listContent}
                     // @ts-ignore
-                    estimatedItemSize={70}
+                    estimatedItemSize={80}
                 />
             ) : (
                 <FlashList
@@ -221,9 +245,9 @@ export default function MerchantScreen() {
                     ListEmptyComponent={
                         <EmptyState icon="cube-outline" title="該期間無品項資料" description="電子發票備註才會解析出品項" />
                     }
-                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+                    contentContainerStyle={styles.listContent}
                     // @ts-ignore
-                    estimatedItemSize={70}
+                    estimatedItemSize={80}
                 />
             )}
 
@@ -238,7 +262,8 @@ export default function MerchantScreen() {
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
+    container: { flex: 1, backgroundColor: colors.surface },
+    listContent: { paddingHorizontal: 16, paddingBottom: 20 },
     listHeaderWrapper: { marginHorizontal: -16 },
     segmentWrap: { paddingHorizontal: 16, marginTop: 8, marginBottom: 4 },
     sectionHeader: { marginHorizontal: 16, marginTop: 16, marginBottom: 2 },

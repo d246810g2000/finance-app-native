@@ -19,6 +19,6 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
     StyleSheet.create({
         container: {
             flex: 1,
-            backgroundColor: colors.bg,
+            backgroundColor: colors.surface,
         },
     });

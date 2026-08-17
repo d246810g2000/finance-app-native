@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
+import { hapticLight, hapticSelection } from '../../utils/haptics';
 
 interface UnifiedDateNavigatorProps {
     dateLabel: string;
@@ -32,15 +33,25 @@ export default function UnifiedDateNavigator({
             <View style={styles.container}>
                 <Pressable
                     style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.9 }] }]}
-                    onPress={onPrev}
+                    onPress={() => {
+                        hapticLight();
+                        onPrev();
+                    }}
                     hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="上一個期間"
                 >
-                    <Ionicons name="chevron-back" size={20} color={colors.accent} />
+                    <Ionicons name="chevron-back" size={20} color={colors.primary} />
                 </Pressable>
 
                 <Pressable
                     style={({ pressed }) => [styles.dateDisplay, pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] }]}
-                    onPress={onCenterPress}
+                    onPress={() => {
+                        hapticSelection();
+                        onCenterPress();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`選擇日期，目前 ${dateLabel}`}
                 >
                     <View style={styles.centerTextContainer}>
                         <Text style={styles.dateText}>{dateLabel}</Text>
@@ -50,10 +61,15 @@ export default function UnifiedDateNavigator({
 
                 <Pressable
                     style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.7, transform: [{ scale: 0.9 }] }]}
-                    onPress={onNext}
+                    onPress={() => {
+                        hapticLight();
+                        onNext();
+                    }}
                     hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="下一個期間"
                 >
-                    <Ionicons name="chevron-forward" size={20} color={colors.accent} />
+                    <Ionicons name="chevron-forward" size={20} color={colors.primary} />
                 </Pressable>
             </View>
             {rightNode && <View style={styles.sideNodeRight}>{rightNode}</View>}
@@ -81,10 +97,10 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         ...withContinuousRadius(RADIUS.md),
         borderWidth: 1,
-        borderColor: colors.cardBorder,
+        borderColor: colors.outlineVariant,
         paddingHorizontal: 5,
         paddingVertical: 5,
         ...SHADOWS.sm,
@@ -96,7 +112,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         justifyContent: 'center',
         paddingHorizontal: 12,
         ...withContinuousRadius(RADIUS.sm),
-        backgroundColor: colors.accentLight,
+        backgroundColor: colors.primaryContainer,
     },
     dateDisplay: {
         flex: 1,

@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef, memo } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator, Modal, Dimensions } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -226,7 +227,7 @@ export default function TravelDetailScreen({ project }: TravelDetailScreenProps)
                 </Pressable>
                 <View style={styles.headerCenter}>
                     <View style={styles.titleRow}>
-                        <Ionicons name="airplane" size={18} color={colors.accent} />
+                        <Ionicons name="airplane" size={18} color={colors.primary} />
                         <Text style={styles.title} numberOfLines={1}>{tripName}</Text>
                     </View>
                     <Text style={styles.subtitle}>
@@ -243,49 +244,50 @@ export default function TravelDetailScreen({ project }: TravelDetailScreenProps)
                 onSelectDate={goDay}
             />
 
-            <ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
-                showsVerticalScrollIndicator={false}
-            >
-                {view.mode === 'overview' ? (
-                    <OverviewContent
-                        project={project}
-                        spendingDayCount={spendingDates.length}
-                        peakDay={peakDay}
-                        categoryPie={categoryPie}
-                        topExpenses={topExpenses}
-                        maxExpense={maxExpense}
-                        styles={styles}
-                        colors={colors}
-                        savingStory={savingStory}
-                        onPeakDayPress={goDay}
-                        onMaxExpensePress={(date) => goDay(date)}
-                        onRankPress={(date) => goDay(date)}
-                        onViewAllList={goAllList}
-                        onSaveStory={openStylePicker}
-                    />
-                ) : null}
+            {view.mode === 'allList' ? (
+                <AllListContent
+                    groups={allListGroups}
+                    styles={styles}
+                    onBackToOverview={goOverview}
+                    bottomInset={insets.bottom}
+                />
+            ) : (
+                <ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {view.mode === 'overview' ? (
+                        <OverviewContent
+                            project={project}
+                            spendingDayCount={spendingDates.length}
+                            peakDay={peakDay}
+                            categoryPie={categoryPie}
+                            topExpenses={topExpenses}
+                            maxExpense={maxExpense}
+                            styles={styles}
+                            colors={colors}
+                            savingStory={savingStory}
+                            onPeakDayPress={goDay}
+                            onMaxExpensePress={(date) => goDay(date)}
+                            onRankPress={(date) => goDay(date)}
+                            onViewAllList={goAllList}
+                            onSaveStory={openStylePicker}
+                        />
+                    ) : null}
 
-                {view.mode === 'day' ? (
-                    <DayContent
-                        date={view.date}
-                        total={dayTotal}
-                        count={dayRecords.length}
-                        categories={dayCategories}
-                        records={dayRecords}
-                        styles={styles}
-                    />
-                ) : null}
-
-                {view.mode === 'allList' ? (
-                    <AllListContent
-                        groups={allListGroups}
-                        styles={styles}
-                        onBackToOverview={goOverview}
-                    />
-                ) : null}
-            </ScrollView>
+                    {view.mode === 'day' ? (
+                        <DayContent
+                            date={view.date}
+                            total={dayTotal}
+                            count={dayRecords.length}
+                            categories={dayCategories}
+                            records={dayRecords}
+                            styles={styles}
+                        />
+                    ) : null}
+                </ScrollView>
+            )}
 
             {/* 風格選擇 */}
             <Modal
@@ -320,7 +322,7 @@ export default function TravelDetailScreen({ project }: TravelDetailScreenProps)
                                     >
                                         {selected ? (
                                             <View style={styles.styleCheck}>
-                                                <Ionicons name="checkmark" size={12} color="#FFF" />
+                                                <Ionicons name="checkmark" size={12} color={colors.textWhite} />
                                             </View>
                                         ) : null}
                                         <LinearGradient
@@ -360,10 +362,10 @@ export default function TravelDetailScreen({ project }: TravelDetailScreenProps)
                                 accessibilityLabel={`使用${selectedStyleName}產生`}
                             >
                                 {savingStory ? (
-                                    <ActivityIndicator color="#FFFFFF" />
+                                    <ActivityIndicator color={colors.onPrimary} />
                                 ) : (
                                     <>
-                                        <Ionicons name="share-outline" size={20} color="#FFFFFF" />
+                                        <Ionicons name="share-outline" size={20} color={colors.onPrimary} />
                                         <Text style={styles.styleConfirmText} numberOfLines={1}>
                                             使用「{selectedStyleName}」產生
                                         </Text>
@@ -450,12 +452,12 @@ function OverviewContent({
 
             <View style={styles.statsRow}>
                 <View style={[styles.statCard, SHADOWS.sm]}>
-                    <Ionicons name="receipt-outline" size={18} color={colors.accent} />
+                    <Ionicons name="receipt-outline" size={18} color={colors.primary} />
                     <Text style={styles.statValue}>{project.records.length}</Text>
                     <Text style={styles.statLabel}>筆消費</Text>
                 </View>
                 <View style={[styles.statCard, SHADOWS.sm]}>
-                    <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                     <Text style={styles.statValue}>{spendingDayCount}</Text>
                     <Text style={styles.statLabel}>天有消費</Text>
                 </View>
@@ -544,7 +546,7 @@ function OverviewContent({
             >
                 <View style={styles.viewAllInner}>
                     <View style={styles.viewAllIconWrap}>
-                        <Ionicons name="list-outline" size={18} color={colors.accent} />
+                        <Ionicons name="list-outline" size={18} color={colors.primary} />
                     </View>
                     <Text style={styles.viewAllText}>查看全部明細</Text>
                     <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
@@ -566,9 +568,9 @@ function OverviewContent({
                 <View style={styles.viewAllInner}>
                     <View style={styles.viewAllIconWrap}>
                         {savingStory ? (
-                            <ActivityIndicator size="small" color={colors.accent} />
+                            <ActivityIndicator size="small" color={colors.primary} />
                         ) : (
-                            <Ionicons name="image-outline" size={18} color={colors.accent} />
+                            <Ionicons name="image-outline" size={18} color={colors.primary} />
                         )}
                     </View>
                     <Text style={styles.viewAllText}>
@@ -702,40 +704,74 @@ function DayContent({
 
 // ─── All list ───
 
+type AllListFlatItem =
+    | { kind: 'header'; key: string; date: string; total: number }
+    | { kind: 'row'; key: string; record: TransformedRecord };
+
 function AllListContent({
     groups,
     styles,
     onBackToOverview,
+    bottomInset,
 }: {
     groups: { date: string; total: number; records: TransformedRecord[] }[];
     styles: ReturnType<typeof createStyles>;
     onBackToOverview: () => void;
+    bottomInset: number;
 }) {
+    const flatData = useMemo(() => {
+        const items: AllListFlatItem[] = [];
+        groups.forEach((g) => {
+            items.push({ kind: 'header', key: `h-${g.date}`, date: g.date, total: g.total });
+            g.records.forEach((r, idx) => {
+                const id = r.id != null && String(r.id).length > 0
+                    ? String(r.id)
+                    : `${g.date}-${r['金額']}-${r['主類別']}-${idx}`;
+                items.push({ kind: 'row', key: id, record: r });
+            });
+        });
+        return items;
+    }, [groups]);
+
+    const renderItem = useCallback(({ item }: { item: AllListFlatItem }) => {
+        if (item.kind === 'header') {
+            return (
+                <View style={[styles.card, styles.allListGroupCard]}>
+                    <View style={styles.groupHeader}>
+                        <Text style={styles.groupDate}>{formatCapsuleDateLabel(item.date)}</Text>
+                        <Text style={styles.groupTotal}>{formatNT(item.total)}</Text>
+                    </View>
+                </View>
+            );
+        }
+        return (
+            <View style={[styles.card, styles.allListRowCard]}>
+                <ExpenseRow record={item.record} styles={styles} />
+            </View>
+        );
+    }, [styles]);
+
     return (
-        <>
+        <View style={styles.allListWrap}>
             <View style={styles.allListHeader}>
                 <Text style={styles.sectionTitle}>全部明細</Text>
                 <Pressable onPress={onBackToOverview} hitSlop={8} accessibilityRole="button" accessibilityLabel="返回總覽">
                     <Text style={styles.backToOverview}>返回總覽</Text>
                 </Pressable>
             </View>
-
-            {groups.map((g) => (
-                <View key={g.date} style={[styles.card, SHADOWS.sm, { paddingHorizontal: 0, paddingTop: 12, paddingBottom: 8 }]}>
-                    <View style={styles.groupHeader}>
-                        <Text style={styles.groupDate}>{formatCapsuleDateLabel(g.date)}</Text>
-                        <Text style={styles.groupTotal}>{formatNT(g.total)}</Text>
-                    </View>
-                    {g.records.map((r, idx) => (
-                        <ExpenseRow key={r.id || `${g.date}-${idx}`} record={r} styles={styles} />
-                    ))}
-                </View>
-            ))}
-        </>
+            <FlashList
+                data={flatData}
+                renderItem={renderItem}
+                keyExtractor={(item) => item.key}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomInset + 28 }}
+                // @ts-expect-error FlashList v2 estimatedItemSize
+                estimatedItemSize={64}
+            />
+        </View>
     );
 }
 
-function ExpenseRow({
+const ExpenseRow = memo(function ExpenseRow({
     record,
     styles,
 }: {
@@ -753,14 +789,14 @@ function ExpenseRow({
                     <Text style={styles.expenseDesc} numberOfLines={1}>{record['描述']}</Text>
                 ) : null}
             </View>
-            <Text style={styles.expenseAmount}>{formatNT(Math.abs(record['金額']))}</Text>
+            <Text style={styles.expenseAmount} selectable>{formatNT(Math.abs(record['金額']))}</Text>
         </View>
     );
-}
+});
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) =>
     StyleSheet.create({
-        root: { flex: 1, backgroundColor: colors.bg },
+        root: { flex: 1, backgroundColor: colors.surface },
         header: {
             flexDirection: 'row',
             alignItems: 'center',
@@ -782,9 +818,9 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         scrollContent: { paddingHorizontal: 16, gap: 12, alignItems: 'stretch' },
 
         card: {
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             borderWidth: 1,
-            borderColor: colors.cardBorder,
+            borderColor: colors.outlineVariant,
             padding: 16,
             ...withContinuousRadius(RADIUS.lg),
         },
@@ -802,9 +838,9 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         statsRow: { flexDirection: 'row', gap: 8 },
         statCard: {
             flex: 1,
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             borderWidth: 1,
-            borderColor: colors.cardBorder,
+            borderColor: colors.outlineVariant,
             paddingVertical: 14,
             paddingHorizontal: 8,
             alignItems: 'center',
@@ -840,7 +876,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             width: 32,
             height: 32,
             borderRadius: 16,
-            backgroundColor: colors.accentLight,
+            backgroundColor: colors.primaryContainer,
             alignItems: 'center',
             justifyContent: 'center',
         },
@@ -860,7 +896,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         },
         storyModalRoot: {
             flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.35)',
+            backgroundColor: colors.blackOverlay,
             alignItems: 'center',
             justifyContent: 'center',
         },
@@ -873,13 +909,15 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             flex: 1,
         },
         stylePickerSheet: {
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
+            backgroundColor: colors.surfaceContainer,
+            borderTopLeftRadius: RADIUS.xl,
+            borderTopRightRadius: RADIUS.xl,
             paddingHorizontal: 20,
             paddingTop: 10,
             borderCurve: 'continuous',
-            ...SHADOWS.lg,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
+            borderBottomWidth: 0,
         },
         stylePickerHandle: {
             alignSelf: 'center',
@@ -911,17 +949,17 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         },
         styleCard: {
             marginBottom: 12,
-            backgroundColor: colors.bg,
+            backgroundColor: colors.surface,
             borderWidth: 2,
-            borderColor: colors.cardBorder,
+            borderColor: colors.outlineVariant,
             padding: 10,
             ...withContinuousRadius(RADIUS.lg),
             position: 'relative',
             overflow: 'hidden',
         },
         styleCardSelected: {
-            borderColor: colors.accent,
-            backgroundColor: colors.accentLight,
+            borderColor: colors.primary,
+            backgroundColor: colors.primaryContainer,
         },
         styleCheck: {
             position: 'absolute',
@@ -930,15 +968,15 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             zIndex: 2,
             width: 22,
             height: 22,
-            borderRadius: 11,
-            backgroundColor: colors.accent,
+            borderRadius: RADIUS.full,
+            backgroundColor: colors.primary,
             alignItems: 'center',
             justifyContent: 'center',
         },
         styleThumb: {
             width: '100%',
             height: 64,
-            borderRadius: 10,
+            borderRadius: RADIUS.sm,
             overflow: 'hidden',
             marginBottom: 8,
             paddingHorizontal: 10,
@@ -948,7 +986,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         thumbEyebrow: {
             fontSize: 9,
             fontWeight: '700',
-            color: colors.accent,
+            color: colors.primary,
             marginBottom: 6,
         },
         thumbBar: {
@@ -983,7 +1021,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             color: colors.textPrimary,
         },
         styleCardNameSelected: {
-            color: colors.accent,
+            color: colors.primary,
         },
         styleCardDesc: {
             fontSize: 11,
@@ -997,8 +1035,8 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             width: '100%',
             minHeight: 52,
             paddingHorizontal: 16,
-            backgroundColor: '#2563EB',
-            borderRadius: 14,
+            backgroundColor: colors.primary,
+            borderRadius: RADIUS.md,
             borderCurve: 'continuous',
             flexDirection: 'row',
             justifyContent: 'center',
@@ -1009,7 +1047,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             flexShrink: 1,
             fontSize: 15,
             fontWeight: '800',
-            color: '#FFFFFF',
+            color: colors.onPrimary,
         },
         stylePickerCancel: {
             alignItems: 'center',
@@ -1075,13 +1113,32 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         miniCatBarFill: { height: '100%', borderRadius: 3 },
         miniCatAmount: { fontSize: 11, fontWeight: '700', color: colors.textPrimary, width: 72, textAlign: 'right' },
 
+        allListWrap: { flex: 1 },
         allListHeader: {
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: 4,
+            paddingHorizontal: 16,
+            paddingTop: 8,
         },
-        backToOverview: { fontSize: 14, fontWeight: '700', color: colors.accent },
+        allListGroupCard: {
+            paddingHorizontal: 0,
+            paddingTop: 12,
+            paddingBottom: 4,
+            marginBottom: 0,
+            borderBottomLeftRadius: 0,
+            borderBottomRightRadius: 0,
+        },
+        allListRowCard: {
+            paddingHorizontal: 0,
+            paddingVertical: 0,
+            marginBottom: 0,
+            borderTopWidth: 0,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+        },
+        backToOverview: { fontSize: 14, fontWeight: '700', color: colors.primary },
         groupHeader: {
             flexDirection: 'row',
             justifyContent: 'space-between',

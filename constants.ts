@@ -44,13 +44,8 @@ export const ASSET_CLASSES: { [key: string]: string[] } = {
   '應收款': [],
 };
 
-export const ASSET_CLASS_COLORS: { [key: string]: string } = {
-  '流動資金': '#2ECC71', // Green
-  '投資': '#8B5CF6',    // Purple
-  '固定資產': '#3B82F6',  // Blue
-  '負債': '#93C5FD',    // Light Blue
-  '應收款': '#BFDBFE',   // Lighter Blue
-};
+/** @deprecated Prefer getAssetClassColors(isDark) / useAppTheme().assetClassColors for dark-mode tonal variants. */
+export { ASSET_CLASS_COLORS_LIGHT as ASSET_CLASS_COLORS, getAssetClassColors } from './theme';
 
 export const getAssetClass = (category: string): string => {
   for (const [assetClass, subCategories] of Object.entries(ASSET_CLASSES)) {

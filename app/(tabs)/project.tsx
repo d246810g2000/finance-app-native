@@ -1,11 +1,11 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Dimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { LineChart } from 'react-native-gifted-charts';
 import { useNavigation } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
 import { filterAndSortRecords, transformRecordsForExport, computeProjectLifecycles, ProjectLifecycle } from '../../services/financeService';
-import { AppColors, RADIUS, SHADOWS } from '../../theme';
+import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import DateRangeSelector from '../../components/DateRangeSelector';
 import DetailModal from '../../components/DetailModal';
@@ -25,6 +25,33 @@ type SortKey = 'expense_desc' | 'expense_asc' | 'count_desc' | 'count_asc' | 'av
 
 /** 日常專案不進長期時間軸（自動門檻邏輯在 ProjectSettingsModal） */
 const SHEET_CHART_WIDTH = Dimensions.get('window').width - 56;
+
+const ProjectRow = memo(function ProjectRow({
+    item,
+    isLongTerm,
+    onPress,
+}: {
+    item: ProjectData;
+    isLongTerm: boolean;
+    onPress: (name: string) => void;
+}) {
+    const meta: { icon?: React.ComponentProps<typeof Ionicons>['name']; text: string }[] = [
+        { icon: 'documents-outline', text: `${item.recordCount} 筆` },
+        { icon: 'analytics-outline', text: `平均 $${item.avgPerRecord.toLocaleString()}` },
+    ];
+    if (isLongTerm) {
+        meta.push({ icon: 'time-outline', text: '長期' });
+    }
+    return (
+        <AccentListCard
+            onPress={() => onPress(item.name)}
+            title={item.name}
+            amount={`$${item.totalExpense.toLocaleString()}`}
+            meta={meta}
+            accessibilityLabel={`專案 ${item.name}，區間花費 ${item.totalExpense} 元`}
+        />
+    );
+});
 
 function formatMonthShort(monthKey: string): string {
     // YYYY-MM → YY.MM
@@ -268,7 +295,7 @@ export default function ProjectScreen() {
                 textColor: colors.textMuted,
                 textFontSize: 9,
                 textShiftY: -10,
-                dataPointColor: isPeak ? colors.red : colors.accent,
+                dataPointColor: isPeak ? colors.red : colors.primary,
                 dataPointRadius: isPeak ? 5 : 3,
                 onPress: () => openMonthDetail(name, m.month),
             };
@@ -276,25 +303,13 @@ export default function ProjectScreen() {
     }, [lifecycleModal, colors, openMonthDetail]);
 
     const renderItem = useCallback(
-        ({ item }: { item: ProjectData }) => {
-            const isLongTerm = largeProjectNames.has(item.name);
-            const meta: { icon?: React.ComponentProps<typeof Ionicons>['name']; text: string }[] = [
-                { icon: 'documents-outline', text: `${item.recordCount} 筆` },
-                { icon: 'analytics-outline', text: `平均 $${item.avgPerRecord.toLocaleString()}` },
-            ];
-            if (isLongTerm) {
-                meta.push({ icon: 'time-outline', text: '長期' });
-            }
-            return (
-                <AccentListCard
-                    onPress={() => openPeriodDetail(item.name)}
-                    title={item.name}
-                    amount={`$${item.totalExpense.toLocaleString()}`}
-                    meta={meta}
-                    accessibilityLabel={`專案 ${item.name}，區間花費 ${item.totalExpense} 元`}
-                />
-            );
-        },
+        ({ item }: { item: ProjectData }) => (
+            <ProjectRow
+                item={item}
+                isLongTerm={largeProjectNames.has(item.name)}
+                onPress={openPeriodDetail}
+            />
+        ),
         [openPeriodDetail, largeProjectNames]
     );
 
@@ -386,9 +401,10 @@ export default function ProjectScreen() {
                         description="請試著切換頂部日期區間"
                     />
                 }
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+                contentContainerStyle={styles.listContent}
                 // @ts-ignore
-                estimatedItemSize={70}
+                estimatedItemSize={84}
+                extraData={largeProjectNames}
             />
 
             <DetailModal
@@ -425,9 +441,9 @@ export default function ProjectScreen() {
                                         data={monthChartData}
                                         areaChart
                                         curved
-                                        color={colors.accent}
-                                        startFillColor={colors.accent}
-                                        endFillColor={colors.accent}
+                                        color={colors.primary}
+                                        startFillColor={colors.primary}
+                                        endFillColor={colors.primary}
                                         startOpacity={0.22}
                                         endOpacity={0.02}
                                         thickness={2.5}
@@ -472,7 +488,7 @@ export default function ProjectScreen() {
                                             onPress={() => openMonthDetail(lifecycleModal.name, m.month)}
                                             accessibilityRole="button"
                                             accessibilityLabel={`${monthLabel} 花費 ${m.amount} 元`}
-                                            android_ripple={{ color: colors.accent + '18' }}
+                                            android_ripple={{ color: colors.outlineVariant }}
                                             style={({ pressed }) => [pressed && { opacity: 0.75 }]}
                                         >
                                             {/* Android：橫向排版放內層 View，避免 Pressable flex 失效 */}
@@ -526,7 +542,8 @@ export default function ProjectScreen() {
 
 const createStyles = (colors: AppColors) =>
     StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.bg },
+        container: { flex: 1, backgroundColor: colors.surface },
+        listContent: { paddingHorizontal: 16, paddingBottom: 20 },
         listHeaderWrapper: { marginHorizontal: -16 },
         sectionHeader: { marginHorizontal: 16, marginTop: 22, marginBottom: 2 },
         sortContainer: { marginTop: 12, marginBottom: 0 },
@@ -534,20 +551,20 @@ const createStyles = (colors: AppColors) =>
         lifeScroll: { paddingHorizontal: 16, gap: 10, paddingTop: 10, paddingBottom: 4 },
         lifeCard: {
             minWidth: 112,
-            backgroundColor: colors.card,
-            borderRadius: RADIUS.lg,
+            backgroundColor: colors.surfaceContainer,
+            borderRadius: RADIUS.md,
             padding: 14,
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
-            ...SHADOWS.sm,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
+            minHeight: 88,
         },
-        lifeName: { fontSize: 13, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
-        lifeAmount: { fontSize: 16, fontWeight: '800', color: colors.accent },
-        lifeMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+        lifeName: { fontSize: 13, fontWeight: '700', color: colors.onSurfaceVariant, marginBottom: 4 },
+        lifeAmount: { fontSize: 16, fontWeight: '800', color: colors.primary, fontVariant: ['tabular-nums'] },
+        lifeMeta: { fontSize: 11, color: colors.onSurfaceVariant, marginTop: 4 },
         lifeSheet: {
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
+            backgroundColor: colors.surfaceContainer,
+            borderTopLeftRadius: RADIUS.sheet,
+            borderTopRightRadius: RADIUS.sheet,
             paddingHorizontal: 20,
             paddingTop: 10,
             paddingBottom: 28,
@@ -555,15 +572,15 @@ const createStyles = (colors: AppColors) =>
         },
         lifeSheetHandle: {
             alignSelf: 'center',
-            width: 36,
+            width: 32,
             height: 4,
-            borderRadius: 2,
-            backgroundColor: colors.border,
+            borderRadius: RADIUS.full,
+            backgroundColor: colors.outline,
             marginBottom: 14,
         },
-        lifeSheetTitle: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
+        lifeSheetTitle: { fontSize: 20, fontWeight: '800', color: colors.onSurface },
         lifeSheetSub: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
-        lifeSheetAmount: { fontSize: 28, fontWeight: '800', color: colors.accent, marginTop: 12 },
+        lifeSheetAmount: { fontSize: 28, fontWeight: '800', color: colors.primary, marginTop: 12 },
         chartWrap: {
             marginTop: 16,
             marginHorizontal: -4,
@@ -615,7 +632,7 @@ const createStyles = (colors: AppColors) =>
         },
         lifeDetailBtn: {
             marginTop: 16,
-            backgroundColor: colors.accent,
+            backgroundColor: colors.primary,
             borderRadius: 12,
             minHeight: 48,
             flexDirection: 'row',

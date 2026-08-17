@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import React, { memo, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle, type ColorValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -13,30 +13,22 @@ export interface MetaEntry {
 }
 
 interface AccentListCardProps {
-    /** 左側色條顏色，預設 accent */
-    accentColor?: string;
-    /** 標題（主要文字），未提供則不渲染 topRow，可改用 children */
+    /** 左側色條顏色，預設 primary */
+    accentColor?: ColorValue;
     title?: string;
-    /** 標題與金額之間的徽章（例如記錄頁的類別 badge） */
     titleBadge?: React.ReactNode;
-    /** 尾端金額（已格式化字串） */
     amount?: string;
-    /** 金額顏色，預設等於 accentColor */
-    amountColor?: string;
-    /** 底部 meta 資訊（icon + 文字） */
+    amountColor?: ColorValue;
     meta?: MetaEntry[];
-    /** meta 列尾端附加內容（例如記錄描述） */
     metaTrailing?: React.ReactNode;
     onPress?: () => void;
     onLongPress?: () => void;
     accessibilityLabel?: string;
-    /** 額外覆蓋卡片外層樣式（例如 records 的 marginHorizontal） */
     style?: StyleProp<ViewStyle>;
-    /** bottomRow 之後附加內容（例如 travel 的分佈條、日期列） */
     children?: React.ReactNode;
 }
 
-export default function AccentListCard({
+export default memo(function AccentListCard({
     accentColor,
     title,
     titleBadge,
@@ -52,7 +44,7 @@ export default function AccentListCard({
 }: AccentListCardProps) {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const strip = accentColor ?? colors.accent;
+    const strip = accentColor ?? colors.primary;
     const amtColor = amountColor ?? strip;
 
     return (
@@ -71,7 +63,7 @@ export default function AccentListCard({
                         <Text style={styles.title} numberOfLines={1}>{title}</Text>
                         {titleBadge}
                         {amount !== undefined ? (
-                            <Text style={[styles.amount, { color: amtColor }]}>{amount}</Text>
+                            <Text style={[styles.amount, { color: amtColor }]} selectable>{amount}</Text>
                         ) : null}
                     </View>
                 ) : null}
@@ -79,9 +71,9 @@ export default function AccentListCard({
                 {meta && meta.length > 0 ? (
                     <View style={styles.bottomRow}>
                         {meta.map((m, idx) => (
-                            <View key={idx} style={styles.metaItem}>
+                            <View key={m.icon ? `${m.icon}-${m.text}` : `${m.text}-${idx}`} style={styles.metaItem}>
                                 {m.icon ? (
-                                    <Ionicons name={m.icon} size={12} color={colors.textMuted} />
+                                    <Ionicons name={m.icon} size={12} color={colors.onSurfaceVariant} />
                                 ) : null}
                                 <Text style={styles.metaText}>{m.text}</Text>
                             </View>
@@ -94,28 +86,36 @@ export default function AccentListCard({
             </View>
         </Pressable>
     );
-}
+});
 
 const createStyles = (colors: AppColors, typography: Typography) =>
     StyleSheet.create({
         card: {
             flexDirection: 'row',
-            ...withContinuousRadius(RADIUS.md),
-            minHeight: 76,
-            marginBottom: 12,
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
+            ...withContinuousRadius(RADIUS.sm),
+            minHeight: 56,
+            marginBottom: 10,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.outlineVariant,
             overflow: 'hidden',
-            backgroundColor: colors.card,
-            ...SHADOWS.sm,
+            backgroundColor: colors.surfaceContainer,
         },
-        cardPressed: { opacity: 0.9, transform: [{ scale: 0.985 }] },
-        accentStrip: { width: 5 },
-        cardContent: { flex: 1, paddingVertical: 15, paddingHorizontal: 15, paddingLeft: 13 },
-        topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+        cardPressed: {
+            backgroundColor: colors.surfaceVariant,
+        },
+        accentStrip: { width: 3 },
+        cardContent: {
+            flex: 1,
+            paddingVertical: 14,
+            paddingHorizontal: 14,
+            paddingLeft: 12,
+            justifyContent: 'center',
+            gap: 6,
+        },
+        topRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 22 },
         title: { ...typography.cardTitle, flex: 1 },
         amount: { ...typography.amount, fontSize: 16 },
         bottomRow: { flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' },
         metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-        metaText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+        metaText: { fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant },
     });

@@ -4,8 +4,9 @@ import { View, Text, StyleSheet, Modal, Pressable, TextInput, Alert, ScrollView 
 import { RawRecord } from '../../types';
 import { getCategoryAverage } from '../../services/financeService';
 import { loadBudgetConfig } from '../../services/budgetService';
-import { AppColors, SHADOWS, RADIUS } from '../../theme';
+import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
+import { hapticSuccess, hapticSelection } from '../../utils/haptics';
 import ModalBackdrop from '../ui/ModalBackdrop';
 
 interface BudgetSettingModalProps {
@@ -53,6 +54,7 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
             Alert.alert('錯誤', '請輸入有效的金額');
             return;
         }
+        hapticSuccess();
         onSave(formCategory, limit, !!editingId);
     };
 
@@ -74,7 +76,14 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                                         {uniqueCategories.map(cat => (
                                             <Pressable key={cat}
                                                 style={[styles.chip, formCategory === cat && styles.chipActive]}
-                                                onPress={() => setFormCategory(cat)}>
+                                                onPress={() => {
+                                                    hapticSelection();
+                                                    setFormCategory(cat);
+                                                }}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected: formCategory === cat }}
+                                                accessibilityLabel={`選擇類別 ${cat}`}
+                                            >
                                                 <Text style={[styles.chipText, formCategory === cat && styles.chipTextActive]}>{cat}</Text>
                                             </Pressable>
                                         ))}
@@ -95,20 +104,26 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                         <Text style={styles.label}>每月預算金額</Text>
                         <View style={styles.amountInputContainer}>
                             <Text style={styles.currencySymbol}>$</Text>
-                            <TextInput
-                                style={styles.amountInput}
-                                value={formLimit}
-                                onChangeText={setFormLimit}
-                                keyboardType="numeric"
-                                placeholder="0"
-                                placeholderTextColor={colors.textMuted}
-                            />
+                                <TextInput
+                                    style={styles.amountInput}
+                                    value={formLimit}
+                                    onChangeText={setFormLimit}
+                                    keyboardType="numeric"
+                                    placeholder="0"
+                                    placeholderTextColor={colors.textMuted}
+                                    accessibilityLabel="預算金額"
+                                />
                         </View>
 
                         {suggestion !== null && suggestion > 0 && (
-                            <Pressable onPress={() => setFormLimit(suggestion.toString())} style={styles.suggestionBox}>
+                            <Pressable
+                                onPress={() => setFormLimit(suggestion.toString())}
+                                style={styles.suggestionBox}
+                                accessibilityRole="button"
+                                accessibilityLabel="套用智慧建議金額"
+                            >
                                 <Text style={styles.suggestionText}>
-                                    智慧建議 (3個月平均): <Text style={{ fontWeight: 'bold' }}>${suggestion.toLocaleString()}</Text> - 點此套用
+                                    智慧建議 (3個月平均): <Text style={{ fontWeight: 'bold', fontVariant: ['tabular-nums'] }}>${suggestion.toLocaleString()}</Text> - 點此套用
                                 </Text>
                             </Pressable>
                         )}
@@ -122,7 +137,12 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                     </View>
 
                     <View style={styles.footer}>
-                        <Pressable onPress={onClose} style={styles.btnCancel}>
+                        <Pressable
+                            onPress={onClose}
+                            style={styles.btnCancel}
+                            accessibilityRole="button"
+                            accessibilityLabel="取消預算設定"
+                        >
                             <Text style={styles.btnTextCancel}>取消</Text>
                         </Pressable>
                         <Pressable
@@ -132,6 +152,8 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
                                 (!formCategory || !formLimit) && styles.btnSaveDisabled
                             ]}
                             disabled={!formCategory || !formLimit}
+                            accessibilityRole="button"
+                            accessibilityLabel="儲存預算設定"
                         >
                             <Text style={styles.btnTextSave}>確定</Text>
                         </Pressable>
@@ -143,28 +165,28 @@ const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({
 };
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    modalContent: { backgroundColor: colors.card, borderRadius: RADIUS.md, padding: 24, maxHeight: '85%', ...SHADOWS.lg },
+    modalContent: { backgroundColor: colors.surfaceContainer, borderRadius: RADIUS.md, padding: 24, maxHeight: '85%', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     title: { fontSize: 20, fontWeight: '700', marginBottom: 24, color: colors.textPrimary },
     formGroup: { marginBottom: 20 },
     label: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 },
-    input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, fontSize: 16, color: colors.textPrimary, backgroundColor: colors.bg },
-    disabledInput: { backgroundColor: colors.bg, color: colors.textMuted },
-    amountInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.bg },
+    input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, fontSize: 16, color: colors.textPrimary, backgroundColor: colors.surface },
+    disabledInput: { backgroundColor: colors.surface, color: colors.textMuted },
+    amountInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.surface },
     currencySymbol: { fontSize: 18, color: colors.textSecondary, marginRight: 4 },
     amountInput: { flex: 1, paddingVertical: 12, fontSize: 18, color: colors.textPrimary },
     footer: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 10 },
-    btnCancel: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
-    btnSave: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, backgroundColor: colors.accent },
-    btnSaveDisabled: { backgroundColor: colors.accentBorder },
+    btnCancel: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceContainer },
+    btnSave: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, backgroundColor: colors.primary },
+    btnSaveDisabled: { backgroundColor: colors.outlineVariant },
     btnTextCancel: { color: colors.textSecondary, fontWeight: '600', fontSize: 16 },
     btnTextSave: { color: colors.textWhite, fontWeight: '600', fontSize: 16 },
-    suggestionBox: { marginTop: 12, padding: 12, backgroundColor: colors.accentLight, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
-    suggestionText: { fontSize: 13, color: colors.accent },
-    suggestionBoxGray: { marginTop: 12, padding: 12, backgroundColor: colors.bg, borderRadius: 8 },
+    suggestionBox: { marginTop: 12, padding: 12, backgroundColor: colors.primaryContainer, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
+    suggestionText: { fontSize: 13, color: colors.primary },
+    suggestionBoxGray: { marginTop: 12, padding: 12, backgroundColor: colors.surface, borderRadius: 8 },
     suggestionTextGray: { fontSize: 13, color: colors.textSecondary },
     chipContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.bg },
-    chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.surface },
+    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     chipText: { fontSize: 14, color: colors.textSecondary },
     chipTextActive: { color: colors.textWhite, fontWeight: 'bold' },
 });

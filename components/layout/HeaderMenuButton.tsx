@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Platform } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../context/ThemeContext';
-import { withContinuousRadius } from '../../theme';
+import { RADIUS, withContinuousRadius } from '../../theme';
 
 type HeaderMenuIcon = 'menu' | 'back';
 
@@ -31,7 +31,7 @@ export default function HeaderMenuButton({
             <Ionicons
                 name={icon === 'back' ? 'chevron-back' : 'menu'}
                 size={icon === 'back' ? 22 : 20}
-                color={colors.textPrimary}
+                color={colors.onSurface}
             />
         </Pressable>
     );
@@ -44,17 +44,10 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
             height: 40,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.cardBorder,
-            ...withContinuousRadius(20),
-            ...Platform.select({
-                android: { elevation: 1 },
-                default: {},
-            }),
+            backgroundColor: colors.surfaceVariant,
+            ...withContinuousRadius(RADIUS.full),
         },
         buttonPressed: {
-            opacity: 0.8,
-            transform: [{ scale: 0.96 }],
+            opacity: 0.85,
         },
     });

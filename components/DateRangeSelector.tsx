@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
-import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
 import UnifiedDateNavigator from './layout/UnifiedDateNavigator';
 import ModalBackdrop from './ui/ModalBackdrop';
@@ -66,7 +66,7 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
             <Modal visible={showModal} animationType="fade" transparent>
                 <ModalBackdrop colors={colors} style={styles.overlay}>
                     <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowModal(false)} />
-                    <View style={[styles.modalCard, SHADOWS.lg]}>
+                    <View style={[styles.modalCard, { borderWidth: 1, borderColor: colors.outlineVariant }]}>
                         <Text style={styles.modalTitle}>選擇日期範圍</Text>
 
                         <Text style={styles.sectionLabel}>快捷選擇</Text>
@@ -85,6 +85,8 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
                                         pressed && styles.presetBtnPressed
                                     ]}
                                     onPress={() => setPresetRange(p.days)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`快捷選擇最近 ${p.label}`}
                                 >
                                     <Text style={styles.presetBtnText}>{p.label}</Text>
                                 </Pressable>
@@ -106,6 +108,8 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
                                         pressed && styles.presetBtnPressed
                                     ]}
                                     onPress={() => setMonthRange(m.offset)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`選擇${m.label}`}
                                 >
                                     <Text style={styles.presetBtnText}>{m.label}</Text>
                                 </Pressable>
@@ -115,6 +119,8 @@ export default function DateRangeSelector({ startDate, endDate, onDateChange, su
                         <Pressable
                             style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
                             onPress={() => setShowModal(false)}
+                            accessibilityRole="button"
+                            accessibilityLabel="取消選擇日期範圍"
                         >
                             <Text style={styles.cancelBtnText}>取消</Text>
                         </Pressable>
@@ -132,12 +138,13 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         alignItems: 'center',
     },
     modalCard: {
-        backgroundColor: colors.card,
+        backgroundColor: colors.surfaceContainer,
         ...withContinuousRadius(RADIUS.xl),
         padding: 24,
         width: '85%',
         maxWidth: 400,
-        ...SHADOWS.lg,
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
     },
     modalTitle: {
         ...typography.h3,
@@ -159,14 +166,14 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     presetBtn: {
         paddingHorizontal: 16,
         paddingVertical: 12,
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
         ...withContinuousRadius(RADIUS.md),
         borderWidth: 1.5,
         borderColor: colors.divider,
     },
     presetBtnPressed: {
-        backgroundColor: colors.accentLight,
-        borderColor: colors.accentBorder,
+        backgroundColor: colors.primaryContainer,
+        borderColor: colors.outlineVariant,
         transform: [{ scale: 0.96 }],
     },
     presetBtnText: {
@@ -179,7 +186,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         paddingVertical: 14,
         alignItems: 'center',
         ...withContinuousRadius(RADIUS.md),
-        backgroundColor: colors.bg,
+        backgroundColor: colors.surface,
     },
     cancelBtnText: {
         ...typography.subtitle,

@@ -232,7 +232,9 @@ export type UpsertResult = {
   removed: number;
 };
 
-/** 依穩定 id（uid/Id）合併；CSV 有的更新／新增；syncDelete 時移除 CSV 沒有的本機列 */
+/** 依穩定 id（uid/Id）合併；CSV 有的更新／新增；syncDelete 時移除 CSV 沒有的本機列。
+ * 更新同 id 時保留本機對帳欄位（isReconciled），除非 incoming 明確帶入。
+ */
 export const upsertRecordsById = (
   existing: RawRecord[],
   incoming: RawRecord[],
@@ -259,7 +261,15 @@ export const upsertRecordsById = (
     }
     incomingIds.add(id);
     if (map.has(id)) {
-      map.set(id, { ...r, id });
+      const prev = map.get(id)!;
+      const merged: RawRecord = { ...r, id };
+      // 本機對帳狀態優先：incoming 未帶時保留舊值
+      if (r.isReconciled === undefined && prev.isReconciled !== undefined) {
+        merged.isReconciled = prev.isReconciled;
+      }
+      // 清理已廢棄的延後入帳欄位
+      delete (merged as any).postponedToPeriod;
+      map.set(id, merged);
       updated += 1;
     } else {
       map.set(id, { ...r, id });

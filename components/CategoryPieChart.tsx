@@ -88,7 +88,7 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
                                         <Text style={styles.legendName}>{item.name}</Text>
                                     </View>
                                     <View style={styles.legendRight}>
-                                        <Text style={[styles.legendAmount, { color: chartType === 'asset' ? colors.accent : colors.red }]}>
+                                        <Text style={[styles.legendAmount, { color: chartType === 'asset' ? colors.primary : colors.red }]}>
                                             ${item.value.toLocaleString()}
                                         </Text>
                                         <Text style={styles.legendPct}>{pct}%</Text>
@@ -98,7 +98,7 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
                         })}
                         <View style={styles.legendTotal}>
                             <Text style={styles.legendTotalLabel}>總額</Text>
-                            <Text style={[styles.legendTotalValue, { color: chartType === 'asset' ? colors.accent : colors.red }]}>
+                            <Text style={[styles.legendTotalValue, { color: chartType === 'asset' ? colors.primary : colors.red }]}>
                                 ${totalValue.toLocaleString()}
                             </Text>
                         </View>
@@ -114,10 +114,10 @@ export default function CategoryPieChart({ accountsSummary, accountCategories }:
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-    container: { backgroundColor: colors.card, marginHorizontal: 16, marginTop: 16, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: colors.divider },
+    container: { backgroundColor: colors.surfaceContainer, marginHorizontal: 16, marginTop: 16, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: colors.divider },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.3 },
-    toggleRow: { flexDirection: 'row', gap: 6, backgroundColor: colors.bg, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: colors.divider },
+    toggleRow: { flexDirection: 'row', gap: 6, backgroundColor: colors.surface, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: colors.divider },
     toggleBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
     toggleAsset: { backgroundColor: colors.green, ...SHADOWS.sm },
     toggleLiability: { backgroundColor: colors.red, ...SHADOWS.sm },
@@ -129,7 +129,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     centerLabelSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, fontWeight: '600' },
     // Legend
     legend: { gap: 8, marginTop: 4 },
-    legendItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, backgroundColor: colors.bg, borderRadius: 12 },
+    legendItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, backgroundColor: colors.surface, borderRadius: 12 },
     legendLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, marginLeft: 8 },
     legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
     legendName: { fontSize: 14, color: colors.textPrimary, fontWeight: '500' },

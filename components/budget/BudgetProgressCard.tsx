@@ -17,7 +17,7 @@ const getStatusPalettes = (colors: AppColors) => ({
     safe: {
         bar: colors.green,
         barGradient: colors.greenGradient as [string, string],
-        accentBorder: colors.green + '30',
+        accentBorder: colors.outlineVariant,
         badgeBg: colors.greenLight,
         badgeText: colors.green,
         strip: colors.green,
@@ -25,23 +25,23 @@ const getStatusPalettes = (colors: AppColors) => ({
     warning: {
         bar: colors.yellow,
         barGradient: [colors.yellowLight, colors.yellow] as [string, string],
-        accentBorder: colors.yellow + '30',
+        accentBorder: colors.outlineVariant,
         badgeBg: colors.yellowLight,
         badgeText: colors.yellow,
         strip: colors.yellow,
     },
     danger: {
-        bar: colors.accent,
+        bar: colors.primary,
         barGradient: colors.accentGradientShape as [string, string],
-        accentBorder: colors.accent + '30',
-        badgeBg: colors.accentLight,
-        badgeText: colors.accent,
-        strip: colors.accent,
+        accentBorder: colors.outlineVariant,
+        badgeBg: colors.primaryContainer,
+        badgeText: colors.primary,
+        strip: colors.primary,
     },
     exceeded: {
         bar: colors.red,
         barGradient: colors.redGradient as [string, string],
-        accentBorder: colors.red + '30',
+        accentBorder: colors.outlineVariant,
         badgeBg: colors.redLight,
         badgeText: colors.red,
         strip: colors.red,
@@ -75,11 +75,11 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({ status, 
                 <View style={styles.topRow}>
                     <Text style={styles.category} numberOfLines={1}>{rule.category}</Text>
                     <View style={[styles.percentBadge, { backgroundColor: palette.badgeBg }]}>
-                        <Text style={[styles.percentText, { color: palette.bar }]}>
+                        <Text style={[styles.percentText, { color: palette.bar }]} selectable>
                             {Math.round(percentage)}%
                         </Text>
                     </View>
-                    <Text style={[styles.remainingValue, remaining < 0 && styles.negative]}>
+                    <Text style={[styles.remainingValue, remaining < 0 && styles.negative]} selectable>
                         ${Math.abs(remaining).toLocaleString()}
                     </Text>
                 </View>
@@ -94,11 +94,11 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({ status, 
                 </View>
 
                 <View style={styles.bottomRow}>
-                    <Text style={styles.metaText}>
+                    <Text style={styles.metaText} selectable>
                         ${spent.toLocaleString()} / ${rule.monthlyLimit.toLocaleString()}
                     </Text>
                     {dailySafeSpend !== undefined && remaining > 0 && (
-                        <Text style={[styles.metaText, { color: palette.badgeText }]}>
+                        <Text style={[styles.metaText, { color: palette.badgeText }]} selectable>
                             日均 ${dailySafeSpend.toLocaleString()}
                         </Text>
                     )}
@@ -141,7 +141,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             marginBottom: 10,
             borderWidth: 1,
             overflow: 'hidden',
-            backgroundColor: colors.card,
+            backgroundColor: colors.surfaceContainer,
             ...SHADOWS.sm,
         },
         cardPressed: {
@@ -151,7 +151,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         otherCard: {
             borderStyle: 'dashed',
             borderColor: colors.border,
-            backgroundColor: colors.bg,
+            backgroundColor: colors.surface,
         },
         accentStrip: {
             width: 4,
@@ -188,19 +188,21 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             fontSize: 12,
             fontWeight: '800',
             letterSpacing: -0.3,
+            fontVariant: ['tabular-nums'],
         },
         remainingValue: {
             fontSize: 15,
             fontWeight: '800',
             color: colors.textPrimary,
             letterSpacing: -0.3,
+            fontVariant: ['tabular-nums'],
         },
         negative: {
             color: colors.red,
         },
         progressTrack: {
             height: 7,
-            backgroundColor: colors.bg,
+            backgroundColor: colors.surface,
             borderRadius: 4,
             marginBottom: 6,
             overflow: 'hidden',
@@ -218,6 +220,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             fontSize: 12,
             fontWeight: '600',
             color: colors.textSecondary,
+            fontVariant: ['tabular-nums'],
         },
         otherBadge: {
             fontSize: 11,

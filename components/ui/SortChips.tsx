@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
+import { hapticSelection } from '../../utils/haptics';
 
 type Typography = ReturnType<typeof useAppTheme>['typography'];
 
@@ -18,7 +19,6 @@ interface SortChipsProps<T extends string> {
     activeKey: T;
     direction: SortDirection;
     onChange: (key: T, direction: SortDirection) => void;
-    /** 'bar' 會包一層帶背景與底部分隔線的容器（用於固定於頁面頂部的排序列） */
     variant?: 'bar' | 'plain';
 }
 
@@ -33,6 +33,7 @@ export default function SortChips<T extends string>({
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
     const handlePress = (key: T) => {
+        hapticSelection();
         if (key === activeKey) {
             onChange(key, direction === 'asc' ? 'desc' : 'asc');
         } else {
@@ -53,12 +54,15 @@ export default function SortChips<T extends string>({
                     <Pressable
                         key={opt.key}
                         onPress={() => handlePress(opt.key)}
-                        style={[styles.chip, isActive && styles.chipActive]}
-                        android_ripple={{
-                            color: isActive ? 'rgba(255,255,255,0.2)' : colors.accent + '20',
-                            borderless: false,
-                        }}
+                        hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+                        style={({ pressed }) => [
+                            styles.chip,
+                            isActive && styles.chipActive,
+                            pressed && styles.chipPressed,
+                        ]}
+                        android_ripple={{ color: colors.statePressed, borderless: false }}
                         accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
                         accessibilityLabel={`依${opt.label}排序，${isActive ? (isAsc ? '升冪' : '降冪') : '點擊啟用'}`}
                     >
                         <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
@@ -68,7 +72,7 @@ export default function SortChips<T extends string>({
                             <Ionicons
                                 name={isAsc ? 'chevron-up' : 'chevron-down'}
                                 size={14}
-                                color={colors.textWhite}
+                                color={colors.onPrimaryContainer}
                                 style={styles.chipIcon}
                             />
                         ) : null}
@@ -87,9 +91,9 @@ export default function SortChips<T extends string>({
 const createStyles = (colors: AppColors, typography: Typography) =>
     StyleSheet.create({
         bar: {
-            backgroundColor: colors.headerBg,
+            backgroundColor: colors.surface,
             borderBottomWidth: StyleSheet.hairlineWidth,
-            borderBottomColor: colors.cardBorder,
+            borderBottomColor: colors.outlineVariant,
             paddingVertical: 10,
         },
         row: {
@@ -103,26 +107,27 @@ const createStyles = (colors: AppColors, typography: Typography) =>
             alignItems: 'center',
             paddingHorizontal: 14,
             paddingVertical: 8,
-            minHeight: 36,
-            ...withContinuousRadius(RADIUS.chip),
-            backgroundColor: colors.card,
+            minHeight: 40,
+            ...withContinuousRadius(RADIUS.full),
+            backgroundColor: colors.surfaceContainer,
             borderWidth: 1,
-            borderColor: colors.cardBorder,
+            borderColor: colors.outlineVariant,
             overflow: 'hidden',
-            elevation: 1,
         },
         chipActive: {
-            backgroundColor: colors.accent,
-            borderColor: colors.accent,
-            elevation: 0,
+            backgroundColor: colors.primaryContainer,
+            borderColor: colors.primaryContainer,
+        },
+        chipPressed: {
+            opacity: 0.88,
         },
         chipText: {
             ...typography.chip,
-            color: colors.textSecondary,
+            color: colors.onSurfaceVariant,
             includeFontPadding: false,
         },
         chipTextActive: {
-            color: colors.textWhite,
+            color: colors.onPrimaryContainer,
         },
         chipIcon: {
             marginLeft: 4,

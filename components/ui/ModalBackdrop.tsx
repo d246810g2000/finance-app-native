@@ -30,7 +30,7 @@ export default function ModalBackdrop({
 
     if (Platform.OS === 'android') {
         return (
-            <View style={[styles.fullScreen, { backgroundColor: colors.blackOverlay }]}>
+            <View style={[styles.fullScreen, { backgroundColor: colors.scrim ?? colors.blackOverlay }]}>
                 {content}
             </View>
         );
