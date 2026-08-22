@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { hapticSelection } from '../../utils/haptics';
@@ -13,6 +14,59 @@ export interface SortOption<T extends string> {
     key: T;
     label: string;
 }
+
+const SortChip = memo(function SortChip({
+    label,
+    isActive,
+    isAsc,
+    styles,
+    colors,
+    onPress,
+}: {
+    label: string;
+    isActive: boolean;
+    isAsc: boolean;
+    styles: ReturnType<typeof createStyles>;
+    colors: AppColors;
+    onPress: () => void;
+}) {
+    const scale = useSharedValue(1);
+
+    const chipAnimStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
+
+    return (
+        <Pressable
+            onPress={onPress}
+            hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+            onPressIn={() => { scale.value = withTiming(0.96, { duration: 100 }); }}
+            onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+            android_ripple={{ color: colors.statePressed, borderless: false }}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={`依${label}排序，${isActive ? (isAsc ? '升冪' : '降冪') : '點擊啟用'}`}
+        >
+            <Reanimated.View style={[
+                styles.chip,
+                isActive && styles.chipActive,
+                chipAnimStyle,
+            ]}>
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                    {label}
+                </Text>
+                {isActive ? (
+                    <Ionicons
+                        name={isAsc ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={colors.onPrimaryContainer}
+                        style={styles.chipIcon}
+                    />
+                ) : null}
+            </Reanimated.View>
+        </Pressable>
+    );
+});
 
 interface SortChipsProps<T extends string> {
     options: SortOption<T>[];
@@ -47,38 +101,17 @@ export default function SortChips<T extends string>({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.row}
         >
-            {options.map((opt) => {
-                const isActive = opt.key === activeKey;
-                const isAsc = direction === 'asc';
-                return (
-                    <Pressable
-                        key={opt.key}
-                        onPress={() => handlePress(opt.key)}
-                        hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-                        style={({ pressed }) => [
-                            styles.chip,
-                            isActive && styles.chipActive,
-                            pressed && styles.chipPressed,
-                        ]}
-                        android_ripple={{ color: colors.statePressed, borderless: false }}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isActive }}
-                        accessibilityLabel={`依${opt.label}排序，${isActive ? (isAsc ? '升冪' : '降冪') : '點擊啟用'}`}
-                    >
-                        <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                            {opt.label}
-                        </Text>
-                        {isActive ? (
-                            <Ionicons
-                                name={isAsc ? 'chevron-up' : 'chevron-down'}
-                                size={14}
-                                color={colors.onPrimaryContainer}
-                                style={styles.chipIcon}
-                            />
-                        ) : null}
-                    </Pressable>
-                );
-            })}
+            {options.map((opt) => (
+                <SortChip
+                    key={opt.key}
+                    label={opt.label}
+                    isActive={opt.key === activeKey}
+                    isAsc={direction === 'asc'}
+                    styles={styles}
+                    colors={colors}
+                    onPress={() => handlePress(opt.key)}
+                />
+            ))}
         </ScrollView>
     );
 
@@ -117,9 +150,6 @@ const createStyles = (colors: AppColors, typography: Typography) =>
         chipActive: {
             backgroundColor: colors.primaryContainer,
             borderColor: colors.primaryContainer,
-        },
-        chipPressed: {
-            opacity: 0.88,
         },
         chipText: {
             ...typography.chip,

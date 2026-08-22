@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, Animated, Dimensions, type ColorValue } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, Dimensions, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
 import SettingsModal from '../settings/SettingsModal';
 import CreditCardManagementModal from '../reconciliation/CreditCardManagementModal';
+import { MOTION_DURATION } from '../ui/motion';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MENU_WIDTH = Math.min(SCREEN_WIDTH * 0.8, 320);
@@ -71,54 +73,50 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const styles = useMemo(() => createStyles(colors), [colors]);
     const edgeH = Math.max(insets.left, SCREEN_EDGE_MIN);
 
-    const slideAnim = useRef(new Animated.Value(-MENU_WIDTH)).current;
-    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideX = useSharedValue(-MENU_WIDTH);
+    const backdropOpacity = useSharedValue(0);
     const shouldOpenSettingsAfterClose = useRef(false);
     const shouldOpenCreditCardsAfterClose = useRef(false);
     const [isAnimating, setIsAnimating] = useState(false);
     const [isSettingsVisible, setIsSettingsVisible] = useState(false);
     const [isCreditCardSettingsVisible, setIsCreditCardSettingsVisible] = useState(false);
 
+    const handleAnimationEnd = () => {
+        setIsAnimating(false);
+        if (shouldOpenSettingsAfterClose.current) {
+            shouldOpenSettingsAfterClose.current = false;
+            setIsSettingsVisible(true);
+        } else if (shouldOpenCreditCardsAfterClose.current) {
+            shouldOpenCreditCardsAfterClose.current = false;
+            setIsCreditCardSettingsVisible(true);
+        }
+    };
+
+    const drawerStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: slideX.value }],
+    }));
+
+    const backdropStyle = useAnimatedStyle(() => ({
+        opacity: backdropOpacity.value,
+    }));
+
     useEffect(() => {
         if (actualVisible) {
             setIsAnimating(true);
-            Animated.parallel([
-                Animated.timing(slideAnim, {
-                    toValue: 0,
-                    duration: 220,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 220,
-                    useNativeDriver: true,
-                }),
-            ]).start(() => setIsAnimating(false));
+            slideX.value = withTiming(0, { duration: MOTION_DURATION.normal });
+            backdropOpacity.value = withTiming(1, { duration: MOTION_DURATION.normal });
+            // Reanimated shared values don't expose completion callbacks for open
+            // (no JS callback needed); release the render gate after the duration.
+            const timer = setTimeout(() => setIsAnimating(false), MOTION_DURATION.normal);
+            return () => clearTimeout(timer);
         } else {
             setIsAnimating(true);
-            Animated.parallel([
-                Animated.timing(slideAnim, {
-                    toValue: -MENU_WIDTH,
-                    duration: 180,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(fadeAnim, {
-                    toValue: 0,
-                    duration: 180,
-                    useNativeDriver: true,
-                }),
-            ]).start(() => {
-                setIsAnimating(false);
-                if (shouldOpenSettingsAfterClose.current) {
-                    shouldOpenSettingsAfterClose.current = false;
-                    setIsSettingsVisible(true);
-                } else if (shouldOpenCreditCardsAfterClose.current) {
-                    shouldOpenCreditCardsAfterClose.current = false;
-                    setIsCreditCardSettingsVisible(true);
-                }
+            slideX.value = withTiming(-MENU_WIDTH, { duration: MOTION_DURATION.fast }, (finished) => {
+                if (finished) runOnJS(handleAnimationEnd)();
             });
+            backdropOpacity.value = withTiming(0, { duration: MOTION_DURATION.fast });
         }
-    }, [actualVisible, slideAnim, fadeAnim]);
+    }, [actualVisible]);
 
     if (!actualVisible && !isAnimating && !isSettingsVisible && !isCreditCardSettingsVisible) return null;
 
@@ -158,16 +156,16 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                 statusBarTranslucent
             >
                 <View style={styles.overlay}>
-                    <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+                    <Reanimated.View style={[styles.backdrop, backdropStyle]}>
                         <Pressable
                             style={StyleSheet.absoluteFill}
                             onPress={actualOnClose}
                             accessibilityRole="button"
                             accessibilityLabel="關閉選單"
                         />
-                    </Animated.View>
+                    </Reanimated.View>
 
-                    <Animated.View style={[styles.drawerShell, { transform: [{ translateX: slideAnim }] }]}>
+                    <Reanimated.View style={[styles.drawerShell, drawerStyle]}>
                         <View
                             style={[
                                 styles.drawerBody,
@@ -279,7 +277,7 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                 <Text style={styles.footerText}>個人財務管理</Text>
                             </View>
                         </View>
-                    </Animated.View>
+                    </Reanimated.View>
                 </View>
             </Modal>
 

@@ -1,13 +1,15 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TextInput, ScrollView, Pressable, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Modal, TextInput, ScrollView, Pressable, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { useAppTheme } from '../context/ThemeContext';
 import { useFinance, buildSearchMetadata, SearchFilters } from '../context/FinanceContext';
 import { useFinanceUI } from '../context/FinanceUIContext';
 import { AppColors, RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../theme';
 import HeaderMenuButton from './layout/HeaderMenuButton';
+import { MOTION_DURATION } from './ui/motion';
 
 interface SearchModalProps {
     visible: boolean;
@@ -101,40 +103,29 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
     const edgeH = Math.max(insets.left, insets.right, SCREEN_EDGE_MIN);
     const styles = useMemo(() => createStyles(colors, typography, edgeH), [colors, typography, edgeH]);
 
-    const slideAnim = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
-    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideX = useSharedValue(-SCREEN_WIDTH);
+    const backdropOpacity = useSharedValue(0);
     const [isRendering, setIsRendering] = useState(false);
+
+    const panelStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: slideX.value }],
+    }));
+
+    const backdropStyle = useAnimatedStyle(() => ({
+        opacity: backdropOpacity.value,
+    }));
 
     useEffect(() => {
         if (visible) {
             setIsRendering(true);
-            Animated.parallel([
-                Animated.timing(slideAnim, {
-                    toValue: 0,
-                    duration: 300,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 200,
-                    useNativeDriver: true,
-                })
-            ]).start();
+            slideX.value = withTiming(0, { duration: MOTION_DURATION.slow });
+            backdropOpacity.value = withTiming(1, { duration: MOTION_DURATION.normal });
+            // No JS callback needed on open; keep isRendering true while visible.
         } else {
-            Animated.parallel([
-                Animated.timing(slideAnim, {
-                    toValue: -SCREEN_WIDTH,
-                    duration: 280,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(fadeAnim, {
-                    toValue: 0,
-                    duration: 300,
-                    useNativeDriver: true,
-                })
-            ]).start(() => {
-                setIsRendering(false);
+            slideX.value = withTiming(-SCREEN_WIDTH, { duration: MOTION_DURATION.fast }, (finished) => {
+                if (finished) runOnJS(setIsRendering)(false);
             });
+            backdropOpacity.value = withTiming(0, { duration: MOTION_DURATION.normal });
         }
     }, [visible]);
 
@@ -228,11 +219,11 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
     return (
         <Modal visible={visible || isRendering} animationType="none" transparent onRequestClose={handleClose}>
             <View style={StyleSheet.absoluteFill}>
-                <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+                <Reanimated.View style={[styles.backdrop, backdropStyle]}>
                     <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
-                </Animated.View>
+                </Reanimated.View>
 
-                <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
+                <Reanimated.View style={[styles.container, panelStyle]}>
                     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
                         <HeaderMenuButton icon="back" onPress={handleClose} accessibilityLabel="返回" />
                         <Text style={styles.headerTitle}>搜尋記錄</Text>
@@ -420,7 +411,7 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
                             <Text style={styles.confirmButtonText}>搜尋</Text>
                         </Pressable>
                     </View>
-                </Animated.View>
+                </Reanimated.View>
             </View>
         </Modal>
     );

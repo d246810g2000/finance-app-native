@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { hapticSelection } from '../../utils/haptics';
@@ -10,6 +11,63 @@ type SegmentedOption<T extends string> = {
     label: string;
     icon?: React.ComponentProps<typeof Ionicons>['name'];
 };
+
+const Segment = memo(function Segment({
+    option,
+    isActive,
+    isCompact,
+    fullWidth,
+    styles,
+    colors,
+    onPress,
+}: {
+    option: { value: string; label: string; icon?: React.ComponentProps<typeof Ionicons>['name'] };
+    isActive: boolean;
+    isCompact: boolean;
+    fullWidth: boolean;
+    styles: ReturnType<typeof createStyles>;
+    colors: AppColors;
+    onPress: () => void;
+}) {
+    const scale = useSharedValue(1);
+
+    const segmentAnimStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
+
+    return (
+        <Pressable
+            onPress={onPress}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            onPressIn={() => { scale.value = withTiming(0.96, { duration: 100 }); }}
+            onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={option.label}
+        >
+            <Reanimated.View style={[
+                styles.segment,
+                fullWidth && styles.segmentFull,
+                isCompact && styles.segmentCompact,
+                isActive && styles.segmentActive,
+                segmentAnimStyle,
+            ]}>
+                <View style={styles.segmentContent}>
+                    {option.icon ? (
+                        <Ionicons
+                            name={option.icon}
+                            size={isCompact ? 14 : 15}
+                            color={isActive ? colors.onPrimaryContainer : colors.textMuted}
+                        />
+                    ) : null}
+                    <Text style={[styles.label, isCompact && styles.labelCompact, isActive && styles.labelActive]}>
+                        {option.label}
+                    </Text>
+                </View>
+            </Reanimated.View>
+        </Pressable>
+    );
+});
 
 interface SegmentedControlProps<T extends string> {
     options: SegmentedOption<T>[];
@@ -48,37 +106,19 @@ export default function SegmentedControl<T extends string>({
             {options.map((option) => {
                 const isActive = option.value === value;
                 return (
-                    <Pressable
+                    <Segment
                         key={option.value}
+                        option={option}
+                        isActive={isActive}
+                        isCompact={isCompact}
+                        fullWidth={fullWidth}
+                        styles={styles}
+                        colors={colors}
                         onPress={() => {
                             hapticSelection();
                             onChange(option.value);
                         }}
-                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                        style={({ pressed }) => [
-                            styles.segment,
-                            fullWidth && styles.segmentFull,
-                            isCompact && styles.segmentCompact,
-                            isActive && styles.segmentActive,
-                            pressed && styles.segmentPressed,
-                        ]}
-                        accessibilityRole="tab"
-                        accessibilityState={{ selected: isActive }}
-                        accessibilityLabel={option.label}
-                    >
-                        <View style={styles.segmentContent}>
-                            {option.icon ? (
-                                <Ionicons
-                                    name={option.icon}
-                                    size={isCompact ? 14 : 15}
-                                    color={isActive ? colors.onPrimaryContainer : colors.textMuted}
-                                />
-                            ) : null}
-                            <Text style={[styles.label, isCompact && styles.labelCompact, isActive && styles.labelActive]}>
-                                {option.label}
-                            </Text>
-                        </View>
-                    </Pressable>
+                    />
                 );
             })}
         </View>
@@ -110,9 +150,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     segmentCompact: { minWidth: 0, minHeight: 36, paddingVertical: 6, paddingHorizontal: 10 },
     segmentActive: {
         backgroundColor: colors.primaryContainer,
-    },
-    segmentPressed: {
-        opacity: 0.88,
     },
     segmentContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
     label: {

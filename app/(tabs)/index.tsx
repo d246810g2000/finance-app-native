@@ -1,6 +1,6 @@
 
-import React, { useMemo, useState, useCallback, memo } from 'react';
-import { View, Text, ScrollView, Dimensions, Pressable, StyleSheet, LayoutAnimation, Platform, UIManager, Modal, TouchableWithoutFeedback } from 'react-native';
+import React, { useMemo, useState, useCallback, useRef, memo } from 'react';
+import { View, Text, ScrollView, Dimensions, Pressable, StyleSheet, Modal, TouchableWithoutFeedback } from 'react-native';
 import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { BarChart, LineChartBicolor } from 'react-native-gifted-charts';
 import Animated, { FadeInDown, FadeInLeft } from 'react-native-reanimated';
@@ -20,23 +20,17 @@ import EmptyState from '../../components/ui/EmptyState';
 import SheetHeader from '../../components/ui/SheetHeader';
 import PageChrome from '../../components/layout/PageChrome';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { loadExcludedAccounts, saveExcludedAccounts } from '../../services/accountConfigService';
 import AccountSettingsModal from '../../components/account/AccountSettingsModal';
 import { useBottomSheetSwipe } from '../../components/ui/useBottomSheetSwipe';
 import BottomSheetGestureWrapper from '../../components/ui/BottomSheetGestureWrapper';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type AccountViewType = 'all' | 'personal' | 'shared';
 
 // ─── Summary Card ───
-type DashboardStyles = ReturnType<typeof createStyles>;
-
 const SummaryCard = memo(function SummaryCard({ title, value, previousValue, isPercentage, invertColor, onPress, index, fullWidth, colors, styles }: {
     title: string; value: number; previousValue: number;
     isPercentage?: boolean; invertColor?: boolean; onPress?: () => void; index?: number; fullWidth?: boolean;
@@ -72,6 +66,8 @@ const SummaryCard = memo(function SummaryCard({ title, value, previousValue, isP
             <Pressable
                 disabled={!onPress}
                 onPress={onPress}
+                accessibilityRole={onPress ? 'button' : 'text'}
+                accessibilityLabel={`${title} ${displayValue}，${arrow}${Math.abs(diff).toFixed(1)}%，點擊查看詳細`}
                 style={({ pressed }) => [
                     styles.summaryCardWrapper,
                     pressed && onPress ? { opacity: 0.88, transform: [{ scale: 0.97 }] } : null,
@@ -214,9 +210,238 @@ const AccountRatioPanel = memo(function AccountRatioPanel({
     );
 });
 
+// ─── Account Tree Sub-components (memoized for smooth expand/collapse) ───
+
+interface AccountInfo {
+    name: string;
+    balance: number;
+    originalCategory: string;
+}
+
+interface AccountSubGroupData {
+    name: string;
+    accounts: AccountInfo[];
+    totalBalance: number;
+}
+
+interface AccountGroupData {
+    category: string;
+    accounts: AccountInfo[];
+    subGroups: AccountSubGroupData[];
+    isCollapsed: boolean;
+    totalBalance: number;
+    percentage: number;
+}
+
+type DashboardStyles = ReturnType<typeof createStyles>;
+
+const AccountRow = memo(function AccountRow({
+    account,
+    colors,
+    styles,
+    onPress,
+}: {
+    account: AccountInfo;
+    colors: AppColors;
+    styles: DashboardStyles;
+    onPress: (name: string) => void;
+}) {
+    return (
+        <Pressable
+            onPress={() => onPress(account.name)}
+            style={({ pressed }) => [styles.accountRow, pressed && styles.accountRowPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`${account.name}，餘額 ${Math.abs(account.balance).toLocaleString()} 元`}
+        >
+            <View style={styles.accountNameWrap}>
+                <Text style={styles.accountName} numberOfLines={1}>{account.name}</Text>
+            </View>
+            <View style={styles.accountAmountWrap}>
+                <Text style={[styles.accountAmount, { color: account.balance >= 0 ? colors.green : colors.red }]}>
+                    {account.balance < 0 ? '-' : ''}{Math.abs(account.balance).toLocaleString()}
+                </Text>
+            </View>
+        </Pressable>
+    );
+});
+
+const AccountSubGroupCard = memo(function AccountSubGroupCard({
+    sub,
+    accentColor,
+    isExpanded,
+    colors,
+    styles,
+    onToggle,
+    onAccountPress,
+}: {
+    sub: AccountSubGroupData;
+    accentColor: string;
+    isExpanded: boolean;
+    colors: AppColors;
+    styles: DashboardStyles;
+    onToggle: (subId: string) => void;
+    onAccountPress: (name: string) => void;
+}) {
+    const subId = sub.name;
+    return (
+        <View style={[styles.subGroupCard, SHADOWS.sm]}>
+            <View style={[styles.accentStrip, { backgroundColor: accentColor }]} />
+            <Pressable
+                onPress={() => onToggle(subId)}
+                android_ripple={{ color: colors.statePressed, borderless: false }}
+                style={({ pressed }) => [pressed && styles.subGroupHeaderPressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`${sub.name}，合計 ${Math.abs(sub.totalBalance).toLocaleString()} 元，${isExpanded ? '收起' : '展開'}帳戶`}
+                accessibilityState={{ expanded: isExpanded }}
+            >
+                <View style={styles.subGroupHeader}>
+                    <View style={styles.subGroupHeaderLeft}>
+                        <View style={styles.subGroupIconCircle}>
+                            <Ionicons name="wallet-outline" size={18} color={accentColor} />
+                        </View>
+                        <View style={styles.subGroupNameWrap}>
+                            <Text style={[styles.subGroupName, { color: accentColor }]} numberOfLines={1}>
+                                {sub.name}
+                            </Text>
+                            {!isExpanded && (
+                                <Text style={styles.subGroupPreview} numberOfLines={1}>
+                                    {sub.accounts.length > 0 ? sub.accounts.map(a => a.name).join('、') : '無帳戶'}
+                                </Text>
+                            )}
+                        </View>
+                    </View>
+                    <View style={styles.amountAlignRight}>
+                        <Text style={[styles.subGroupAmount, { color: accentColor }]}>
+                            {sub.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(sub.totalBalance).toLocaleString()}
+                        </Text>
+                    </View>
+                </View>
+            </Pressable>
+
+            {isExpanded && (
+                <View style={styles.accountListWrap}>
+                    <View style={styles.accountDivider} />
+                    {sub.accounts.map(acc => (
+                        <AccountRow
+                            key={acc.name}
+                            account={acc}
+                            colors={colors}
+                            styles={styles}
+                            onPress={onAccountPress}
+                        />
+                    ))}
+                </View>
+            )}
+        </View>
+    );
+});
+
+const AccountGroupCard = memo(function AccountGroupCard({
+    group,
+    accentColor,
+    expandedSubGroups,
+    colors,
+    typography: typo,
+    styles,
+    onToggleGroup,
+    onToggleSubGroup,
+    onAccountPress,
+}: {
+    group: AccountGroupData;
+    accentColor: string;
+    expandedSubGroups: Record<string, boolean>;
+    colors: AppColors;
+    typography: ReturnType<typeof useAppTheme>['typography'];
+    styles: DashboardStyles;
+    onToggleGroup: (category: string) => void;
+    onToggleSubGroup: (subId: string) => void;
+    onAccountPress: (name: string) => void;
+}) {
+    const uniqueCategories = useMemo(
+        () => Array.from(new Set(group.accounts.map(a => a.originalCategory))).join('、'),
+        [group.accounts]
+    );
+
+    return (
+        <View>
+            <View style={[
+                styles.groupCard,
+                { backgroundColor: group.isCollapsed ? colors.surfaceContainer : accentColor },
+                group.isCollapsed && SHADOWS.sm,
+            ]}>
+                <Pressable
+                    onPress={() => onToggleGroup(group.category)}
+                    android_ripple={{ color: colors.statePressed, borderless: false, radius: 200 }}
+                    style={({ pressed }) => [pressed && styles.groupCardPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${group.category}，合計 ${Math.abs(group.totalBalance).toLocaleString()} 元，${group.isCollapsed ? '展開' : '收起'}分類`}
+                    accessibilityState={{ expanded: !group.isCollapsed }}
+                >
+                    <View style={styles.groupCardInner}>
+                        <View style={styles.groupCardLeft}>
+                            {group.isCollapsed ? (
+                                <>
+                                    <View style={styles.groupTitleRow}>
+                                        <Text style={[typo.body, styles.groupTitle, { color: colors.textPrimary }]}>
+                                            {group.category}
+                                        </Text>
+                                        {group.accounts.length > 0 && (
+                                            <View style={styles.groupCountBadge}>
+                                                <Text style={[styles.groupCountText, { color: accentColor }]}>
+                                                    {group.accounts.length} 筆資產
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                    {group.accounts.length > 0 && (
+                                        <Text style={styles.groupSubtitle} numberOfLines={1}>{uniqueCategories}</Text>
+                                    )}
+                                </>
+                            ) : (
+                                <View style={styles.groupTitleRow}>
+                                    <Text style={[typo.body, styles.groupTitle, { color: colors.textPrimary }]}>
+                                        {group.category}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                        <View style={styles.amountAlignRight}>
+                            <Text style={styles.groupAmount}>
+                                {group.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(group.totalBalance).toLocaleString()}
+                            </Text>
+                        </View>
+                    </View>
+                </Pressable>
+            </View>
+
+            {!group.isCollapsed && group.subGroups.length > 0 && (
+                <View style={styles.subGroupList}>
+                    {group.subGroups.map(sub => {
+                        const subId = `${group.category}-${sub.name}`;
+                        const isSubExpanded = !!expandedSubGroups[subId];
+                        return (
+                            <AccountSubGroupCard
+                                key={subId}
+                                sub={{ ...sub, name: subId }}
+                                accentColor={accentColor}
+                                isExpanded={isSubExpanded}
+                                colors={colors}
+                                styles={styles}
+                                onToggle={onToggleSubGroup}
+                                onAccountPress={onAccountPress}
+                            />
+                        );
+                    })}
+                </View>
+            )}
+        </View>
+    );
+});
+
 export default function DashboardScreen() {
     const { records, budgetConfig } = useFinance();
     const { colors, typography, assetClassColors } = useAppTheme();
+    const isFocused = useIsFocused();
     const styles = useMemo(() => createStyles(colors), [colors]);
     const navigation = useNavigation();
     const [accountViewType, setAccountViewType] = useState<AccountViewType>('personal');
@@ -297,14 +522,22 @@ export default function DashboardScreen() {
         return Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
     }, [startDate, endDate]);
 
+    const lastAggregation = useRef<{
+        aggregatedSummary: AccountsSummaryMap;
+        dailyTrend: TrendDataPoint[];
+        periodSummary: { totalBalance: number; totalIncome: number; totalExpense: number };
+        previousPeriodSummary: { totalBalance: number; totalIncome: number; totalExpense: number };
+    } | null>(null);
+
     const { aggregatedSummary, dailyTrend, periodSummary, previousPeriodSummary } = useMemo(() => {
+        if (!isFocused && lastAggregation.current) return lastAggregation.current;
         if (records.length === 0) return {
             aggregatedSummary: {} as AccountsSummaryMap,
             dailyTrend: [] as TrendDataPoint[],
             periodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
             previousPeriodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
         };
-        return processAndAggregateRecords(
+        const next = processAndAggregateRecords(
             records,
             startDate,
             endDate,
@@ -312,7 +545,9 @@ export default function DashboardScreen() {
             excludedAccounts,
             !!budgetConfig.isSplitEnabled,
         );
-    }, [records, startDate, endDate, accountFilter, excludedAccounts, budgetConfig.isSplitEnabled]);
+        lastAggregation.current = next;
+        return next;
+    }, [isFocused, records, startDate, endDate, accountFilter, excludedAccounts, budgetConfig.isSplitEnabled]);
 
     const currentSavingsRate = periodSummary.totalIncome > 0
         ? ((periodSummary.totalIncome - periodSummary.totalExpense) / periodSummary.totalIncome) * 100 : 0;
@@ -588,172 +823,21 @@ export default function DashboardScreen() {
                             assetClassColors={assetClassColors}
                         />
                     ) : (
-                        <Animated.View entering={FadeInDown.duration(400).springify()} style={{ marginHorizontal: 20, gap: 12 }}>
-                            {accountTableData.groups.filter(g => g.accounts.length > 0).map((group) => {
-                                const color = assetClassColors[group.category];
-
-                                return (
-                                    <View key={`list-${group.category}`}>
-                                        {/* Top Level Card - color accent is INSIDE the card */}
-                                        <View style={[{
-                                            borderRadius: 20,
-                                            backgroundColor: group.isCollapsed ? colors.surfaceContainer : color,
-                                            overflow: 'hidden',
-                                        }, group.isCollapsed && SHADOWS.sm]}>
-                                            <Pressable
-                                                onPress={() => {
-                                                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                    toggleGroup(group.category);
-                                                }}
-                                                android_ripple={{ color: colors.statePressed, borderless: false, radius: 200 }}
-                                                style={({ pressed }) => [
-                                                    pressed && { opacity: 0.8 }
-                                                ]}
-                                            >
-                                                <View style={{
-                                                    paddingLeft: 28,
-                                                    paddingRight: 20,
-                                                    paddingVertical: 18,
-                                                    flexDirection: 'row',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                }}>
-                                                <View style={{ flex: 1, marginRight: 12 }}>
-                                                    {group.isCollapsed ? (
-                                                        <>
-                                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                                                <Text style={{ ...typography.body, fontSize: 18, fontWeight: '700', color: colors.textPrimary }}>
-                                                                    {group.category}
-                                                                </Text>
-                                                                {group.accounts.length > 0 && (
-                                                                    <View style={{ backgroundColor: colors.primaryContainer, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                                                                        <Text style={{ fontSize: 10, color: color, fontWeight: '700' }}>
-                                                                            {group.accounts.length} 筆資產
-                                                                        </Text>
-                                                                    </View>
-                                                                )}
-                                                            </View>
-                                                            {group.accounts.length > 0 && (
-                                                                <Text style={{ color: colors.textMuted, fontSize: 12 }} numberOfLines={1}>
-                                                                    {Array.from(new Set(group.accounts.map(a => a.originalCategory))).join('、')}
-                                                                </Text>
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                                            <Text style={{ ...typography.body, fontSize: 18, fontWeight: '700', color: colors.textPrimary }}>
-                                                                {group.category}
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                                <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                                                    <Text style={{ fontSize: 22, fontWeight: '800', color: group.isCollapsed ? colors.textPrimary : colors.textPrimary, letterSpacing: -0.5 }}>
-                                                        {group.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(group.totalBalance).toLocaleString()}
-                                                    </Text>
-                                                </View>
-                                                </View>
-                                            </Pressable>
-                                        </View>
-
-                                        {/* Middle Tier (Categories) List */}
-                                        {!group.isCollapsed && group.subGroups.length > 0 && (
-                                            <View style={{ paddingTop: 12, gap: 12 }}>
-                                                {group.subGroups.map(sub => {
-                                                    const subId = `${group.category}-${sub.name}`;
-                                                    const isSubExpanded = expandedSubGroups[subId];
-
-                                                    return (
-                                                        <View key={subId} style={[{ borderRadius: 16, backgroundColor: colors.surfaceContainer, overflow: 'hidden' }, SHADOWS.sm]}>
-                                                            {/* Internal color accent strip */}
-                                                            <View style={{
-                                                                position: 'absolute',
-                                                                left: 0,
-                                                                top: 0,
-                                                                bottom: 0,
-                                                                width: 6,
-                                                                backgroundColor: color,
-                                                                zIndex: 1,
-                                                            }} />
-
-                                                            <Pressable
-                                                                onPress={() => {
-                                                                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                                    toggleSubGroup(subId);
-                                                                }}
-                                                                android_ripple={{ color: colors.statePressed, borderless: false }}
-                                                                style={({ pressed }) => [
-                                                                    pressed && { backgroundColor: colors.surface }
-                                                                ]}
-                                                            >
-                                                                <View style={{
-                                                                    paddingLeft: 24,
-                                                                    paddingRight: 20,
-                                                                    paddingVertical: 16,
-                                                                    flexDirection: 'row',
-                                                                    justifyContent: 'space-between',
-                                                                }}>
-                                                                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-                                                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
-                                                                        <Ionicons name="wallet-outline" size={18} color={color} />
-                                                                    </View>
-                                                                    <View style={{ flex: 1, marginRight: 8 }}>
-                                                                        <Text style={{ color: color, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
-                                                                            {sub.name}
-                                                                        </Text>
-                                                                        {!isSubExpanded && (
-                                                                            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }} numberOfLines={1}>
-                                                                                {sub.accounts.length > 0 ? sub.accounts.map(a => a.name).join('、') : '無帳戶'}
-                                                                            </Text>
-                                                                        )}
-                                                                    </View>
-                                                                </View>
-                                                                <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                                                                    <Text style={{ fontSize: 17, fontWeight: '800', color: color }}>
-                                                                        {sub.totalBalance >= 0 ? '' : '⊖ '}{Math.abs(sub.totalBalance).toLocaleString()}
-                                                                    </Text>
-                                                                </View>
-                                                                </View>
-                                                            </Pressable>
-
-                                                            {/* Bottom Tier (Accounts) List */}
-                                                            {isSubExpanded && (
-                                                                <View style={{ paddingLeft: 24, paddingRight: 20, paddingBottom: 20, paddingTop: 6, gap: 12 }}>
-                                                                    <View style={{ height: 1, backgroundColor: colors.divider, marginBottom: 8 }} />
-                                                                    {sub.accounts.map(acc => (
-                                                                        <Pressable
-                                                                            key={acc.name}
-                                                                            onPress={() => handleAccountClick(acc.name)}
-                                                                            style={({ pressed }) => [{
-                                                                                flexDirection: 'row',
-                                                                                justifyContent: 'space-between',
-                                                                                alignItems: 'center',
-                                                                                paddingVertical: 10,
-                                                                                opacity: pressed ? 0.7 : 1
-                                                                            }]}
-                                                                        >
-                                                                            <View style={{ flex: 1, marginRight: 12 }}>
-                                                                                <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
-                                                                                    {acc.name}
-                                                                                </Text>
-                                                                            </View>
-                                                                            <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                                                                                <Text style={{ fontSize: 16, fontWeight: '800', color: acc.balance >= 0 ? colors.green : colors.red }}>
-                                                                                    {acc.balance < 0 ? '-' : ''}{Math.abs(acc.balance).toLocaleString()}
-                                                                                </Text>
-                                                                            </View>
-                                                                        </Pressable>
-                                                                    ))}
-                                                                </View>
-                                                            )}
-                                                        </View>
-                                                    );
-                                                })}
-                                            </View>
-                                        )}
-                                    </View>
-                                );
-                            })}
+                        <Animated.View entering={FadeInDown.duration(400).springify()} style={styles.accountListContainer}>
+                            {accountTableData.groups.filter(g => g.accounts.length > 0).map(group => (
+                                <AccountGroupCard
+                                    key={`list-${group.category}`}
+                                    group={group}
+                                    accentColor={assetClassColors[group.category]}
+                                    expandedSubGroups={expandedSubGroups}
+                                    colors={colors}
+                                    typography={typography}
+                                    styles={styles}
+                                    onToggleGroup={toggleGroup}
+                                    onToggleSubGroup={toggleSubGroup}
+                                    onAccountPress={handleAccountClick}
+                                />
+                            ))}
                         </Animated.View>
                     )}
                 </View>
@@ -795,26 +879,16 @@ export default function DashboardScreen() {
                     </TouchableWithoutFeedback>
                     <BottomSheetGestureWrapper
                         swipe={balanceSwipe}
-                        style={{
-                            backgroundColor: colors.surface,
-                            ...withContinuousRadius(RADIUS.xl),
-                            borderBottomLeftRadius: 0,
-                            borderBottomRightRadius: 0,
-                            paddingBottom: 40,
-                            height: '85%',
-                            borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: colors.outlineVariant,
-                            borderBottomWidth: 0,
-                        }}
+                        style={[styles.modalSheet, { height: '85%' }, withContinuousRadius(RADIUS.xl)]}
                         header={(
                             <>
-                                <View style={{ width: 40, height: 5, backgroundColor: colors.border, borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 }} />
+                                <View style={styles.modalHandleBar} />
                                 <SheetHeader title="資產趨勢與未來預估" onClose={() => setBalanceModalVisible(false)} style={{ backgroundColor: 'transparent' }} />
                             </>
                         )}
                     >
                         <GHScrollView
-                            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+                            contentContainerStyle={styles.modalScrollContent}
                             onScroll={balanceSwipe.handleScroll}
                             scrollEventThrottle={balanceSwipe.scrollEventThrottle}
                         >
@@ -823,26 +897,26 @@ export default function DashboardScreen() {
                             {(() => {
                                 const avgNetIncome = past12PeriodsData.reduce((sum, d) => sum + d.net, 0) / 12;
                                 return (
-                                    <View style={{ backgroundColor: colors.primaryContainer, borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: colors.outlineVariant }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                                            <Ionicons name="sparkles-outline" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                                    <View style={styles.projectionCard}>
+                                        <View style={styles.projectionHeader}>
+                                            <Ionicons name="sparkles-outline" size={18} color={colors.primary} style={styles.projectionIcon} />
                                             <Text style={{ ...typography.body, fontWeight: '800', color: colors.primary }}>未來財富預估</Text>
                                         </View>
-                                        <Text style={{ ...typography.bodySm, color: colors.textSecondary, marginBottom: 16, lineHeight: 20 }}>
+                                        <Text style={[typography.bodySm, styles.projectionDesc, { color: colors.textSecondary }]}>
                                             根據過去 12 期平均淨存額 <Text style={{ fontWeight: '700', color: avgNetIncome >= 0 ? colors.green : colors.red }}>${Math.round(avgNetIncome).toLocaleString()}</Text> 推算：
                                         </Text>
 
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceContainer, padding: 12, borderRadius: 12, ...SHADOWS.sm }}>
-                                            <View style={{ alignItems: 'center', flex: 1, borderRightWidth: 1, borderRightColor: colors.divider }}>
-                                                <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>半年後</Text>
+                                        <View style={[styles.projectionGrid, SHADOWS.sm]}>
+                                            <View style={styles.projectionCol}>
+                                                <Text style={styles.projectionLabel}>半年後</Text>
                                                 <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>${Math.round(periodSummary.totalBalance + avgNetIncome * 6).toLocaleString()}</Text>
                                             </View>
-                                            <View style={{ alignItems: 'center', flex: 1, borderRightWidth: 1, borderRightColor: colors.divider }}>
-                                                <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>一年後</Text>
+                                            <View style={styles.projectionCol}>
+                                                <Text style={styles.projectionLabel}>一年後</Text>
                                                 <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>${Math.round(periodSummary.totalBalance + avgNetIncome * 12).toLocaleString()}</Text>
                                             </View>
-                                            <View style={{ alignItems: 'center', flex: 1 }}>
-                                                <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>五年後</Text>
+                                            <View style={styles.projectionColLast}>
+                                                <Text style={styles.projectionLabel}>五年後</Text>
                                                 <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>${Math.round(periodSummary.totalBalance + avgNetIncome * 60).toLocaleString()}</Text>
                                             </View>
                                         </View>
@@ -851,21 +925,21 @@ export default function DashboardScreen() {
                             })()}
 
                             {past12PeriodsData.length > 0 && (
-                                <View style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
-                                    <Text style={{ ...typography.caption, color: colors.textMuted, alignSelf: 'flex-start', marginLeft: 16, marginBottom: 12 }}>過去 12 期資產與收支組合走勢</Text>
+                                <View style={styles.chartCard}>
+                                    <Text style={[typography.caption, styles.chartCardTitle, { color: colors.textMuted }]}>過去 12 期資產與收支組合走勢</Text>
 
-                                    <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16, gap: 16 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
-                                            <Text style={{ color: colors.textMuted, fontSize: 11 }}>資產折線</Text>
+                                    <View style={styles.modalLegendRow}>
+                                        <View style={styles.modalLegendEntry}>
+                                            <View style={[styles.legendDotRound, { backgroundColor: colors.primary }]} />
+                                            <Text style={styles.modalLegendText}>資產折線</Text>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                            <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: colors.green }} />
-                                            <Text style={{ color: colors.textMuted, fontSize: 11 }}>收入</Text>
+                                        <View style={styles.modalLegendEntry}>
+                                            <View style={[styles.legendDotSquare, { backgroundColor: colors.green }]} />
+                                            <Text style={styles.modalLegendText}>收入</Text>
                                         </View>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                            <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: colors.red }} />
-                                            <Text style={{ color: colors.textMuted, fontSize: 11 }}>支出</Text>
+                                        <View style={styles.modalLegendEntry}>
+                                            <View style={[styles.legendDotSquare, { backgroundColor: colors.red }]} />
+                                            <Text style={styles.modalLegendText}>支出</Text>
                                         </View>
                                     </View>
 
@@ -926,25 +1000,25 @@ export default function DashboardScreen() {
                             )}
 
                             {past12PeriodsData.map((data, index) => (
-                                <View key={index} style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <View key={index} style={[styles.periodCard, SHADOWS.sm]}>
+                                    <View style={styles.periodCardHeader}>
                                         <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>{data.monthLabel}</Text>
                                         <Text style={{ ...typography.h3, color: colors.textPrimary }}>
                                             ${Math.round(data.endBalance).toLocaleString()}
                                         </Text>
                                     </View>
 
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>總收入</Text>
+                                    <View style={styles.statRow}>
+                                        <Text style={styles.statLabel}>總收入</Text>
                                         <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>${Math.round(data.income).toLocaleString()}</Text>
                                     </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>總支出</Text>
+                                    <View style={styles.statRow}>
+                                        <Text style={styles.statLabel}>總支出</Text>
                                         <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>${Math.round(data.expense).toLocaleString()}</Text>
                                     </View>
-                                    <View style={{ height: 1, backgroundColor: colors.divider, marginVertical: 8 }} />
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>淨變化</Text>
+                                    <View style={styles.statDivider} />
+                                    <View style={[styles.statRow, { marginBottom: 0 }]}>
+                                        <Text style={styles.statLabel}>淨變化</Text>
                                         <Text style={{ color: data.net >= 0 ? colors.green : colors.red, fontWeight: '700' }}>
                                             {data.net >= 0 ? '+' : '-'}${Math.abs(Math.round(data.net)).toLocaleString()}
                                         </Text>
@@ -964,33 +1038,23 @@ export default function DashboardScreen() {
                     </TouchableWithoutFeedback>
                     <BottomSheetGestureWrapper
                         swipe={savingsSwipe}
-                        style={{
-                            backgroundColor: colors.surface,
-                            ...withContinuousRadius(RADIUS.xl),
-                            borderBottomLeftRadius: 0,
-                            borderBottomRightRadius: 0,
-                            paddingBottom: 40,
-                            height: '80%',
-                            borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: colors.outlineVariant,
-                            borderBottomWidth: 0,
-                        }}
+                        style={[styles.modalSheet, { height: '80%' }, withContinuousRadius(RADIUS.xl)]}
                         header={(
                             <>
-                                <View style={{ width: 40, height: 5, backgroundColor: colors.border, borderRadius: 3, alignSelf: 'center', marginTop: 12, marginBottom: 8 }} />
+                                <View style={styles.modalHandleBar} />
                                 <SheetHeader title="儲蓄率趨勢 (過去 12 期)" onClose={() => setSavingsModalVisible(false)} style={{ backgroundColor: 'transparent' }} />
                             </>
                         )}
                     >
                         <GHScrollView
-                            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+                            contentContainerStyle={styles.modalScrollContent}
                             onScroll={savingsSwipe.handleScroll}
                             scrollEventThrottle={savingsSwipe.scrollEventThrottle}
                         >
                             {/* Trend Chart (BarChart with dynamic red/green bars based on net amount) */}
                             {past12PeriodsData.length > 0 && (
-                                <View style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.divider, alignItems: 'center' }}>
-                                    <Text style={{ ...typography.caption, color: colors.textMuted, alignSelf: 'flex-start', marginLeft: 16, marginBottom: 12 }}>過去 12 期淨存額與儲蓄率</Text>
+                                <View style={styles.chartCard}>
+                                    <Text style={[typography.caption, styles.chartCardTitle, { color: colors.textMuted }]}>過去 12 期淨存額與儲蓄率</Text>
                                     {(() => {
                                         const maxRate = Math.max(...past12PeriodsData.map(d => d.rate));
                                         const rateMaxValue = Math.max(0, maxRate + (maxRate * 0.15) + 15);
@@ -1037,27 +1101,27 @@ export default function DashboardScreen() {
 
                             {/* List items ordered with newest period on top */}
                             {past12PeriodsData.map((data, index) => (
-                                <View key={index} style={{ backgroundColor: colors.surfaceContainer, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <View key={index} style={[styles.periodCard, SHADOWS.sm]}>
+                                    <View style={styles.periodCardHeader}>
                                         <Text style={{ ...typography.body, fontWeight: '700', color: colors.textPrimary }}>{data.monthLabel}</Text>
-                                        <View style={{ backgroundColor: data.rate >= 0 ? colors.greenLight : colors.redLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                                        <View style={[styles.rateBadge, { backgroundColor: data.rate >= 0 ? colors.greenLight : colors.redLight }]}>
                                             <Text style={{ color: data.rate >= 0 ? colors.green : colors.red, fontWeight: '800', fontSize: 13 }}>
                                                 {data.rate.toFixed(1)}%
                                             </Text>
                                         </View>
                                     </View>
 
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>總收入</Text>
+                                    <View style={styles.statRow}>
+                                        <Text style={styles.statLabel}>總收入</Text>
                                         <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>${Math.round(data.income).toLocaleString()}</Text>
                                     </View>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>總支出</Text>
+                                    <View style={styles.statRow}>
+                                        <Text style={styles.statLabel}>總支出</Text>
                                         <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>${Math.round(data.expense).toLocaleString()}</Text>
                                     </View>
-                                    <View style={{ height: 1, backgroundColor: colors.divider, marginVertical: 8 }} />
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                        <Text style={{ color: colors.textMuted, fontSize: 13 }}>淨存額</Text>
+                                    <View style={styles.statDivider} />
+                                    <View style={[styles.statRow, { marginBottom: 0 }]}>
+                                        <Text style={styles.statLabel}>淨存額</Text>
                                         <Text style={{ color: data.net >= 0 ? colors.green : colors.red, fontWeight: '700' }}>
                                             {data.net >= 0 ? '+' : '-'}${Math.abs(Math.round(data.net)).toLocaleString()}
                                         </Text>
@@ -1111,7 +1175,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     summaryCardChangeText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'] },
     summaryCardChangeLabel: { color: colors.onSurfaceVariant, fontSize: 11, fontWeight: '500' },
     tapHint: { fontSize: 11, color: colors.onSurfaceVariant, marginTop: 8, textAlign: 'right', fontWeight: '500' },
-    chartCard: {
+    modalChartCard: {
         backgroundColor: colors.surfaceContainer,
         marginHorizontal: 16,
         marginTop: 20,
@@ -1130,8 +1194,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     accountGroup: { backgroundColor: 'transparent' },
     accountGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant, minHeight: 48 },
     accountGroupTitle: { color: colors.onSurface, fontSize: 14, fontWeight: '800' },
-    accountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'transparent', minHeight: 48 },
-    accountName: { color: colors.onSurface, fontSize: 14, fontWeight: '600', flexShrink: 1 },
     accountBalance: { fontSize: 14, fontWeight: '800', flexShrink: 0, fontVariant: ['tabular-nums'] },
     distBar: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.surfaceVariant, marginBottom: 16 },
     catRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'transparent', minHeight: 40 },
@@ -1141,4 +1203,157 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     catRowRight: { flexDirection: 'row', alignItems: 'center' },
     catAmount: { color: colors.onSurface, fontSize: 14, fontWeight: '700', marginRight: 10, fontVariant: ['tabular-nums'] },
     catPct: { color: colors.onSurfaceVariant, fontSize: 12, width: 45, textAlign: 'right', fontWeight: '500' },
+    accountListContainer: { marginHorizontal: 20, gap: 12 },
+    groupCard: {
+        borderRadius: 20,
+        overflow: 'hidden',
+    },
+    groupCardPressed: { opacity: 0.8 },
+    groupCardInner: {
+        paddingLeft: 28,
+        paddingRight: 20,
+        paddingVertical: 18,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    groupCardLeft: { flex: 1, marginRight: 12 },
+    groupTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+    groupTitle: { fontSize: 18, fontWeight: '700' },
+    groupCountBadge: {
+        backgroundColor: colors.primaryContainer,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    groupCountText: { fontSize: 10, fontWeight: '700' },
+    groupSubtitle: { color: colors.textMuted, fontSize: 12 },
+    groupAmount: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.5 },
+    amountAlignRight: { alignItems: 'flex-end', flexShrink: 0 },
+    subGroupList: { paddingTop: 12, gap: 12 },
+    subGroupCard: {
+        borderRadius: 16,
+        backgroundColor: colors.surfaceContainer,
+        overflow: 'hidden',
+    },
+    accentStrip: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 6,
+        zIndex: 1,
+    },
+    subGroupHeaderPressed: { backgroundColor: colors.surfaceVariant },
+    subGroupHeader: {
+        paddingLeft: 24,
+        paddingRight: 20,
+        paddingVertical: 16,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    subGroupHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
+    subGroupIconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: colors.primaryContainer,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    subGroupNameWrap: { flex: 1, marginRight: 8 },
+    subGroupName: { fontSize: 16, fontWeight: '700' },
+    subGroupPreview: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+    subGroupAmount: { fontSize: 17, fontWeight: '800' },
+    accountListWrap: {
+        paddingLeft: 24,
+        paddingRight: 20,
+        paddingBottom: 20,
+        paddingTop: 6,
+        gap: 12,
+    },
+    accountDivider: { height: 1, backgroundColor: colors.divider, marginBottom: 8 },
+    accountRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 10,
+    },
+    accountRowPressed: { opacity: 0.7 },
+    accountNameWrap: { flex: 1, marginRight: 12 },
+    accountName: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+    accountAmountWrap: { alignItems: 'flex-end', flexShrink: 0 },
+    accountAmount: { fontSize: 16, fontWeight: '800' },
+    // Bottom-sheet modal shared styles
+    modalSheet: {
+        backgroundColor: colors.surface,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+        paddingBottom: 40,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.outlineVariant,
+        borderBottomWidth: 0,
+    },
+    modalHandleBar: {
+        width: 40,
+        height: 5,
+        backgroundColor: colors.border,
+        borderRadius: 3,
+        alignSelf: 'center',
+        marginTop: 12,
+        marginBottom: 8,
+    },
+    modalScrollContent: { padding: 16, paddingBottom: 40 },
+    projectionCard: {
+        backgroundColor: colors.primaryContainer,
+        borderRadius: 16,
+        padding: 20,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
+    },
+    projectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+    projectionIcon: { marginRight: 8 },
+    projectionDesc: { marginBottom: 16, lineHeight: 20 },
+    projectionGrid: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        backgroundColor: colors.surfaceContainer,
+        padding: 12,
+        borderRadius: 12,
+    },
+    projectionCol: { alignItems: 'center', flex: 1, borderRightWidth: 1, borderRightColor: colors.divider },
+    projectionColLast: { alignItems: 'center', flex: 1 },
+    projectionLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+    chartCard: {
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: 16,
+        paddingVertical: 16,
+        paddingHorizontal: 10,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: colors.divider,
+        alignItems: 'center',
+    },
+    chartCardTitle: { alignSelf: 'flex-start', marginLeft: 16, marginBottom: 12 },
+    modalLegendRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 16, gap: 16 },
+    modalLegendEntry: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    legendDotRound: { width: 8, height: 8, borderRadius: 4 },
+    legendDotSquare: { width: 8, height: 8, borderRadius: 2 },
+    modalLegendText: { color: colors.textMuted, fontSize: 11 },
+    periodCard: {
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
+    },
+    periodCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+    statDivider: { height: 1, backgroundColor: colors.divider, marginVertical: 8 },
+    statLabel: { color: colors.textMuted, fontSize: 13 },
+    statValue: { color: colors.textPrimary, fontWeight: '600' },
+    rateBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    rateText: { fontWeight: '800', fontSize: 13 },
 });

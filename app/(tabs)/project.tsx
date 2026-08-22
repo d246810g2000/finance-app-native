@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Dimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
+import { useIsFocused } from '@react-navigation/native';
 import { LineChart } from 'react-native-gifted-charts';
 import { useNavigation } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
@@ -85,6 +86,7 @@ export default function ProjectScreen() {
         budgets,
         saveBudgets,
     } = useFinance();
+    const isFocused = useIsFocused();
 
     const [startDate, setStartDate] = useState(() => {
         const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0, 0, 0, 0); return d;
@@ -124,9 +126,15 @@ export default function ProjectScreen() {
         setEndDate(end);
     }, []);
 
+    const lastLifecycles = useRef<ReturnType<typeof computeProjectLifecycles> | null>(null);
     const allLifecycles = useMemo(
-        () => computeProjectLifecycles(records, true),
-        [records]
+        () => {
+            if (!isFocused && lastLifecycles.current) return lastLifecycles.current;
+            const next = computeProjectLifecycles(records, true);
+            lastLifecycles.current = next;
+            return next;
+        },
+        [isFocused, records]
     );
 
     const lifecyclesByName = useMemo(() => {

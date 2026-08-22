@@ -1,6 +1,7 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle, type ColorValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 
@@ -46,44 +47,54 @@ export default memo(function AccentListCard({
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const strip = accentColor ?? colors.primary;
     const amtColor = amountColor ?? strip;
+    const scale = useSharedValue(1);
+    const [isPressed, setIsPressed] = useState(false);
+
+    const animatedCardStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
 
     return (
         <Pressable
             onPress={onPress}
             onLongPress={onLongPress}
             disabled={!onPress && !onLongPress}
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed, style]}
+            onPressIn={() => { scale.value = withTiming(0.98, { duration: 120 }); setIsPressed(true); }}
+            onPressOut={() => { scale.value = withTiming(1, { duration: 160 }); setIsPressed(false); }}
+            style={style}
             accessibilityRole={onPress ? 'button' : undefined}
             accessibilityLabel={accessibilityLabel}
         >
-            <View style={[styles.accentStrip, { backgroundColor: strip }]} />
-            <View style={styles.cardContent}>
-                {title !== undefined ? (
-                    <View style={styles.topRow}>
-                        <Text style={styles.title} numberOfLines={1}>{title}</Text>
-                        {titleBadge}
-                        {amount !== undefined ? (
-                            <Text style={[styles.amount, { color: amtColor }]} selectable>{amount}</Text>
-                        ) : null}
-                    </View>
-                ) : null}
+            <Reanimated.View style={[styles.card, isPressed && styles.cardPressed, animatedCardStyle]}>
+                <View style={[styles.accentStrip, { backgroundColor: strip }]} />
+                <View style={styles.cardContent}>
+                    {title !== undefined ? (
+                        <View style={styles.topRow}>
+                            <Text style={styles.title} numberOfLines={1}>{title}</Text>
+                            {titleBadge}
+                            {amount !== undefined ? (
+                                <Text style={[styles.amount, { color: amtColor }]} selectable>{amount}</Text>
+                            ) : null}
+                        </View>
+                    ) : null}
 
-                {meta && meta.length > 0 ? (
-                    <View style={styles.bottomRow}>
-                        {meta.map((m, idx) => (
-                            <View key={m.icon ? `${m.icon}-${m.text}` : `${m.text}-${idx}`} style={styles.metaItem}>
-                                {m.icon ? (
-                                    <Ionicons name={m.icon} size={12} color={colors.onSurfaceVariant} />
-                                ) : null}
-                                <Text style={styles.metaText}>{m.text}</Text>
-                            </View>
-                        ))}
-                        {metaTrailing}
-                    </View>
-                ) : null}
+                    {meta && meta.length > 0 ? (
+                        <View style={styles.bottomRow}>
+                            {meta.map((m, idx) => (
+                                <View key={m.icon ? `${m.icon}-${m.text}` : `${m.text}-${idx}`} style={styles.metaItem}>
+                                    {m.icon ? (
+                                        <Ionicons name={m.icon} size={12} color={colors.onSurfaceVariant} />
+                                    ) : null}
+                                    <Text style={styles.metaText}>{m.text}</Text>
+                                </View>
+                            ))}
+                            {metaTrailing}
+                        </View>
+                    ) : null}
 
-                {children}
-            </View>
+                    {children}
+                </View>
+            </Reanimated.View>
         </Pressable>
     );
 });

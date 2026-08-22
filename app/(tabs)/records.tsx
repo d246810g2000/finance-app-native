@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback, useLayoutEffect, memo } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, RefreshControl, LayoutAnimation } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useNavigation } from 'expo-router';
+import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 import { useFinance } from '../../context/FinanceContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
 import { transformRecordsForExport } from '../../services/financeService';
@@ -118,7 +119,6 @@ export default function CalendarScreen() {
                 <Pressable
                     onPress={() => {
                         if (searchFilters) return; // Disable picker during search
-                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                         setShowModePicker(!showModePicker);
                     }}
                     style={styles.headerTitleContainer}
@@ -440,15 +440,13 @@ export default function CalendarScreen() {
                         <Pressable
                             style={styles.dropdownBackdrop}
                             onPress={() => {
-                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                                 setShowModePicker(false);
                             }}
                         />
-                        <View style={styles.dropdownMenu}>
+                        <Animated.View entering={FadeInDown.duration(180)} exiting={FadeOutUp.duration(150)} style={styles.dropdownMenu}>
                             {(['day', 'week', 'month', 'year'] as const).map(m => (
                                 <Pressable key={m} style={[styles.dropdownItem, viewMode === m && styles.dropdownItemActive]}
                                     onPress={() => {
-                                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                                         setViewMode(m);
                                         setShowModePicker(false);
                                     }}>
@@ -460,7 +458,7 @@ export default function CalendarScreen() {
                                     </View>
                                 </Pressable>
                             ))}
-                        </View>
+                        </Animated.View>
                     </>
                 )}
             </PageChrome>

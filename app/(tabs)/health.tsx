@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     InteractionManager,
     Modal,
@@ -11,10 +11,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart, LineChartBicolor } from 'react-native-gifted-charts';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
+import { TransformedRecord } from '../../types';
 import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
 import {
     buildHealthDashboard,
@@ -51,6 +52,8 @@ const SCORE_PARTS = [
 const DAILY_EXCLUDED_PROJECTS = PROJECT_DEFINITIONS
     .filter((item) => item.owner === 'capital' || item.owner === 'event')
     .map((item) => item.name);
+
+const EMPTY_PREPARED_ROWS: TransformedRecord[] = [];
 
 const TAB_OPTIONS = [
     { value: 'overview', label: '總覽' },
@@ -93,6 +96,7 @@ export default function HealthScreen() {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const { records, budgets, budgetConfig, personalAccounts, sharedAccounts } = useFinance();
+    const isFocused = useIsFocused();
     const [targetMonth, setTargetMonth] = useState(() => new Date());
     const [tab, setTab] = useState<TabKey>('overview');
     const [accountViewType, setAccountViewType] = useState<AccountViewType>('personal');
@@ -123,7 +127,12 @@ export default function HealthScreen() {
         });
     }, [colors.textPrimary, exitHealth, navigation, styles]);
 
-    const preparedRows = useMemo(() => getIncomeExpenseRows(records), [records]);
+    // Heavy aggregation is gated behind focus so background tabs don't burn JS time
+    // when records change while the user is on another screen.
+    const preparedRows = useMemo(
+        () => (isFocused ? getIncomeExpenseRows(records) : EMPTY_PREPARED_ROWS),
+        [isFocused, records]
+    );
 
     const healthScope = useMemo(() => {
         const accountFilter =
@@ -149,9 +158,16 @@ export default function HealthScreen() {
         preparedRows,
     ]);
 
+    const lastGoodDashboard = useRef<ReturnType<typeof buildHealthDashboard> | null>(null);
+
     const dashboard = useMemo(
-        () => buildHealthDashboard(records, targetMonth, budgetConfig, budgets, healthScope),
-        [records, targetMonth, budgetConfig, budgets, healthScope]
+        () => {
+            if (!isFocused) return lastGoodDashboard.current ?? buildHealthDashboard([], targetMonth, budgetConfig, budgets, healthScope);
+            const next = buildHealthDashboard(records, targetMonth, budgetConfig, budgets, healthScope);
+            lastGoodDashboard.current = next;
+            return next;
+        },
+        [isFocused, records, targetMonth, budgetConfig, budgets, healthScope]
     );
 
     const chartWidth = Math.max(240, width - 104);

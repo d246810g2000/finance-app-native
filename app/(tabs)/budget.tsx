@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Alert, Modal, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
@@ -34,6 +35,7 @@ export default function BudgetScreen() {
         customMappings,
     } = useFinance();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const [refreshing, setRefreshing] = useState(false);
 
     // Budget State
@@ -59,9 +61,13 @@ export default function BudgetScreen() {
     }, [refreshRecords]);
 
     // Calculations
+    const lastBudgetCalc = useRef<ReturnType<typeof calculateBudgetStatus> | null>(null);
     const budgetCalc = useMemo(() => {
-        return calculateBudgetStatus(records, budgets, targetMonth, config);
-    }, [records, budgets, targetMonth, config]);
+        if (!isFocused && lastBudgetCalc.current) return lastBudgetCalc.current;
+        const next = calculateBudgetStatus(records, budgets, targetMonth, config);
+        lastBudgetCalc.current = next;
+        return next;
+    }, [isFocused, records, budgets, targetMonth, config]);
 
     const sortStatuses = useCallback((statuses: BudgetStatus[]) => {
         return [...statuses].sort((a, b) => {
