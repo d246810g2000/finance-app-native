@@ -105,7 +105,6 @@ export default function ReconciliationModal({
   const [statusFilter, setStatusFilter] = useState<ReconStatusFilter>('all');
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [localReconcile, setLocalReconcile] = useState<Record<string, boolean>>({});
   const [currentBalance, setCurrentBalance] = useState(EMPTY_BALANCE);
 
   const recordsRef = useRef(records);
@@ -122,7 +121,6 @@ export default function ReconciliationModal({
     setStatusFilter('all');
     setCardFilter(null);
     setKeyword('');
-    setLocalReconcile({});
     setFilterMenuVisible(false);
     setMenuVisible(false);
   }, [visible, cardName, statementDay]);
@@ -135,23 +133,6 @@ export default function ReconciliationModal({
       return getStatementPeriod(parsed.year, parsed.monthIndex, statementDay);
     });
   }, [statementDay, visible]);
-
-  useEffect(() => {
-    setLocalReconcile(previous => {
-      const keys = Object.keys(previous);
-      if (keys.length === 0) return previous;
-      const next = { ...previous };
-      let changed = false;
-      for (const id of keys) {
-        const record = records.find(item => item.id === id);
-        if (!record || !!record.isReconciled === next[id]) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : previous;
-    });
-  }, [records]);
 
   // 餘額計算較重：只在 Modal 打開或所屬卡片群組、自訂映射變更時計算一次。
   // 對帳狀態（isReconciled）變更不影響帳戶餘額，因此不依賴 records，避免每次對帳時重新跑全量歷史計算。
@@ -187,19 +168,8 @@ export default function ReconciliationModal({
 
   const statementRecords = useMemo(() => {
     const filtered = filterStatementGroupRecords(records, groupCards, period);
-    const hasLocal = Object.keys(localReconcile).length > 0;
-    if (!hasLocal) {
-      return sortStatementRecords(filtered, sortOrder);
-    }
-    const withLocal = filtered.map(record => {
-      const id = String(record.id || '');
-      if (id && id in localReconcile) {
-        return { ...record, isReconciled: localReconcile[id] };
-      }
-      return record;
-    });
-    return sortStatementRecords(withLocal, sortOrder);
-  }, [records, groupCards, period, sortOrder, localReconcile]);
+    return sortStatementRecords(filtered, sortOrder);
+  }, [records, groupCards, period, sortOrder]);
 
   const filterCounts = useMemo(() => {
     let open = 0;
@@ -255,10 +225,6 @@ export default function ReconciliationModal({
   }, []);
 
   const persistReconcile = useCallback((id: string, value: boolean) => {
-    setLocalReconcile(previous => {
-      if (previous[id] === value) return previous;
-      return { ...previous, [id]: value };
-    });
     updateRecords([{ id, patch: { isReconciled: value } }]);
   }, [updateRecords]);
 
@@ -284,11 +250,6 @@ export default function ReconciliationModal({
       Alert.alert('提示', '本期沒有可對帳的記錄。');
       return;
     }
-    setLocalReconcile(previous => {
-      const next = { ...previous };
-      updates.forEach(item => { next[item.id] = nextValue; });
-      return next;
-    });
     updateRecords(updates);
   }, [metrics.reconciledCount, statementRecords, updateRecords]);
 

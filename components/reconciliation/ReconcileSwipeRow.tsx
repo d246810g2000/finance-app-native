@@ -1,12 +1,13 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  View, Text, StyleSheet, Animated as RNAnimated, Platform,
+  View, Text, StyleSheet, Platform,
   AccessibilityActionEvent, Pressable,
 } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import ReanimatedSwipeable, { SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
 import { hapticLight, hapticMedium } from '../../utils/haptics';
 import Reanimated, {
+  SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -28,6 +29,41 @@ interface ReconcileSwipeRowProps {
   onCancel: (id: string) => void;
 }
 
+interface SwipeActionPanelProps {
+  progress: SharedValue<number>;
+  tone: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  align?: 'flex-start' | 'flex-end';
+}
+
+function SwipeActionPanel({ progress, tone, icon, label, align }: SwipeActionPanelProps) {
+  const fade = useAnimatedStyle(() => ({
+    opacity: progress.value,
+  }));
+
+  return (
+    <View
+      style={[
+        ACTION_PANEL_STYLES.wrap,
+        { backgroundColor: tone },
+        align ? { alignItems: align } : null,
+      ]}
+    >
+      <Reanimated.View style={[ACTION_PANEL_STYLES.inner, fade]}>
+        <Ionicons name={icon} size={22} color="#FFFFFF" />
+        <Text style={ACTION_PANEL_STYLES.text}>{label}</Text>
+      </Reanimated.View>
+    </View>
+  );
+}
+
+const ACTION_PANEL_STYLES = StyleSheet.create({
+  wrap: { justifyContent: 'center', width: 104 },
+  inner: { alignItems: 'center', justifyContent: 'center', width: 104, gap: 4 },
+  text: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' as const },
+});
+
 function ReconcileSwipeRow({
   record,
   cardNames,
@@ -36,7 +72,7 @@ function ReconcileSwipeRow({
 }: ReconcileSwipeRowProps) {
   const { colors, typography } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-  const swipeRef = useRef<Swipeable>(null);
+  const swipeRef = useRef<SwipeableMethods | null>(null);
   const lastActionTime = useRef(0);
   const id = String(record.id || '');
   const reconciled = !!record.isReconciled;
@@ -119,44 +155,6 @@ function ReconcileSwipeRow({
     transform: [{ scale: strike.value }],
   }));
 
-  const renderLeftActions = useCallback((
-    _progress: RNAnimated.AnimatedInterpolation<number>,
-    dragX: RNAnimated.AnimatedInterpolation<number>
-  ) => {
-    const opacity = dragX.interpolate({
-      inputRange: [0, 48],
-      outputRange: [0, 1],
-      extrapolate: 'clamp',
-    });
-    return (
-      <View style={styles.actionConfirm}>
-        <RNAnimated.View style={[styles.actionInner, { opacity }]}>
-          <Ionicons name="checkmark-circle" size={22} color={colors.onPrimary} />
-          <Text style={styles.actionText}>對帳確認</Text>
-        </RNAnimated.View>
-      </View>
-    );
-  }, [colors.onPrimary, styles]);
-
-  const renderRightActions = useCallback((
-    _progress: RNAnimated.AnimatedInterpolation<number>,
-    dragX: RNAnimated.AnimatedInterpolation<number>
-  ) => {
-    const opacity = dragX.interpolate({
-      inputRange: [-48, 0],
-      outputRange: [1, 0],
-      extrapolate: 'clamp',
-    });
-    return (
-      <View style={styles.actionCancel}>
-        <RNAnimated.View style={[styles.actionInner, { opacity }]}>
-          <Ionicons name="close-circle" size={22} color={colors.onPrimary} />
-          <Text style={styles.actionText}>取消對帳</Text>
-        </RNAnimated.View>
-      </View>
-    );
-  }, [colors.onPrimary, styles]);
-
   const confirm = useCallback(() => {
     strike.value = withTiming(1, { duration: 250 });
     hapticMedium();
@@ -181,7 +179,7 @@ function ReconcileSwipeRow({
     const now = Date.now();
     if (now - lastActionTime.current < 200) return;
     lastActionTime.current = now;
-    if (direction === 'left') confirm();
+    if (direction === 'right') confirm();
     else cancel();
     swipeRef.current?.close();
   }, [cancel, confirm]);
@@ -211,17 +209,20 @@ function ReconcileSwipeRow({
   }, [reconciled]);
 
   return (
-    <Swipeable
+    <ReanimatedSwipeable
       ref={swipeRef}
       friction={1.1}
       leftThreshold={36}
       rightThreshold={36}
       overshootLeft={false}
       overshootRight={false}
-      renderLeftActions={renderLeftActions}
-      renderRightActions={renderRightActions}
+      renderLeftActions={(progress) => (
+        <SwipeActionPanel progress={progress} tone={colors.green} icon="checkmark-circle" label="對帳確認" />
+      )}
+      renderRightActions={(progress) => (
+        <SwipeActionPanel progress={progress} tone={colors.textMuted} icon="close-circle" label="取消對帳" align="flex-end" />
+      )}
       onSwipeableWillOpen={runSwipeAction}
-      onSwipeableOpen={() => swipeRef.current?.close()}
     >
       <Pressable
         onPress={handleToggle}
@@ -273,7 +274,7 @@ function ReconcileSwipeRow({
           </View>
         </Reanimated.View>
       </Pressable>
-    </Swipeable>
+    </ReanimatedSwipeable>
   );
 }
 
