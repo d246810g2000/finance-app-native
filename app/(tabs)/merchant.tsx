@@ -88,6 +88,7 @@ export default function MerchantScreen() {
         visible: false, title: '', data: [],
     });
     const listRef = useRef<any>(null);
+    const lastMerchants = useRef<MerchantAggregate[] | null>(null);
 
     const handleDateChange = useCallback((start: Date, end: Date) => {
         setStartDate(start);
@@ -113,8 +114,6 @@ export default function MerchantScreen() {
         lastMerchants.current = sorted;
         return sorted;
     }, [isFocused, records, startDate, endDate, sortKey]);
-
-    const lastMerchants = useRef<MerchantAggregate[] | null>(null);
 
     const products = useMemo(() => {
         const list = aggregateInvoiceProducts(records, startDate, endDate);

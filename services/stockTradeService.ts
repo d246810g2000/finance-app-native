@@ -69,6 +69,10 @@ const CASH_ACCOUNTS = new Set([
   ...(SHARED_ACCOUNT_CATEGORIES['儲值卡'] || []),
 ]);
 
+/**
+ * Offline / short-name overrides for note text that does not match FinMind stock_name.
+ * Prefer syncing TaiwanStockInfo via stockInfoService for the full market list.
+ */
 export const STOCK_NAME_ALIASES: Record<string, string> = {
   台積電: '2330',
   鴻海: '2317',
@@ -82,7 +86,31 @@ export const STOCK_NAME_ALIASES: Record<string, string> = {
   群創: '3481',
   景碩: '3189',
   尖點: '8021',
+  國泰20年美債: '00687B',
+  國泰美債: '00687B',
+  美債: '00687B',
 };
+
+/** Resolve a note stock name to a ticker: aliases first, then FinMind name map. */
+export function resolveStockSymbol(
+  name: string,
+  infoByName?: Record<string, string>,
+): string | undefined {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return undefined;
+  return STOCK_NAME_ALIASES[trimmed] || infoByName?.[trimmed] || undefined;
+}
+
+/** Attach / refresh symbols on parsed trades using the latest name map. */
+export function withResolvedSymbols(
+  trades: StockTrade[],
+  infoByName?: Record<string, string>,
+): StockTrade[] {
+  return trades.map(trade => ({
+    ...trade,
+    symbol: resolveStockSymbol(trade.name, infoByName) || trade.symbol,
+  }));
+}
 
 const BUY_FORMAT = '鴻海 250 100股';
 const SELL_FORMAT = '鴻海 240->255 100股';
@@ -320,7 +348,7 @@ function parseRecordLines(
     date: String(record['日期'] || ''),
     side,
     name: item.name,
-    symbol: STOCK_NAME_ALIASES[item.name],
+    symbol: resolveStockSymbol(item.name),
     shares: item.shares,
     purchasePrice: item.purchasePrice,
     costPrice: item.costPrice,

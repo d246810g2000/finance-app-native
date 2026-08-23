@@ -136,7 +136,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
         gap: 2,
     },
     trackFull: { alignSelf: 'stretch' },
-    trackCompact: { alignSelf: 'flex-end' },
+    trackCompact: { alignSelf: 'flex-end', padding: 3 },
     segment: {
         paddingVertical: 8,
         paddingHorizontal: 16,
@@ -147,7 +147,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
         justifyContent: 'center',
     },
     segmentFull: { flex: 1, minWidth: 0, paddingHorizontal: 8 },
-    segmentCompact: { minWidth: 0, minHeight: 36, paddingVertical: 6, paddingHorizontal: 10 },
+    segmentCompact: { minWidth: 0, minHeight: 32, paddingVertical: 4, paddingHorizontal: 8 },
     segmentActive: {
         backgroundColor: colors.primaryContainer,
     },

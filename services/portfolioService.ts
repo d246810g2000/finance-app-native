@@ -138,23 +138,45 @@ function positionValue(position: StockPosition): number {
   return position.marketValue ?? position.totalCost;
 }
 
+function positionMergeKey(position: StockPosition): string {
+  return position.symbol || `name:${position.name}`;
+}
+
+function positionDisplayName(position: StockPosition): string {
+  return position.symbol ? `${position.name} ${position.symbol}` : position.name;
+}
+
+/** Merge personal + shared lots of the same symbol for overview allocation. */
 function buildAllocation(
   positions: StockPosition[],
   totalValue: number,
+  maxItems = 4,
 ): AllocationItem[] {
   if (totalValue <= 0) return [];
 
-  const ranked = positions
-    .map(position => ({
-      id: position.id,
-      name: position.symbol ? `${position.name} ${position.symbol}` : position.name,
-      value: positionValue(position),
-      weight: (positionValue(position) / totalValue) * 100,
+  const merged = new Map<string, { name: string; value: number }>();
+  positions.forEach(position => {
+    const key = positionMergeKey(position);
+    const existing = merged.get(key);
+    const value = positionValue(position);
+    if (existing) {
+      existing.value += value;
+    } else {
+      merged.set(key, { name: positionDisplayName(position), value });
+    }
+  });
+
+  const ranked = Array.from(merged.entries())
+    .map(([id, item]) => ({
+      id,
+      name: item.name,
+      value: item.value,
+      weight: (item.value / totalValue) * 100,
     }))
     .sort((a, b) => b.value - a.value);
 
-  const visible = ranked.slice(0, 6);
-  const otherValue = ranked.slice(6).reduce((sum, item) => sum + item.value, 0);
+  const visible = ranked.slice(0, maxItems);
+  const otherValue = ranked.slice(maxItems).reduce((sum, item) => sum + item.value, 0);
   if (otherValue > 0) {
     visible.push({
       id: '__other__',
@@ -164,6 +186,46 @@ function buildAllocation(
     });
   }
   return visible;
+}
+
+function mergeMoversBySymbol(
+  positions: StockPosition[],
+  previousQuotes: Record<string, StockPriceQuote>,
+): PositionMover[] {
+  const moverMap = new Map<string, PositionMover>();
+
+  positions.forEach(position => {
+    const previous = position.symbol ? previousQuotes[position.symbol] : undefined;
+    if (!previous || position.latestPrice === undefined) return;
+
+    const change = (position.latestPrice - previous.close) * position.shares;
+    const changePercent = previous.close > 0
+      ? ((position.latestPrice - previous.close) / previous.close) * 100
+      : 0;
+    const key = positionMergeKey(position);
+    const existing = moverMap.get(key);
+
+    if (existing) {
+      existing.shares += position.shares;
+      existing.change += change;
+      return;
+    }
+
+    moverMap.set(key, {
+      id: key,
+      name: position.name,
+      symbol: position.symbol,
+      shares: position.shares,
+      previousClose: previous.close,
+      currentClose: position.latestPrice,
+      change,
+      changePercent,
+      date: position.latestPriceDate,
+    });
+  });
+
+  return Array.from(moverMap.values())
+    .sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 }
 
 /** Build portfolio-level insight suitable for daily close data and FIFO lots. */
@@ -179,30 +241,7 @@ export function buildPortfolioInsights(
   const realizedCost = realizedTrades.reduce((sum, trade) => sum + trade.costPrice * trade.shares, 0);
   const totalInvestedCost = totalCost + realizedCost;
 
-  const movers: PositionMover[] = [];
-
-  positions.forEach(position => {
-    const previous = position.symbol ? previousQuotes[position.symbol] : undefined;
-    if (!previous || position.latestPrice === undefined) return;
-
-    const change = (position.latestPrice - previous.close) * position.shares;
-    const changePercent = previous.close > 0
-      ? ((position.latestPrice - previous.close) / previous.close) * 100
-      : 0;
-    movers.push({
-      id: position.id,
-      name: position.name,
-      symbol: position.symbol,
-      shares: position.shares,
-      previousClose: previous.close,
-      currentClose: position.latestPrice,
-      change,
-      changePercent,
-      date: position.latestPriceDate,
-    });
-  });
-  movers.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
-
+  const movers = mergeMoversBySymbol(positions, previousQuotes);
   const dayPnl = movers.reduce((sum, mover) => sum + mover.change, 0);
   const previousValue = movers.reduce(
     (sum, mover) => sum + mover.previousClose * mover.shares,
@@ -229,18 +268,12 @@ export function buildPortfolioInsights(
     }))
     .sort((a, b) => b.value - a.value);
 
-  const rankedPositions = [...positions].sort(
-    (a, b) => positionValue(b) - positionValue(a),
-  );
-  const top1Weight = totalMarketValue > 0 && rankedPositions[0]
-    ? (positionValue(rankedPositions[0]) / totalMarketValue) * 100
-    : 0;
-  const top3Weight = totalMarketValue > 0
-    ? rankedPositions.slice(0, 3).reduce(
-      (sum, position) => sum + (positionValue(position) / totalMarketValue) * 100,
-      0,
-    )
-    : 0;
+  const mergedBySymbol = buildAllocation(positions, totalMarketValue, positions.length);
+  const top1Weight = mergedBySymbol[0]?.weight ?? 0;
+  const top3Weight = mergedBySymbol
+    .filter(item => item.id !== '__other__')
+    .slice(0, 3)
+    .reduce((sum, item) => sum + item.weight, 0);
 
   const positionsWithPnl = positions.filter(
     position => position.unrealizedPnl !== undefined,
@@ -272,7 +305,7 @@ export function buildPortfolioInsights(
     dayFlat: movers.filter(mover => mover.change === 0).length,
     dayValuedAt: dates[dates.length - 1],
     movers,
-    allocation: buildAllocation(positions, totalMarketValue),
+    allocation: buildAllocation(positions, totalMarketValue, 4),
     accountAllocation,
     top1Weight,
     top3Weight,

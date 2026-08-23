@@ -9,22 +9,39 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import { FlashList } from '@shopify/flash-list';
 import { PieChart } from 'react-native-gifted-charts';
 import { useFinance } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
 import { AppColors, CATEGORY_COLORS, RADIUS, withContinuousRadius } from '../../theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import PageChrome from '../../components/layout/PageChrome';
 import SectionHeader from '../../components/ui/SectionHeader';
 import SegmentedControl from '../../components/ui/SegmentedControl';
 import EmptyState from '../../components/ui/EmptyState';
 import AccentListCard from '../../components/ui/AccentListCard';
+import DateRangeSelector from '../../components/DateRangeSelector';
+import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
+import InvestmentDetailSheet, {
+  InvestmentSheetContent,
+} from '../../components/investment/InvestmentDetailSheet';
+import InvestmentDrillHeader from '../../components/investment/InvestmentDrillHeader';
+import InvestmentTimelineSection from '../../components/investment/InvestmentTimelineSection';
 import {
   deriveStockData,
   StockNoteIssue,
   StockNoteIssueReason,
   StockOwnership,
+  StockTrade,
+  withResolvedSymbols,
 } from '../../services/stockTradeService';
-import { buildPortfolio, buildPortfolioInsights } from '../../services/portfolioService';
+import { buildPortfolio, buildPortfolioInsights, StockRealizedTrade } from '../../services/portfolioService';
+import {
+  createDefaultInvestmentDateRange,
+  filterByDateRange,
+  matchesPosition,
+  sumRealizedPnl,
+} from '../../services/investmentFilters';
 import {
   getLatestQuotes,
   getPreviousQuotes,
@@ -32,10 +49,23 @@ import {
   StockPriceCache,
   syncStockPrices,
 } from '../../services/stockPriceService';
+import {
+  loadStockInfoCache,
+  StockInfoCache,
+  syncStockInfo,
+} from '../../services/stockInfoService';
+import { computeInvestmentTimelines } from '../../services/investmentTimelineService';
 
 type OwnershipFilter = 'all' | StockOwnership;
-type InvestmentView = 'overview' | 'holdings' | 'trades' | 'issues';
+type DetailPanel = 'holdings' | 'realized' | 'trades' | 'issues';
 type InvestmentStyles = ReturnType<typeof createStyles>;
+
+const DETAIL_TITLES: Record<DetailPanel, string> = {
+  holdings: '目前持股',
+  realized: '已實現損益',
+  trades: '區間交易',
+  issues: '待補備註',
+};
 
 const REASON_LABELS: Record<StockNoteIssueReason, string> = {
   missing_note: '缺整段備註',
@@ -77,33 +107,9 @@ function formatCompactMoney(value: number): string {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
-function SummaryTile({
-  label,
-  value,
-  sub,
-  valueColor,
-  styles,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  valueColor?: string;
-  styles: InvestmentStyles;
-}) {
-  return (
-    <View style={styles.summaryTile}>
-      <Text style={styles.summaryLabel} numberOfLines={1}>{label}</Text>
-      <Text
-        style={[styles.summaryValue, valueColor ? { color: valueColor } : null]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        selectable
-      >
-        {value}
-      </Text>
-      {sub ? <Text style={styles.summarySub} numberOfLines={1}>{sub}</Text> : null}
-    </View>
-  );
+/** Taiwan market convention: gains red, losses green. */
+function pnlColor(value: number, colors: AppColors): string {
+  return value >= 0 ? colors.red : colors.green;
 }
 
 function IssueCard({
@@ -172,8 +178,8 @@ function AllocationChart({
             : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
         }))}
         donut
-        radius={78}
-        innerRadius={56}
+        radius={64}
+        innerRadius={46}
         centerLabelComponent={() => (
           <View style={styles.donutCenter}>
             <Text style={styles.donutTotal} selectable>{formatCompactMoney(total)}</Text>
@@ -218,14 +224,15 @@ function MoverRow({
   mover,
   colors,
   styles,
+  onPress,
 }: {
   mover: ReturnType<typeof buildPortfolioInsights>['movers'][number];
   colors: AppColors;
   styles: InvestmentStyles;
+  onPress?: () => void;
 }) {
-  const positive = mover.change >= 0;
-  return (
-    <View style={styles.moverRow}>
+  const body = (
+    <>
       <View style={styles.moverIdentity}>
         <Text style={styles.moverName} numberOfLines={1}>
           {mover.name}
@@ -236,14 +243,95 @@ function MoverRow({
         </Text>
       </View>
       <Text
-        style={[styles.moverValue, { color: positive ? colors.green : colors.red }]}
+        style={[styles.moverValue, { color: pnlColor(mover.change, colors) }]}
         selectable
       >
         {formatMoney(mover.change, true)}
         {'\n'}
         {formatPercent(mover.changePercent, true)}
       </Text>
-    </View>
+    </>
+  );
+
+  if (!onPress) {
+    return <View style={styles.moverRow}>{body}</View>;
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.moverRow, pressed && styles.moverRowPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`${mover.name} 今日變化`}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+const OWNERSHIP_LABELS: Record<StockOwnership, string> = {
+  personal: '個人',
+  shared: '共享',
+};
+
+function TradeListCard({
+  trade,
+  colors,
+  styles,
+}: {
+  trade: StockTrade;
+  colors: AppColors;
+  styles: InvestmentStyles;
+}) {
+  const isBuy = trade.side === 'buy';
+  const priceText = isBuy
+    ? (trade.purchasePrice ? `$${trade.purchasePrice.toFixed(2)}` : '—')
+    : (trade.costPrice && trade.salePrice
+      ? `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`
+      : trade.salePrice ? `$${trade.salePrice.toFixed(2)}` : '—');
+
+  return (
+    <AccentListCard
+      title={`${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
+      amount={formatMoney(trade.amount, !isBuy)}
+      amountColor={isBuy ? colors.red : colors.green}
+      meta={[
+        {
+          icon: isBuy ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline',
+          text: SIDE_LABELS[trade.side],
+        },
+        { icon: 'cube-outline', text: `${trade.shares.toLocaleString()} 股` },
+        { icon: 'pricetag-outline', text: priceText },
+        { icon: 'calendar-outline', text: formatDate(trade.date) },
+        { icon: 'person-outline', text: OWNERSHIP_LABELS[trade.ownership] },
+      ]}
+    />
+  );
+}
+
+function RealizedListCard({
+  trade,
+  colors,
+}: {
+  trade: StockRealizedTrade;
+  colors: AppColors;
+}) {
+  return (
+    <AccentListCard
+      title={`${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
+      amount={formatMoney(trade.pnl, true)}
+      amountColor={pnlColor(trade.pnl, colors)}
+      meta={[
+        { icon: 'calendar-outline', text: formatDate(trade.date) },
+        {
+          icon: 'pricetag-outline',
+          text: `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`,
+        },
+        { icon: 'cube-outline', text: `${trade.shares.toLocaleString()} 股` },
+        { icon: 'wallet-outline', text: trade.account },
+        { icon: 'person-outline', text: OWNERSHIP_LABELS[trade.ownership] },
+      ]}
+    />
   );
 }
 
@@ -254,13 +342,40 @@ export default function InvestmentScreen() {
   const isFocused = useIsFocused();
 
   const [ownership, setOwnership] = useState<OwnershipFilter>('all');
-  const [view, setView] = useState<InvestmentView>('overview');
+  const [detailPanel, setDetailPanel] = useState<DetailPanel | null>(null);
   const [priceCache, setPriceCache] = useState<StockPriceCache | null>(null);
+  const [infoCache, setInfoCache] = useState<StockInfoCache | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
+  const [sheetContent, setSheetContent] = useState<InvestmentSheetContent | null>(null);
+  const [sheetVisible, setSheetVisible] = useState(false);
   const syncStartedRef = useRef(false);
+  const defaultRange = useMemo(() => createDefaultInvestmentDateRange(), []);
+  const [startDate, setStartDate] = useState(defaultRange.startDate);
+  const [endDate, setEndDate] = useState(defaultRange.endDate);
 
-  const stockData = useMemo(() => deriveStockData(records), [records]);
+  const handleDateChange = useCallback((start: Date, end: Date) => {
+    setStartDate(start);
+    setEndDate(end);
+  }, []);
+
+  const openSheet = useCallback((content: InvestmentSheetContent) => {
+    setSheetContent(content);
+    setSheetVisible(true);
+  }, []);
+
+  const closeSheet = useCallback(() => {
+    setSheetVisible(false);
+    setSheetContent(null);
+  }, []);
+
+  const stockData = useMemo(() => {
+    const parsed = deriveStockData(records);
+    return {
+      ...parsed,
+      trades: withResolvedSymbols(parsed.trades, infoCache?.byName),
+    };
+  }, [records, infoCache]);
   const filteredTrades = useMemo(() => (
     ownership === 'all'
       ? stockData.trades
@@ -296,26 +411,86 @@ export default function InvestmentScreen() {
     previousQuotes,
   ), [portfolio.positions, portfolio.realizedTrades, previousQuotes]);
 
-  const loadPrices = useCallback(async (force = false) => {
-    if (symbols.length === 0) return;
+  const rangeRealizedTrades = useMemo(() => (
+    filterByDateRange(portfolio.realizedTrades, startDate, endDate)
+  ), [portfolio.realizedTrades, startDate, endDate]);
 
+  const periodRealizedPnl = useMemo(
+    () => sumRealizedPnl(rangeRealizedTrades),
+    [rangeRealizedTrades],
+  );
+
+  const rangeFilteredTrades = useMemo(() => (
+    filterByDateRange(filteredTrades, startDate, endDate)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.lineNumber - a.lineNumber)
+  ), [filteredTrades, startDate, endDate]);
+
+  const moverByPositionId = useMemo(() => {
+    const map = new Map<string, typeof insights.movers[number]>();
+    insights.movers.forEach(mover => map.set(mover.id, mover));
+    return map;
+  }, [insights.movers]);
+
+  const resolveMoverForPosition = useCallback((position: typeof portfolio.positions[number]) => {
+    const key = position.symbol || `name:${position.name}`;
+    return moverByPositionId.get(key);
+  }, [moverByPositionId]);
+
+  const openPositionSheet = useCallback((position: typeof portfolio.positions[number]) => {
+    openSheet({
+      kind: 'position',
+      title: `${position.name}${position.symbol ? ` ${position.symbol}` : ''}`,
+      position,
+      trades: filteredTrades.filter(trade => matchesPosition(trade, position)),
+      realized: portfolio.realizedTrades.filter(trade => matchesPosition(trade, position)),
+    });
+  }, [filteredTrades, openSheet, portfolio.realizedTrades]);
+
+  const investmentTimelines = useMemo(
+    () => computeInvestmentTimelines(filteredTrades),
+    [filteredTrades],
+  );
+
+  const openTimelineMonthTrades = useCallback((title: string, trades: StockTrade[]) => {
+    openSheet({ kind: 'monthTrades', title, trades });
+  }, [openSheet]);
+
+  const loadPrices = useCallback(async (force = false) => {
     setSyncing(true);
     try {
-      const result = await syncStockPrices(symbols, { force });
+      const infoResult = await syncStockInfo({ force });
+      setInfoCache(infoResult.cache);
+
+      const nextSymbols = Array.from(new Set(
+        withResolvedSymbols(deriveStockData(records).trades, infoResult.cache.byName)
+          .filter(trade => ownership === 'all' || trade.ownership === ownership)
+          .map(trade => trade.symbol)
+          .filter((symbol): symbol is string => Boolean(symbol)),
+      ));
+
+      if (nextSymbols.length === 0) {
+        setSyncErrors(infoResult.errors);
+        return;
+      }
+
+      const result = await syncStockPrices(nextSymbols, { force });
       setPriceCache(result.cache);
-      setSyncErrors(result.errors);
+      setSyncErrors([...infoResult.errors, ...result.errors]);
     } catch (error: any) {
       setSyncErrors([error?.message || '價格同步失敗']);
+      setInfoCache(await loadStockInfoCache());
       setPriceCache(await loadStockPriceCache());
     } finally {
       setSyncing(false);
     }
-  }, [symbols]);
+  }, [ownership, records]);
 
   useEffect(() => {
     let mounted = true;
-    loadStockPriceCache().then(cache => {
-      if (mounted) setPriceCache(prev => prev || cache);
+    Promise.all([loadStockPriceCache(), loadStockInfoCache()]).then(([prices, info]) => {
+      if (!mounted) return;
+      setPriceCache(prev => prev || prices);
+      setInfoCache(prev => prev || info);
     });
     return () => {
       mounted = false;
@@ -323,10 +498,10 @@ export default function InvestmentScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isFocused || syncStartedRef.current || symbols.length === 0) return;
+    if (!isFocused || syncStartedRef.current) return;
     syncStartedRef.current = true;
     loadPrices(false);
-  }, [isFocused, loadPrices, symbols.length]);
+  }, [isFocused, loadPrices]);
 
   const lastSyncLabel = priceCache?.syncedAt
     ? new Date(priceCache.syncedAt).toLocaleString('zh-TW', { hour12: false })
@@ -334,28 +509,182 @@ export default function InvestmentScreen() {
   const hasStockData = stockData.trades.length > 0 || stockData.issues.length > 0;
 
   const ownershipOptions = [
-    { value: 'all' as OwnershipFilter, label: '全部' },
-    { value: 'personal' as OwnershipFilter, label: '個人' },
-    { value: 'shared' as OwnershipFilter, label: '共享' },
+    { value: 'all' as OwnershipFilter, label: '全部', icon: 'apps-outline' as const },
+    { value: 'personal' as OwnershipFilter, label: '個人', icon: 'person-outline' as const },
+    { value: 'shared' as OwnershipFilter, label: '共享', icon: 'people-outline' as const },
   ];
-  const viewOptions = [
-    { value: 'overview' as InvestmentView, label: '總覽' },
-    { value: 'holdings' as InvestmentView, label: '持股' },
-    { value: 'trades' as InvestmentView, label: '交易' },
-    { value: 'issues' as InvestmentView, label: '待補' },
-  ];
+
+  const openDetail = useCallback((panel: DetailPanel) => setDetailPanel(panel), []);
+  const closeDetail = useCallback(() => setDetailPanel(null), []);
+
+  const openMoverDetail = useCallback((mover: typeof insights.movers[number]) => {
+    const matches = portfolio.positions.filter(position => (
+      (position.symbol || `name:${position.name}`) === mover.id
+    ));
+    if (matches.length === 1) {
+      openPositionSheet(matches[0]);
+      return;
+    }
+    openDetail('holdings');
+  }, [openDetail, openPositionSheet, portfolio.positions]);
+
+  const renderTradeItem = useCallback(({ item }: { item: StockTrade }) => (
+    <TradeListCard trade={item} colors={colors} styles={styles} />
+  ), [colors, styles]);
+
+  const tradeKeyExtractor = useCallback((item: StockTrade) => item.id, []);
+
+  const costBarPercent = insights.totalMarketValue > 0
+    ? Math.min((insights.totalCost / insights.totalMarketValue) * 100, 100)
+    : 0;
+  const floatBarPercent = insights.totalMarketValue > 0
+    ? Math.max(0, 100 - costBarPercent)
+    : 0;
+
+  const ownershipFilter = (
+    <View style={styles.filterSection}>
+      <Text style={styles.controlLabel}>帳戶範圍</Text>
+      <View style={styles.filterControls}>
+        {hasStockData ? (
+          <Pressable
+            onPress={() => loadPrices(true)}
+            disabled={syncing}
+            style={({ pressed }) => [styles.syncIconButton, pressed && styles.syncIconButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="同步股票收盤價"
+          >
+            {syncing ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="refresh" size={18} color={colors.primary} />
+            )}
+          </Pressable>
+        ) : null}
+        <SegmentedControl
+          value={ownership}
+          onChange={setOwnership}
+          options={ownershipOptions}
+          variant="filter"
+          accessibilityLabel="帳戶範圍篩選"
+        />
+      </View>
+    </View>
+  );
+
+  const summaryCard = (
+    <View style={styles.summaryCard}>
+      <LinearGradient
+        colors={colors.accentGradientShape as [string, string]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.summaryCardAccent}
+      />
+      <Text style={styles.summaryHeadlineLabel}>總市值</Text>
+      <Text style={styles.summaryHeadlineValue} selectable>
+        {formatMoney(insights.totalMarketValue)}
+      </Text>
+      <Text style={styles.summaryHeadlineSub}>
+        成本 {formatMoney(insights.totalCost)}
+        {' · '}
+        <Text style={{ color: pnlColor(insights.totalPnl, colors) }}>
+          總損益 {formatMoney(insights.totalPnl, true)} · {formatPercent(insights.totalReturnRate, true)}
+        </Text>
+      </Text>
+
+      <View style={styles.segBarContainer}>
+        <View style={styles.segBarTrack}>
+          {insights.totalMarketValue > 0 ? (
+            <>
+              <View style={[styles.segBarFill, {
+                width: `${costBarPercent}%`,
+                backgroundColor: colors.textSecondary,
+                borderTopLeftRadius: 5,
+                borderBottomLeftRadius: 5,
+              }]} />
+              <View style={[styles.segBarFill, {
+                width: `${floatBarPercent}%`,
+                backgroundColor: pnlColor(insights.unrealizedPnl, colors),
+                borderTopRightRadius: floatBarPercent >= 99 ? 5 : 0,
+                borderBottomRightRadius: floatBarPercent >= 99 ? 5 : 0,
+              }]} />
+            </>
+          ) : null}
+        </View>
+        <View style={styles.segLegendRow}>
+          <View style={styles.segLegendItem}>
+            <View style={[styles.segLegendDot, { backgroundColor: colors.textSecondary }]} />
+            <Text style={styles.segLegendText}>成本</Text>
+          </View>
+          <View style={styles.segLegendItem}>
+            <View style={[styles.segLegendDot, { backgroundColor: pnlColor(insights.unrealizedPnl, colors) }]} />
+            <Text style={styles.segLegendText}>浮動</Text>
+          </View>
+          <View style={styles.segLegendItem}>
+            <View style={[styles.segLegendDot, { backgroundColor: colors.divider }]} />
+            <Text style={styles.segLegendText}>配置前三大 {formatPercent(insights.top3Weight)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.metricsGrid}>
+        <View style={styles.metricItem}>
+          <Pressable
+            onPress={() => openDetail('holdings')}
+            style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`今日損益 ${formatMoney(insights.dayPnl, true)}，${insights.dayAdvances} 漲 ${insights.dayDeclines} 跌，查看持股`}
+          >
+            <View style={styles.metricLabelRow}>
+              <Ionicons name="pulse-outline" size={14} color={colors.blue} />
+              <Text style={styles.metricLabel}>今日</Text>
+            </View>
+            <Text style={[styles.metricValue, { color: pnlColor(insights.dayPnl, colors) }]}>
+              {formatMoney(insights.dayPnl, true)}
+            </Text>
+          </Pressable>
+        </View>
+        <View style={styles.metricDividerV} />
+        <View style={styles.metricItem}>
+          <Pressable
+            onPress={() => openDetail('realized')}
+            style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`區間已實現 ${formatMoney(periodRealizedPnl, true)}，${rangeRealizedTrades.length} 筆`}
+          >
+            <View style={styles.metricLabelRow}>
+              <Ionicons name="checkmark-done-outline" size={14} color={colors.primary} />
+              <Text style={styles.metricLabel}>已實現</Text>
+            </View>
+            <Text style={[styles.metricValue, { color: pnlColor(periodRealizedPnl, colors) }]}>
+              {formatMoney(periodRealizedPnl, true)}
+            </Text>
+          </Pressable>
+        </View>
+        <View style={styles.metricDividerV} />
+        <View style={styles.metricItem}>
+          <Pressable
+            onPress={() => openDetail('trades')}
+            style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`區間交易 ${rangeFilteredTrades.length} 筆`}
+          >
+            <View style={styles.metricLabelRow}>
+              <Ionicons name="swap-horizontal-outline" size={14} color={colors.textSecondary} />
+              <Text style={styles.metricLabel}>交易</Text>
+            </View>
+            <Text style={styles.metricValue}>
+              {rangeFilteredTrades.length}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
 
   if (!hasStockData) {
     return (
       <View style={styles.container}>
-        <PageChrome>
-          <SegmentedControl
-            fullWidth
-            value={ownership}
-            onChange={setOwnership}
-            options={ownershipOptions}
-          />
-        </PageChrome>
+        {ownershipFilter}
         <EmptyState
           icon="trending-up-outline"
           title="尚無股票交易資料"
@@ -365,372 +694,386 @@ export default function InvestmentScreen() {
     );
   }
 
+  const detailSubtitle =
+    detailPanel === 'holdings' ? `${portfolio.positions.length} 檔`
+      : detailPanel === 'realized' ? `${rangeRealizedTrades.length} 筆 · ${formatMoney(periodRealizedPnl, true)}`
+        : detailPanel === 'trades' ? `${rangeFilteredTrades.length} 筆`
+          : detailPanel === 'issues' ? `${filteredIssues.length} 筆`
+            : undefined;
+
   return (
     <View style={styles.container}>
       <PageChrome>
-        <SegmentedControl
-          fullWidth
-          value={view}
-          onChange={setView}
-          options={viewOptions}
+        <DateRangeSelector
+          startDate={startDate}
+          endDate={endDate}
+          onDateChange={handleDateChange}
+          subLabel={`總市值 ${formatMoney(insights.totalMarketValue)} · ${portfolio.positions.length} 檔`}
         />
-        <View style={styles.chromeRow}>
-          <SegmentedControl
-            variant="filter"
-            value={ownership}
-            onChange={setOwnership}
-            options={ownershipOptions}
-          />
-          <Pressable
-            onPress={() => loadPrices(true)}
-            disabled={syncing}
-            style={({ pressed }) => [styles.syncButton, pressed && styles.syncButtonPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="同步股票收盤價"
-          >
-            {syncing ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons name="refresh" size={18} color={colors.primary} />
-            )}
-            <Text style={styles.syncText}>同步</Text>
-          </Pressable>
-        </View>
       </PageChrome>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {view === 'overview' ? (
-          <>
-            <View style={[styles.summaryCard, { borderColor: colors.outlineVariant }]}>
-              <View style={styles.summaryGrid}>
-                <SummaryTile
-                  label="總市值"
-                  value={formatMoney(insights.totalMarketValue)}
-                  sub={`成本 ${formatMoney(insights.totalCost)}`}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="總損益"
-                  value={formatMoney(insights.totalPnl, true)}
-                  valueColor={insights.totalPnl >= 0 ? colors.green : colors.red}
-                  sub={formatPercent(insights.totalReturnRate, true)}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="今日損益"
-                  value={formatMoney(insights.dayPnl, true)}
-                  valueColor={insights.dayPnl >= 0 ? colors.green : colors.red}
-                  sub={`${formatPercent(insights.dayPnlPercent, true)} · ${insights.dayAdvances} 漲 / ${insights.dayDeclines} 跌`}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="已實現損益"
-                  value={formatMoney(insights.realizedPnl, true)}
-                  valueColor={insights.realizedPnl >= 0 ? colors.green : colors.red}
-                  sub={`${portfolio.realizedTrades.length} 筆`}
-                  styles={styles}
-                />
-              </View>
-            </View>
+      {ownershipFilter}
 
-            <View style={styles.section}>
-              <SectionHeader
-                title="今日變化"
-                accent={colors.blue}
-                trailing={
-                  <Text style={styles.sectionTrailing}>
-                    {insights.dayValuedAt ? formatDate(insights.dayValuedAt) : '無收盤價'}
-                  </Text>
-                }
-              />
-              <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
-                {insights.movers.length === 0 ? (
-                  <Text style={styles.emptyMetricText}>沒有前一個交易日的可比收盤價。</Text>
-                ) : (
-                  <>
-                    {insights.movers.slice(0, 5).map(mover => (
-                      <MoverRow
-                        key={mover.id}
-                        mover={mover}
-                        colors={colors}
-                        styles={styles}
-                      />
-                    ))}
-                    {insights.movers.length > 5 ? (
-                      <Text style={styles.panelFootnote}>僅顯示金額影響最大的 5 檔。</Text>
-                    ) : null}
-                  </>
-                )}
-              </View>
-            </View>
+      {detailPanel ? (
+        <>
+          <InvestmentDrillHeader
+            title={DETAIL_TITLES[detailPanel]}
+            subtitle={detailSubtitle}
+            onBack={closeDetail}
+            colors={colors}
+          />
 
-            <View style={styles.section}>
-              <SectionHeader
-                title="配置與集中度"
-                accent={colors.primary}
-                trailing={<Text style={styles.sectionTrailing}>{portfolio.positions.length} 檔</Text>}
-              />
-              <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
-                <AllocationChart items={insights.allocation} colors={colors} styles={styles} />
-                <AllocationLegend items={insights.allocation} styles={styles} />
-                <View style={styles.metricRow}>
-                  <View style={styles.metricItem}>
-                    <Text style={styles.metricLabel}>最大單一部位</Text>
-                    <Text style={styles.metricValue}>{formatPercent(insights.top1Weight)}</Text>
-                  </View>
-                  <View style={styles.metricItem}>
-                    <Text style={styles.metricLabel}>前三大合計</Text>
-                    <Text style={styles.metricValue}>{formatPercent(insights.top3Weight)}</Text>
-                  </View>
+          {detailPanel === 'trades' ? (
+            <FlashList
+              data={rangeFilteredTrades}
+              renderItem={renderTradeItem}
+              keyExtractor={tradeKeyExtractor}
+              contentContainerStyle={styles.listContent}
+              // @ts-expect-error FlashList v2 estimatedItemSize
+              estimatedItemSize={96}
+              ListEmptyComponent={(
+                <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
+                  <Text style={styles.cleanText}>此區間沒有有效交易紀錄。</Text>
                 </View>
-                <View style={styles.divider} />
-                {insights.accountAllocation.map(item => (
-                  <View key={item.id} style={styles.accountRow}>
-                    <Text style={styles.accountName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.accountValue}>
-                      {formatMoney(item.value)} · {formatPercent(item.weight)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <SectionHeader title="風險與資料品質" accent={colors.yellow} />
-              <View style={styles.summaryGrid}>
-                <SummaryTile
-                  label="集中度"
-                  value={insights.concentrationStatus === 'high'
-                    ? '偏高'
-                    : insights.concentrationStatus === 'watch'
-                      ? '注意'
-                      : '均衡'}
-                  valueColor={insights.concentrationStatus === 'high'
-                    ? colors.red
-                    : insights.concentrationStatus === 'watch'
-                      ? colors.yellow
-                      : colors.green}
-                  sub={`前三大 ${formatPercent(insights.top3Weight)}`}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="待補備註"
-                  value={`${filteredIssues.length}`}
-                  valueColor={filteredIssues.length > 0 ? colors.red : colors.green}
-                  sub="備註無法解析或金額不符"
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="缺收盤價"
-                  value={`${insights.missingPrices.length}`}
-                  valueColor={insights.missingPrices.length > 0 ? colors.yellow : colors.green}
-                  sub="以成本保留於總市值"
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="最佳持股"
-                  value={insights.bestPosition ? formatMoney(insights.bestPosition.unrealizedPnl || 0, true) : '—'}
-                  valueColor={(insights.bestPosition?.unrealizedPnl || 0) >= 0 ? colors.green : colors.red}
-                  sub={insights.bestPosition?.name || '尚無持股'}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="最弱持股"
-                  value={insights.worstPosition ? formatMoney(insights.worstPosition.unrealizedPnl || 0, true) : '—'}
-                  valueColor={(insights.worstPosition?.unrealizedPnl || 0) >= 0 ? colors.green : colors.red}
-                  sub={insights.worstPosition?.name || '尚無持股'}
-                  styles={styles}
-                />
-                <SummaryTile
-                  label="收盤同步"
-                  value={lastSyncLabel}
-                  sub={syncErrors.length > 0 ? `${syncErrors.length} 個錯誤` : 'FinMind 日收盤'}
-                  styles={styles}
-                />
-              </View>
-              <Text style={styles.dataNote}>
-                損益以備註成本與 FinMind 日收盤計算；未包含手續費、稅負與除權息還原。
-              </Text>
-            </View>
-          </>
-        ) : null}
-
-        {view === 'issues' ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="待補備註"
-              accent={colors.red}
-              trailing={<Text style={styles.sectionTrailing}>{filteredIssues.length} 筆</Text>}
+              )}
             />
-            {filteredIssues.length === 0 ? (
-              <View style={[styles.cleanCard, { backgroundColor: colors.greenLight }]}>
-                <Ionicons name="checkmark-circle" size={18} color={colors.green} />
-                <Text style={[styles.cleanText, { color: colors.green }]}>目前買賣備註都可解析</Text>
-              </View>
-            ) : (
-              filteredIssues.map(issue => (
-                <IssueCard key={issue.id} issue={issue} styles={styles} colors={colors} />
-              ))
-            )}
-          </View>
-        ) : null}
-
-        {view === 'holdings' ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="目前持股"
-              accent={colors.primary}
-              trailing={<Text style={styles.sectionTrailing}>{portfolio.positions.length} 檔</Text>}
-            />
-            {portfolio.positions.length === 0 ? (
-              <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={styles.cleanText}>沒有可計算持股；請先補齊待補備註。</Text>
-              </View>
-            ) : (
-              portfolio.positions.map(position => {
-                const pnl = position.unrealizedPnl || 0;
-                return (
-                  <AccentListCard
-                    key={position.id}
-                    title={`${position.name}${position.symbol ? ` ${position.symbol}` : ' · 待補股號'}`}
-                    amount={position.marketValue === undefined ? '無價格' : formatMoney(position.marketValue)}
-                    amountColor={pnl >= 0 ? colors.green : colors.red}
-                    meta={[
-                      { icon: 'cube-outline', text: `${position.shares.toLocaleString()} 股` },
-                      { icon: 'wallet-outline', text: `成本 $${position.averageCost.toFixed(2)}` },
-                      {
-                        icon: 'calendar-outline',
-                        text: position.latestPriceDate
-                          ? `收盤 $${position.latestPrice?.toFixed(2)} · ${formatDate(position.latestPriceDate)}`
-                          : '缺收盤價',
-                      },
+          ) : (
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+              {detailPanel === 'realized' ? (
+                <View style={styles.section}>
+                  <CompactSummaryBar
+                    style={styles.inlineSummary}
+                    items={[
+                      { label: '區間合計', value: formatMoney(periodRealizedPnl, true) },
+                      { label: '全期合計', value: formatMoney(insights.realizedPnl, true) },
                     ]}
-                  >
-                    <View style={styles.positionFooter}>
-                      <Text
-                        style={[styles.positionPnl, { color: pnl >= 0 ? colors.green : colors.red }]}
-                        selectable
-                      >
-                        {formatMoney(pnl, true)}
-                        {position.unrealizedPnlPercent !== undefined
-                          ? ` · ${position.unrealizedPnlPercent >= 0 ? '+' : ''}${position.unrealizedPnlPercent.toFixed(2)}%`
-                          : ''}
-                      </Text>
-                      <Text style={styles.positionAccount}>{position.account}</Text>
+                  />
+                  {rangeRealizedTrades.length === 0 ? (
+                    <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
+                      <Text style={styles.cleanText}>此區間沒有賣出了結紀錄。</Text>
                     </View>
-                  </AccentListCard>
-                );
-              })
-            )}
-          </View>
-        ) : null}
+                  ) : (
+                    rangeRealizedTrades.map(trade => (
+                      <RealizedListCard key={trade.id} trade={trade} colors={colors} />
+                    ))
+                  )}
+                </View>
+              ) : null}
 
-        {view === 'trades' ? (
+              {detailPanel === 'issues' ? (
+                <View style={styles.section}>
+                  {filteredIssues.length === 0 ? (
+                    <View style={[styles.cleanCard, { backgroundColor: colors.greenLight }]}>
+                      <Ionicons name="checkmark-circle" size={18} color={colors.green} />
+                      <Text style={[styles.cleanText, { color: colors.green }]}>目前買賣備註都可解析</Text>
+                    </View>
+                  ) : (
+                    filteredIssues.map(issue => (
+                      <IssueCard key={issue.id} issue={issue} styles={styles} colors={colors} />
+                    ))
+                  )}
+                </View>
+              ) : null}
+
+              {detailPanel === 'holdings' ? (
+                <View style={styles.section}>
+                  {portfolio.positions.length === 0 ? (
+                    <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
+                      <Text style={styles.cleanText}>沒有可計算持股；請先補齊待補備註。</Text>
+                    </View>
+                  ) : (
+                    portfolio.positions.map(position => {
+                      const pnl = position.unrealizedPnl || 0;
+                      const weight = insights.totalMarketValue > 0 && position.marketValue !== undefined
+                        ? (position.marketValue / insights.totalMarketValue) * 100
+                        : undefined;
+                      const mover = resolveMoverForPosition(position);
+                      const dayChangeText = mover
+                        ? `${formatMoney(mover.change, true)} · ${formatPercent(mover.changePercent, true)}`
+                        : undefined;
+
+                      return (
+                        <AccentListCard
+                          key={position.id}
+                          title={`${position.name}${position.symbol ? ` ${position.symbol}` : ' · 待補股號'}`}
+                          amount={position.marketValue === undefined ? '無價格' : formatMoney(position.marketValue)}
+                          amountColor={pnlColor(pnl, colors)}
+                          onPress={() => openPositionSheet(position)}
+                          meta={[
+                            { icon: 'cube-outline', text: `${position.shares.toLocaleString()} 股` },
+                            { icon: 'wallet-outline', text: `成本 $${position.averageCost.toFixed(2)}` },
+                            weight !== undefined
+                              ? { icon: 'pie-chart-outline', text: `${weight.toFixed(1)}%` }
+                              : { icon: 'pie-chart-outline', text: '—' },
+                            {
+                              icon: 'calendar-outline',
+                              text: position.latestPriceDate
+                                ? `收盤 $${position.latestPrice?.toFixed(2)} · ${formatDate(position.latestPriceDate)}`
+                                : '缺收盤價',
+                            },
+                          ]}
+                        >
+                          <View style={styles.positionFooter}>
+                            <Text
+                              style={[styles.positionPnl, { color: pnlColor(pnl, colors) }]}
+                              selectable
+                            >
+                              {formatMoney(pnl, true)}
+                              {position.unrealizedPnlPercent !== undefined
+                                ? ` · ${position.unrealizedPnlPercent >= 0 ? '+' : ''}${position.unrealizedPnlPercent.toFixed(2)}%`
+                                : ''}
+                            </Text>
+                            {dayChangeText ? (
+                              <Text style={[styles.positionDayChange, { color: pnlColor(mover!.change, colors) }]}>
+                                今日 {dayChangeText}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.positionAccount}>{position.account}</Text>
+                          </View>
+                        </AccentListCard>
+                      );
+                    })
+                  )}
+                </View>
+              ) : null}
+            </ScrollView>
+          )}
+        </>
+      ) : (
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {summaryCard}
+
+          <InvestmentTimelineSection
+            timelines={investmentTimelines}
+            trades={filteredTrades}
+            onOpenMonthTrades={openTimelineMonthTrades}
+          />
+
           <View style={styles.section}>
             <SectionHeader
-              title="近期交易"
+              title="今日變化"
               accent={colors.blue}
-              trailing={<Text style={styles.sectionTrailing}>{filteredTrades.length} 筆</Text>}
+              trailing={(
+                <Pressable onPress={() => openDetail('holdings')} hitSlop={8}>
+                  <Text style={styles.linkTrailing}>
+                    持股 · {portfolio.positions.length} 檔
+                  </Text>
+                </Pressable>
+              )}
             />
-            {filteredTrades.length === 0 ? (
-              <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={styles.cleanText}>補齊備註後，有效交易會出現在這裡。</Text>
+            <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
+              {insights.movers.length === 0 ? (
+                <Text style={styles.emptyMetricText}>沒有前一個交易日的可比收盤價。</Text>
+              ) : (
+                <>
+                  {insights.movers.slice(0, 3).map(mover => (
+                    <MoverRow
+                      key={mover.id}
+                      mover={mover}
+                      colors={colors}
+                      styles={styles}
+                      onPress={() => openMoverDetail(mover)}
+                    />
+                  ))}
+                  {insights.movers.length > 3 ? (
+                    <Pressable
+                      onPress={() => openSheet({
+                        kind: 'movers',
+                        title: '今日變化',
+                        items: insights.movers,
+                      })}
+                      hitSlop={6}
+                    >
+                      <Text style={styles.linkTrailing}>
+                        查看全部 · {insights.movers.length} 檔
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <SectionHeader
+              title="配置"
+              accent={colors.primary}
+              trailing={(
+                <Pressable onPress={() => openDetail('holdings')} hitSlop={8}>
+                  <Text style={styles.linkTrailing}>
+                    前三大 {formatPercent(insights.top3Weight)}
+                  </Text>
+                </Pressable>
+              )}
+            />
+            <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
+              <AllocationChart items={insights.allocation} colors={colors} styles={styles} />
+              <AllocationLegend items={insights.allocation} styles={styles} />
+              {insights.accountAllocation.length > 0 ? (
+                <Text style={styles.accountSummary} numberOfLines={2}>
+                  {insights.accountAllocation
+                    .map(item => `${item.name} ${formatPercent(item.weight)}`)
+                    .join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <SectionHeader title="資料狀態" accent={colors.yellow} />
+            {filteredIssues.length === 0 && insights.missingPrices.length === 0 ? (
+              <View style={[styles.statusOk, { backgroundColor: colors.greenLight }]}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+                <Text style={[styles.statusOkText, { color: colors.green }]}>
+                  備註與收盤價正常
+                  {lastSyncLabel !== '尚未同步' ? ` · 同步 ${lastSyncLabel}` : ''}
+                </Text>
               </View>
             ) : (
-              [...filteredTrades]
-                .sort((a, b) => b.date.localeCompare(a.date) || b.lineNumber - a.lineNumber)
-                .slice(0, 50)
-                .map(trade => {
-                  const isBuy = trade.side === 'buy';
-                  const price = isBuy ? trade.purchasePrice : trade.salePrice;
-                  return (
-                    <AccentListCard
-                      key={trade.id}
-                      title={`${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
-                      amount={formatMoney(trade.amount, !isBuy)}
-                      amountColor={isBuy ? colors.red : colors.green}
-                      meta={[
-                        {
-                          icon: isBuy ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline',
-                          text: SIDE_LABELS[trade.side],
-                        },
-                        { icon: 'cube-outline', text: `${trade.shares.toLocaleString()} 股` },
-                        { icon: 'pricetag-outline', text: price ? `$${price.toFixed(2)}` : '—' },
-                        { icon: 'calendar-outline', text: formatDate(trade.date) },
-                      ]}
-                    />
-                  );
-                })
+              <View style={styles.statusRows}>
+                {filteredIssues.length > 0 ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.statusRow, pressed && styles.summaryTilePressed]}
+                    onPress={() => openDetail('issues')}
+                    accessibilityRole="button"
+                  >
+                    <View>
+                      <Text style={styles.statusRowTitle}>待補備註</Text>
+                      <Text style={styles.statusRowSub}>備註無法解析或金額不符</Text>
+                    </View>
+                    <Text style={[styles.statusRowValue, { color: colors.red }]}>
+                      {filteredIssues.length}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
+                {insights.missingPrices.length > 0 ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.statusRow, pressed && styles.summaryTilePressed]}
+                    onPress={() => openSheet({
+                      kind: 'missingPrices',
+                      title: '缺收盤價持股',
+                      items: insights.missingPrices,
+                    })}
+                    accessibilityRole="button"
+                  >
+                    <View>
+                      <Text style={styles.statusRowTitle}>缺收盤價</Text>
+                      <Text style={styles.statusRowSub}>點擊查看明細</Text>
+                    </View>
+                    <Text style={[styles.statusRowValue, { color: colors.yellow }]}>
+                      {insights.missingPrices.length}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
+              </View>
             )}
+            <Text style={styles.dataNote}>
+              損益以備註成本與 FinMind 日收盤計算；未含手續費、稅負與除權息還原。
+            </Text>
           </View>
-        ) : null}
 
-        {syncErrors.length > 0 ? (
-          <View style={[styles.errorBox, { borderColor: colors.outlineVariant }]}>
-            {syncErrors.map(error => (
-              <Text key={error} style={styles.errorText} numberOfLines={2}>{error}</Text>
-            ))}
-          </View>
-        ) : null}
-      </ScrollView>
+          {syncErrors.length > 0 ? (
+            <View style={[styles.errorBox, { borderColor: colors.outlineVariant }]}>
+              {syncErrors.map(error => (
+                <Text key={error} style={styles.errorText} numberOfLines={2}>{error}</Text>
+              ))}
+            </View>
+          ) : null}
+        </ScrollView>
+      )}
+
+      <InvestmentDetailSheet
+        visible={sheetVisible}
+        content={sheetContent}
+        onClose={closeSheet}
+      />
     </View>
   );
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  chromeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  syncButton: {
+  filterSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 0,
+    gap: 8,
+  },
+  controlLabel: { color: colors.onSurfaceVariant, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+  filterControls: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  scrollContent: { paddingTop: 8, paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 28 },
+  linkTrailing: { fontSize: 12, fontWeight: '700', color: colors.primary },
+  syncIconButton: {
+    alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 36,
-    paddingHorizontal: 12,
-    gap: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineVariant,
-    backgroundColor: colors.surfaceContainer,
+    width: 32,
+    height: 32,
+    backgroundColor: colors.surfaceVariant,
     ...withContinuousRadius(RADIUS.full),
   },
-  syncButtonPressed: { backgroundColor: colors.surfaceVariant },
-  syncText: { fontSize: 13, fontWeight: '700', color: colors.primary },
-  content: { paddingHorizontal: 16, paddingBottom: 28 },
+  syncIconButtonPressed: { backgroundColor: colors.statePressed },
   summaryCard: {
-    marginTop: 12,
     backgroundColor: colors.surfaceContainer,
-    borderWidth: StyleSheet.hairlineWidth,
     ...withContinuousRadius(RADIUS.md),
-    padding: 12,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+    marginBottom: 6,
+    overflow: 'hidden',
   },
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  summaryTile: {
-    flexBasis: '48%',
-    flexGrow: 1,
-    backgroundColor: colors.surfaceVariant,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    ...withContinuousRadius(RADIUS.sm),
-    minHeight: 82,
-  },
-  summaryLabel: { fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant },
-  summaryValue: {
-    marginTop: 5,
-    fontSize: 20,
-    lineHeight: 24,
+  summaryCardAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
+  summaryHeadlineLabel: { fontSize: 12, fontWeight: '700', color: colors.onSurfaceVariant },
+  summaryHeadlineValue: {
+    marginTop: 4,
+    fontSize: 30,
+    lineHeight: 36,
     fontWeight: '800',
     color: colors.onSurface,
     fontVariant: ['tabular-nums'],
   },
-  summarySub: { marginTop: 4, fontSize: 11, color: colors.textMuted },
-  donutWrapper: { alignItems: 'center', paddingVertical: 4 },
+  summaryHeadlineSub: { marginTop: 6, fontSize: 13, fontWeight: '600', color: colors.onSurfaceVariant, lineHeight: 18 },
+  segBarContainer: { marginTop: 14, marginBottom: 14 },
+  segBarTrack: {
+    flexDirection: 'row',
+    height: 10,
+    backgroundColor: colors.divider,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  segBarFill: { height: '100%' },
+  segLegendRow: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' },
+  segLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  segLegendDot: { width: 8, height: 8, borderRadius: 4 },
+  segLegendText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
+  // ── Metrics Grid（對齊預算頁固定支出／日常／可用餘額）──
+  metricsGrid: {
+    flexDirection: 'row', alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 12,
+  },
+  metricItem: { flex: 1, alignItems: 'center' },
+  metricHit: { alignItems: 'center', width: '100%' },
+  metricItemPressed: { opacity: 0.75 },
+  metricLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: -0.2 },
+  metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  metricValue: { fontSize: 17, fontWeight: '800', letterSpacing: -0.5 },
+  metricDividerV: { width: 1, height: 32, backgroundColor: colors.divider },
+  inlineSummary: { marginHorizontal: 0 },
+  summaryTilePressed: { opacity: 0.88 },
+  donutWrapper: { alignItems: 'center', paddingVertical: 2 },
   donutCenter: { alignItems: 'center' },
   donutTotal: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.onSurface,
     fontVariant: ['tabular-nums'],
   },
-  donutLabel: { marginTop: 2, fontSize: 11, color: colors.textMuted },
+  donutLabel: { marginTop: 2, fontSize: 10, color: colors.textMuted },
   panel: {
     backgroundColor: colors.surfaceContainer,
     borderWidth: StyleSheet.hairlineWidth,
@@ -739,6 +1082,36 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     gap: 10,
   },
   panelFootnote: { fontSize: 11, color: colors.textMuted },
+  accountSummary: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.onSurfaceVariant,
+    lineHeight: 18,
+  },
+  statusOk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    ...withContinuousRadius(RADIUS.sm),
+  },
+  statusOkText: { flex: 1, fontSize: 13, fontWeight: '700' },
+  statusRows: { gap: 8 },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    ...withContinuousRadius(RADIUS.sm),
+  },
+  statusRowTitle: { fontSize: 14, fontWeight: '700', color: colors.onSurface },
+  statusRowSub: { marginTop: 2, fontSize: 11, color: colors.textMuted },
+  statusRowValue: { fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] },
   allocationBar: {
     flexDirection: 'row',
     height: 12,
@@ -764,6 +1137,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   moverRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  moverRowPressed: { opacity: 0.72 },
   moverIdentity: { flex: 1, minWidth: 0 },
   moverName: { fontSize: 14, fontWeight: '700', color: colors.onSurface },
   moverMeta: {
@@ -778,31 +1152,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
   },
-  metricRow: { flexDirection: 'row', gap: 8 },
-  metricItem: {
-    flex: 1,
-    backgroundColor: colors.surfaceVariant,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    ...withContinuousRadius(RADIUS.xs),
-  },
-  metricLabel: { fontSize: 11, fontWeight: '600', color: colors.onSurfaceVariant },
-  metricValue: {
-    marginTop: 3,
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.onSurface,
-    fontVariant: ['tabular-nums'],
-  },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant },
-  accountRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  accountName: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant },
-  accountValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.onSurface,
-    fontVariant: ['tabular-nums'],
-  },
   emptyMetricText: { fontSize: 12, color: colors.textMuted },
   dataNote: {
     marginTop: 8,
@@ -810,7 +1159,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     lineHeight: 16,
     color: colors.textMuted,
   },
-  section: { marginTop: 24 },
+  section: { marginTop: 14 },
   sectionTrailing: { fontSize: 12, fontWeight: '700', color: colors.onSurfaceVariant },
   issueCard: {
     backgroundColor: colors.surfaceContainer,
@@ -864,14 +1213,14 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   },
   cleanText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.onSurfaceVariant },
   positionFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     marginTop: 8,
-    gap: 8,
+    gap: 4,
   },
   positionPnl: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  positionAccount: { flex: 1, fontSize: 11, color: colors.textMuted, textAlign: 'right' },
+  positionDayChange: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  positionAccount: { fontSize: 11, color: colors.textMuted },
   errorBox: {
     marginTop: 18,
     padding: 12,
