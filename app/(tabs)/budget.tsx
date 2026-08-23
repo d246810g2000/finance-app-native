@@ -157,7 +157,7 @@ export default function BudgetScreen() {
         setShowMonthPicker(false);
     };
 
-    const openModal = (rule?: BudgetRule) => {
+    const openModal = useCallback((rule?: BudgetRule) => {
         if (rule) {
             setEditingId(rule.id);
             setFormCategory(rule.category);
@@ -168,7 +168,7 @@ export default function BudgetScreen() {
             setFormLimit('');
         }
         setIsModalOpen(true);
-    };
+    }, [computeUniqueCategories]);
 
     const handleSaveBudget = async (category: string, limit: number, isEdit: boolean) => {
         let updated: BudgetRule[] = [];
@@ -189,7 +189,7 @@ export default function BudgetScreen() {
         setIsModalOpen(false);
     };
 
-    const handleDeleteBudget = (id: string) => {
+    const handleDeleteBudget = useCallback((id: string) => {
         Alert.alert('刪除預算', '確定要刪除此預算設定嗎？', [
             { text: '取消', style: 'cancel' },
             { text: '刪除', style: 'destructive', onPress: async () => {
@@ -197,14 +197,14 @@ export default function BudgetScreen() {
                 await saveBudgets(updated);
             }}
         ]);
-    };
+    }, [budgets, saveBudgets]);
 
     // Detail Modal State
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [detailModalTitle, setDetailModalTitle] = useState('');
     const [detailModalData, setDetailModalData] = useState<TransformedRecord[]>([]);
 
-    const handleCardClick = (categoryName: string, isOther: boolean = false) => {
+    const handleCardClick = useCallback((categoryName: string, isOther: boolean = false) => {
         const targetYear = targetMonth.getFullYear();
         const targetMonthIndex = targetMonth.getMonth();
 
@@ -264,7 +264,7 @@ export default function BudgetScreen() {
         setDetailModalTitle(`${isOther ? '其他 (未歸類)' : categoryName} 支出明細 (已按分帳規則計算)`);
         setDetailModalData(transformedData);
         setIsDetailModalOpen(true);
-    };
+    }, [records, targetMonth, config]);
 
     // 固定支出專案點擊 → 顯示該專案的明細
     const handleFixedProjectClick = (projectName: string) => {

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
+import { useIsFocused } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
 import {
     filterAndSortRecords,
@@ -73,6 +74,7 @@ export default function MerchantScreen() {
     const { colors } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
     const { records } = useFinance();
+    const isFocused = useIsFocused();
 
     const [tab, setTab] = useState<TabKey>('merchant');
     const [startDate, setStartDate] = useState(() => {
@@ -93,8 +95,9 @@ export default function MerchantScreen() {
     }, []);
 
     const merchants = useMemo(() => {
+        if (!isFocused && lastMerchants.current) return lastMerchants.current;
         const list = aggregateMerchants(records, startDate, endDate);
-        return [...list].sort((a, b) => {
+        const sorted = [...list].sort((a, b) => {
             switch (sortKey) {
                 case 'expense_desc': return b.total - a.total;
                 case 'expense_asc': return a.total - b.total;
@@ -107,11 +110,15 @@ export default function MerchantScreen() {
                 default: return b.total - a.total;
             }
         });
-    }, [records, startDate, endDate, sortKey]);
+        lastMerchants.current = sorted;
+        return sorted;
+    }, [isFocused, records, startDate, endDate, sortKey]);
+
+    const lastMerchants = useRef<MerchantAggregate[] | null>(null);
 
     const products = useMemo(() => {
         const list = aggregateInvoiceProducts(records, startDate, endDate);
-        return [...list].sort((a, b) => {
+        const sorted = [...list].sort((a, b) => {
             switch (sortKey) {
                 case 'expense_desc': return b.total - a.total;
                 case 'expense_asc': return a.total - b.total;
@@ -124,6 +131,7 @@ export default function MerchantScreen() {
                 default: return b.total - a.total;
             }
         });
+        return sorted;
     }, [records, startDate, endDate, sortKey]);
 
     const totalExpense = useMemo(() => {

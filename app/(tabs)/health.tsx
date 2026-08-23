@@ -81,6 +81,7 @@ function pct(value: number | null, digits = 1): string {
 
 function deltaLabel(value: number | null): string {
     if (value === null) return '—';
+    if (value === 0) return '±0%';
     const arrow = value > 0 ? '↑' : value < 0 ? '↓' : '−';
     return `${arrow}${Math.abs(value).toFixed(0)}%`;
 }
@@ -209,9 +210,25 @@ export default function HealthScreen() {
         return `${strongest.label}表現最佳；${weakest.label}仍有 ${weakest.max - weakest.score} 分改善空間`;
     }, [dashboard.health.breakdown]);
 
-    const topAlerts = tab === 'overview' || tab === 'alerts'
-        ? dashboard.insights.slice(0, 2)
-        : [];
+    const topAlerts = useMemo(
+        () => (tab === 'overview' || tab === 'alerts' ? dashboard.insights.slice(0, 2) : []),
+        [tab, dashboard]
+    );
+
+    // Hoisted so re-entering the trends tab skips the loading placeholder.
+    const [chartsReady, setChartsReady] = useState(false);
+    useEffect(() => {
+        if (!isFocused || chartsReady) return;
+        const task = InteractionManager.runAfterInteractions(() => {
+            // Warm the trend aggregations before flipping ready, so the first
+            // chart frame doesn't pay for 12-month aggregation work.
+            void dashboard.savings.months.length;
+            void dashboard.cashflowYear.length;
+            void dashboard.categoryTrends.length;
+            setChartsReady(true);
+        });
+        return () => task.cancel();
+    }, [isFocused, chartsReady, dashboard]);
     const accountLabel =
         accountViewType === 'personal' ? '個人' : accountViewType === 'shared' ? '共享' : '全部';
     const modeLabel = healthMode === 'daily' ? '日常' : '含專案';
@@ -236,11 +253,17 @@ export default function HealthScreen() {
                         <Ionicons name="options-outline" size={18} color={colors.primary} />
                     </View>
                     <View style={styles.filterSummaryCopy}>
-                        <Text style={styles.filterSummaryTitle}>{accountLabel} · {modeLabel}</Text>
-                        <Text style={styles.filterSummarySub}>帳戶範圍與分析口徑</Text>
+                        <Text style={styles.filterSummaryTitle} numberOfLines={1}>
+                            {accountLabel} · {modeLabel}
+                        </Text>
+                        <Text style={styles.filterSummarySub} numberOfLines={1}>
+                            帳戶範圍與分析口徑
+                        </Text>
                     </View>
-                    <Text style={styles.filterAction}>調整</Text>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    <View style={styles.filterActionWrap}>
+                        <Text style={styles.filterAction}>調整</Text>
+                        <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                    </View>
                 </Pressable>
                 <View style={styles.tabs}>
                     <SegmentedControl
@@ -285,6 +308,7 @@ export default function HealthScreen() {
                         chartWidth={chartWidth}
                         colors={colors}
                         styles={styles}
+                        chartsReady={chartsReady}
                     />
                 ) : null}
 
@@ -375,7 +399,17 @@ const OverviewTab = memo(function OverviewTab({
     return (
         <>
             <View style={[styles.scoreCard, SHADOWS.sm]}>
-                <View style={styles.scoreHero}>
+                <View
+                    style={styles.scoreHero}
+                    accessible
+                    accessibilityLabel={`財務健康分數 ${dashboard.health.score ?? '無資料'}，${
+                        (dashboard.health.score ?? 0) >= 75
+                            ? '狀況良好'
+                            : (dashboard.health.score ?? 0) >= 50
+                                ? '仍可改善'
+                                : '需要留意'
+                    }`}
+                >
                     <View>
                         <Text style={styles.eyebrow}>財務健康分數</Text>
                         <Text
@@ -446,7 +480,7 @@ const OverviewTab = memo(function OverviewTab({
                     ['結餘', money(dashboard.health.kpi.net), dashboard.health.kpi.net >= 0 ? colors.green : colors.red],
                     ['儲蓄率', pct(dashboard.health.kpi.savingsRate), colors.blue],
                 ].map(([label, value, color]) => (
-                    <View key={label} style={styles.overviewKpiCell}>
+                    <View key={label} style={styles.overviewKpiCell} accessibilityLabel={`${label} ${value}`}>
                         <Text style={styles.kpiLabel}>{label}</Text>
                         <Text
                             style={[styles.overviewKpiValue, { color }]}
@@ -460,15 +494,20 @@ const OverviewTab = memo(function OverviewTab({
             </View>
 
             <View style={styles.insightStrip}>
-                <Ionicons
-                    name={dashboard.health.kpi.netVsPrevMonth >= 0 ? 'trending-up' : 'trending-down'}
-                    size={22}
-                    color={dashboard.health.kpi.netVsPrevMonth >= 0 ? colors.green : colors.red}
-                />
+                {dashboard.health.kpi.netVsPrevMonth === 0 ? (
+                    <Ionicons name="remove" size={22} color={colors.textMuted} />
+                ) : (
+                    <Ionicons
+                        name={dashboard.health.kpi.netVsPrevMonth > 0 ? 'trending-up' : 'trending-down'}
+                        size={22}
+                        color={dashboard.health.kpi.netVsPrevMonth > 0 ? colors.green : colors.red}
+                    />
+                )}
                 <View style={styles.insightCopy}>
                     <Text style={styles.insightTitle}>
-                        比上月{dashboard.health.kpi.netVsPrevMonth >= 0 ? '多存' : '少存'}{' '}
-                        {money(Math.abs(dashboard.health.kpi.netVsPrevMonth))}
+                        {dashboard.health.kpi.netVsPrevMonth === 0
+                            ? '與上月持平'
+                            : `比上月${dashboard.health.kpi.netVsPrevMonth > 0 ? '多存' : '少存'} ${money(Math.abs(dashboard.health.kpi.netVsPrevMonth))}`}
                     </Text>
                     <Text style={styles.insightSub}>
                         最大支出：{dashboard.health.kpi.topExpenseCategory || '—'}
@@ -587,6 +626,11 @@ const StructureTab = memo(function StructureTab({
                         <Text style={styles.expandButtonText}>
                             {showAllCategories ? '收合類別' : `顯示其餘 ${Math.min(3, dashboard.structure.length - 5)} 項`}
                         </Text>
+                        <Ionicons
+                            name={showAllCategories ? 'chevron-up' : 'chevron-down'}
+                            size={16}
+                            color={colors.primary}
+                        />
                     </Pressable>
                 ) : null}
             </View>
@@ -618,20 +662,16 @@ const TrendsTab = memo(function TrendsTab({
     chartWidth,
     colors,
     styles,
+    chartsReady,
 }: {
     dashboard: ReturnType<typeof buildHealthDashboard>;
     chartWidth: number;
     colors: AppColors;
     styles: HealthStyles;
+    chartsReady: boolean;
 }) {
-    const [chartsReady, setChartsReady] = useState(false);
     const [metric, setMetric] = useState<'savings' | 'cashflow' | 'category'>('savings');
     const [categoryIndex, setCategoryIndex] = useState(0);
-
-    useEffect(() => {
-        const task = InteractionManager.runAfterInteractions(() => setChartsReady(true));
-        return () => task.cancel();
-    }, []);
 
     if (!chartsReady) {
         return (
@@ -822,7 +862,7 @@ const AlertsTab = memo(function AlertsTab({
             {dashboard.recurring.length > 0 ? (
                 <View style={[styles.card, SHADOWS.sm]}>
                     {dashboard.recurring.slice(0, 12).map((item, index) => (
-                        <View key={`${item.merchant}-${item.amount}`} style={[styles.valueRow, index > 0 && styles.divider]}>
+                        <View key={`${item.merchant}-${item.amount}-${index}`} style={[styles.valueRow, index > 0 && styles.divider]}>
                             <View style={styles.flex}>
                                 <Text style={styles.structureName} numberOfLines={1}>{item.merchant}</Text>
                                 <Text style={styles.structureMeta}>
@@ -952,7 +992,7 @@ const createStyles = (
     typography: ReturnType<typeof useAppTheme>['typography']
 ) => StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.surface },
-    chrome: { paddingTop: 8, paddingBottom: 10 },
+    chrome: { paddingTop: 8, paddingBottom: 12 },
     headerBack: {
         minWidth: 72,
         minHeight: 44,
@@ -963,15 +1003,13 @@ const createStyles = (
     headerBackText: { fontSize: 15, color: colors.textPrimary, marginLeft: 2 },
     pressed: { opacity: 0.55 },
     filterSummary: {
+        alignSelf: 'stretch',
+        width: '100%',
         minHeight: 50,
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 8,
-        paddingHorizontal: 12,
-        backgroundColor: colors.surfaceContainer,
-        borderWidth: 1,
-        borderColor: colors.outlineVariant,
-        borderRadius: RADIUS.md,
+        paddingVertical: 4,
     },
     filterSummaryIcon: {
         width: 34,
@@ -980,12 +1018,14 @@ const createStyles = (
         justifyContent: 'center',
         borderRadius: 17,
         backgroundColor: colors.primaryContainer,
+        flexShrink: 0,
     },
-    filterSummaryCopy: { flex: 1, marginLeft: 10 },
-    filterSummaryTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-    filterSummarySub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-    filterAction: { fontSize: 12, fontWeight: '600', color: colors.primary, marginRight: 4 },
-    tabs: { marginTop: 10 },
+    filterSummaryCopy: { flex: 1, minWidth: 0, marginHorizontal: 10, gap: 2 },
+    filterSummaryTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, flexShrink: 1 },
+    filterSummarySub: { fontSize: 11, color: colors.textMuted, flexShrink: 1 },
+    filterActionWrap: { flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 },
+    filterAction: { fontSize: 13, fontWeight: '700', color: colors.primary },
+    tabs: { marginTop: 10, alignSelf: 'stretch', width: '100%' },
     content: { padding: 16, paddingBottom: 28 },
     bottomSpace: { height: 28 },
     modalDismiss: { flex: 1, width: '100%' },

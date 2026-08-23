@@ -22,6 +22,7 @@ const TAB_ICONS: Record<string, { focused: IoniconsName, default: IoniconsName }
     records: { focused: 'list', default: 'list-outline' },
     project: { focused: 'folder', default: 'folder-outline' },
     travel: { focused: 'airplane', default: 'airplane-outline' },
+    investment: { focused: 'trending-up', default: 'trending-up-outline' },
 };
 
 function TabBarIcon({
@@ -146,6 +147,10 @@ export default function TabLayout() {
                 <Tabs.Screen
                     name="travel"
                     options={{ title: '旅遊' }}
+                />
+                <Tabs.Screen
+                    name="investment"
+                    options={{ title: '投資' }}
                 />
             </Tabs>
             <HamburgerMenu visible={menuVisible} onClose={() => setMenuVisible(false)} />

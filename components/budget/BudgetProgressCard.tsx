@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { BudgetStatus, BudgetRule } from '../../types';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
@@ -48,7 +48,7 @@ const getStatusPalettes = (colors: AppColors) => ({
     },
 });
 
-export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({ status, onEdit, onDelete, onClick }) => {
+export const BudgetProgressCard = memo(function BudgetProgressCard({ status, onEdit, onDelete, onClick }: BudgetProgressCardProps) {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const palettes = useMemo(() => getStatusPalettes(colors), [colors]);
@@ -106,9 +106,9 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({ status, 
             </View>
         </Pressable>
     );
-};
+});
 
-export const OtherExpensesCard: React.FC<{ amount: number; onClick: () => void }> = ({ amount, onClick }) => {
+export const OtherExpensesCard = memo(function OtherExpensesCard({ amount, onClick }: { amount: number; onClick: () => void }) {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
@@ -131,7 +131,7 @@ export const OtherExpensesCard: React.FC<{ amount: number; onClick: () => void }
             </View>
         </Pressable>
     );
-};
+});
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography']) =>
     StyleSheet.create({

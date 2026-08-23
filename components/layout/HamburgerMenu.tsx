@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, Dimensions, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -77,11 +77,12 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const backdropOpacity = useSharedValue(0);
     const shouldOpenSettingsAfterClose = useRef(false);
     const shouldOpenCreditCardsAfterClose = useRef(false);
+    const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
     const [isAnimating, setIsAnimating] = useState(false);
     const [isSettingsVisible, setIsSettingsVisible] = useState(false);
     const [isCreditCardSettingsVisible, setIsCreditCardSettingsVisible] = useState(false);
 
-    const handleAnimationEnd = () => {
+    const handleAnimationEnd = useCallback(() => {
         setIsAnimating(false);
         if (shouldOpenSettingsAfterClose.current) {
             shouldOpenSettingsAfterClose.current = false;
@@ -90,7 +91,7 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
             shouldOpenCreditCardsAfterClose.current = false;
             setIsCreditCardSettingsVisible(true);
         }
-    };
+    }, []);
 
     const drawerStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: slideX.value }],
@@ -103,22 +104,29 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     useEffect(() => {
         if (actualVisible) {
             setIsAnimating(true);
-            slideX.value = withTiming(0, { duration: MOTION_DURATION.normal });
-            backdropOpacity.value = withTiming(1, { duration: MOTION_DURATION.normal });
-            // Reanimated shared values don't expose completion callbacks for open
-            // (no JS callback needed); release the render gate after the duration.
-            const timer = setTimeout(() => setIsAnimating(false), MOTION_DURATION.normal);
-            return () => clearTimeout(timer);
+            setHasOpenedOnce(true);
+            // Let React commit the drawer and Android create the modal window
+            // before the first animation frame, so mount work never competes
+            // with the entrance animation.
+            const raf = requestAnimationFrame(() => {
+                slideX.value = withTiming(0, { duration: MOTION_DURATION.normal });
+                backdropOpacity.value = withTiming(1, { duration: MOTION_DURATION.normal });
+                setTimeout(() => setIsAnimating(false), MOTION_DURATION.normal + 50);
+            });
+            return () => cancelAnimationFrame(raf);
         } else {
+            if (!hasOpenedOnce) return;
             setIsAnimating(true);
             slideX.value = withTiming(-MENU_WIDTH, { duration: MOTION_DURATION.fast }, (finished) => {
                 if (finished) runOnJS(handleAnimationEnd)();
             });
             backdropOpacity.value = withTiming(0, { duration: MOTION_DURATION.fast });
         }
-    }, [actualVisible]);
+    }, [actualVisible, hasOpenedOnce, handleAnimationEnd, slideX, backdropOpacity]);
 
-    if (!actualVisible && !isAnimating && !isSettingsVisible && !isCreditCardSettingsVisible) return null;
+    // Keep the tree mounted after the first open so subsequent opens skip the
+    // cold-mount cost that used to collide with the slide-in animation.
+    if (!hasOpenedOnce && !isAnimating) return null;
 
     const navigateTo = (path: string) => {
         actualOnClose();
@@ -281,14 +289,18 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                 </View>
             </Modal>
 
-            <SettingsModal
-                visible={isSettingsVisible}
-                onClose={() => setIsSettingsVisible(false)}
-            />
-            <CreditCardManagementModal
-                visible={isCreditCardSettingsVisible}
-                onClose={() => setIsCreditCardSettingsVisible(false)}
-            />
+            {isSettingsVisible ? (
+                <SettingsModal
+                    visible={isSettingsVisible}
+                    onClose={() => setIsSettingsVisible(false)}
+                />
+            ) : null}
+            {isCreditCardSettingsVisible ? (
+                <CreditCardManagementModal
+                    visible={isCreditCardSettingsVisible}
+                    onClose={() => setIsCreditCardSettingsVisible(false)}
+                />
+            ) : null}
         </>
     );
 }

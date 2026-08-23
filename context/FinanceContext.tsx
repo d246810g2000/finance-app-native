@@ -317,10 +317,12 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
         if (!updates.length) return;
         const patchMap = new Map(updates.map(u => [u.id, u.patch]));
         setRecords(prev => {
+            let changed = false;
             const updated = prev.map(r => {
                 const id = String(r.id || '');
                 const patch = patchMap.get(id);
                 if (!patch) return r;
+                changed = true;
                 const next: RawRecord = { ...r, ...patch, id: r.id };
                 if ('isReconciled' in patch && patch.isReconciled === undefined) {
                     delete next.isReconciled;
@@ -328,6 +330,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
                 delete (next as any).postponedToPeriod;
                 return next;
             });
+            if (!changed) return prev;
             enqueueSave(updated, false);
             return updated;
         });

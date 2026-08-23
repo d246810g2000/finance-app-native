@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useCallback, useLayoutEffect, memo } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useLayoutEffect, memo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
 import { useFinance } from '../../context/FinanceContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
@@ -97,6 +97,7 @@ export default function CalendarScreen() {
     const typeColors = useMemo(() => getTypeColors(colors), [colors]);
     const { records, deleteRecord, refreshRecords } = useFinance();
     const { searchFilters, setSearchFilters, setSearchModalVisible, setMenuVisible } = useFinanceUI();
+    const isFocused = useIsFocused();
     const [refreshing, setRefreshing] = useState(false);
 
     // View Mode & Date State
@@ -153,7 +154,17 @@ export default function CalendarScreen() {
         });
     }, [navigation, viewMode, showModePicker, searchFilters, colors.textPrimary, setSearchFilters, setSearchModalVisible, setMenuVisible]);
 
-    const allData = useMemo(() => transformRecordsForExport(records), [records]);
+    // Transform is O(n); skip while the tab is backgrounded and reuse last result.
+    const lastAllData = useRef<TransformedRecord[]>([]);
+    const allData = useMemo(
+        () => {
+            if (!isFocused) return lastAllData.current;
+            const next = transformRecordsForExport(records);
+            lastAllData.current = next;
+            return next;
+        },
+        [isFocused, records]
+    );
 
     const uniqueAccounts = useMemo(() => {
         const accounts = new Set<string>();

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from '
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useFinance } from '../../context/FinanceContext';
 import { AppColors, CATEGORY_COLORS, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
@@ -74,6 +75,7 @@ export default function TravelScreen() {
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const { records } = useFinance();
     const router = useRouter();
+    const isFocused = useIsFocused();
     const [sortKey, setSortKey] = useState<SortKey>('date_desc');
     const [yearFilter, setYearFilter] = useState<number | null>(null);
 
@@ -92,7 +94,13 @@ export default function TravelScreen() {
         setYearFilter(null);
     }, []);
 
-    const allProjects = useMemo(() => aggregateTravelProjects(records), [records]);
+    const lastProjects = useRef<TravelProject[] | null>(null);
+    const allProjects = useMemo(() => {
+        if (!isFocused && lastProjects.current) return lastProjects.current;
+        const next = aggregateTravelProjects(records);
+        lastProjects.current = next;
+        return next;
+    }, [isFocused, records]);
     const yearRanks = useMemo(() => rankTravelSpendByYear(allProjects), [allProjects]);
 
     const travelProjects = useMemo(() => {
