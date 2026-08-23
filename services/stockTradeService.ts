@@ -84,8 +84,8 @@ export const STOCK_NAME_ALIASES: Record<string, string> = {
   尖點: '8021',
 };
 
-const BUY_FORMAT = '買入：鴻海 250 100股';
-const SELL_FORMAT = '賣出：鴻海 240->255 100股';
+const BUY_FORMAT = '鴻海 250 100股';
+const SELL_FORMAT = '鴻海 240->255 100股';
 
 interface ParsedStockLine {
   name: string;
@@ -180,12 +180,13 @@ function parseQuantity(line: string): { shares?: number } {
   return Number.isFinite(value) && value > 0 ? { shares: value } : {};
 }
 
+function stripTradePrefix(line: string): string {
+  return line.replace(/^(買入|賣出|買|賣)\s*[:：]?\s*/, '');
+}
+
 function parseName(line: string): string {
-  const beforeNumber = line.match(/^[^\d+>\-→]+/)?.[0] || '';
-  return beforeNumber
-    .replace(/^賣/, '')
-    .replace(/[：:，,、|]/g, '')
-    .trim();
+  const beforeNumber = stripTradePrefix(line).match(/^[^\d+>\-→]+/)?.[0] || '';
+  return beforeNumber.replace(/[：:，,、|]/g, '').trim();
 }
 
 function parseSellPrices(line: string): { costPrice?: number; salePrice?: number } {
@@ -199,7 +200,7 @@ function parseSellPrices(line: string): { costPrice?: number; salePrice?: number
 }
 
 function parseBuyPrice(line: string): { purchasePrice?: number } {
-  const withoutQuantity = line
+  const withoutQuantity = stripTradePrefix(line)
     .replace(QUANTITY_PATTERN, '')
     .replace(/賣出/g, '');
   const numbers = withoutQuantity.match(/[0-9]+(?:\.[0-9]+)?/g) || [];
@@ -303,7 +304,7 @@ function parseRecordLines(
   }
 
   const expectedAmount = parsed.reduce((sum, item) => {
-    const price = side === 'buy' ? item.purchasePrice : item.salePrice;
+    const price = side === 'buy' ? item.purchasePrice : item.costPrice;
     return sum + (price || 0) * item.shares;
   }, 0);
   const sourceAmount = Number(record['金額'] || 0) || 0;

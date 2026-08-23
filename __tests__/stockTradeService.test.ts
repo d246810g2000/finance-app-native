@@ -30,11 +30,11 @@ const sellRecord = (overrides: Partial<RawRecord> = {}): RawRecord => ({
   '子分類': '一般轉帳',
   '收款(轉入)': '大戶 DAWHO',
   '付款(轉出)': '股票',
-  '金額': '25500',
+  '金額': '25000',
   '幣別': 'TWD',
   '商家(公司)': '',
   '專案': '',
-  '備註': '鴻海 250->255 100股 賣出',
+  '備註': '鴻海 250->255 100股',
   ...overrides,
 } as RawRecord);
 
@@ -65,6 +65,24 @@ describe('stock note parsing', () => {
       costPrice: 250,
       salePrice: 255,
     });
+  });
+
+  it('still parses legacy prefixed buy notes', () => {
+    const { trades, issues } = deriveStockData([
+      buyRecord({ '備註': '買入：鴻海 250 100股' }),
+    ]);
+
+    expect(issues).toHaveLength(0);
+    expect(trades[0]).toMatchObject({ name: '鴻海', purchasePrice: 250, shares: 100 });
+  });
+
+  it('validates a sell transfer against cost price, not sale proceeds', () => {
+    const { trades, issues } = deriveStockData([
+      sellRecord({ '金額': '25500' }),
+    ]);
+
+    expect(trades).toHaveLength(0);
+    expect(issues[0].reasons).toContain('amount_mismatch');
   });
 
   it('converts Chinese numeral board lots', () => {
