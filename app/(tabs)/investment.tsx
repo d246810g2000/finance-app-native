@@ -33,7 +33,11 @@ import {
   StockOwnership,
   StockTrade,
 } from '../../services/stockTradeService';
-import { StockRealizedTrade, type PortfolioInsights } from '../../services/portfolioService';
+import {
+  StockRealizedTrade,
+  type CurrentHolding,
+  type PortfolioInsights,
+} from '../../services/portfolioService';
 import {
   createDefaultInvestmentDateRange,
   matchesPosition,
@@ -367,11 +371,11 @@ export default function InvestmentScreen() {
   }, []);
 
   const {
+    currentHoldings,
     filteredIssues,
     filteredTrades,
     hasStockData: computedHasStockData,
     insights,
-    investmentTimelines,
     moverByPositionId,
     portfolio,
     rangeFilteredTrades,
@@ -402,9 +406,41 @@ export default function InvestmentScreen() {
     });
   }, [filteredTrades, openSheet, portfolio.realizedTrades]);
 
-  const openTimelineMonthTrades = useCallback((title: string, trades: StockTrade[]) => {
-    openSheet({ kind: 'monthTrades', title, trades });
-  }, [openSheet]);
+  const openHoldingDetail = useCallback((holding: CurrentHolding) => {
+    const positions = portfolio.positions.filter(position => (
+      (position.symbol || `name:${position.name}`) === holding.id
+    ));
+    const matchesHolding = (item: { name: string; symbol?: string }) => (
+      holding.symbol ? item.symbol === holding.symbol : item.name === holding.name
+    );
+    const ownership: StockOwnership = positions.every(position => position.ownership === 'shared')
+      ? 'shared'
+      : 'personal';
+
+    openSheet({
+      kind: 'position',
+      title: `${holding.name}${holding.symbol ? ` ${holding.symbol}` : ''}`,
+      position: {
+        id: holding.id,
+        name: holding.name,
+        symbol: holding.symbol,
+        account: positions.length === 1 ? positions[0].account : `${positions.length} 個帳戶`,
+        ownership,
+        shares: holding.shares,
+        averageCost: holding.averageCost,
+        totalCost: holding.totalCost,
+        latestPrice: holding.latestPrice,
+        latestPriceDate: holding.latestPriceDate,
+        marketValue: holding.marketValue,
+        unrealizedPnl: holding.unrealizedPnl,
+        unrealizedPnlPercent: holding.totalCost > 0 && holding.unrealizedPnl !== undefined
+          ? (holding.unrealizedPnl / holding.totalCost) * 100
+          : undefined,
+      },
+      trades: filteredTrades.filter(matchesHolding),
+      realized: portfolio.realizedTrades.filter(matchesHolding),
+    });
+  }, [filteredTrades, openSheet, portfolio.positions, portfolio.realizedTrades]);
 
   const loadPrices = useCallback(async (force = false) => {
     setSyncing(true);
@@ -794,9 +830,8 @@ export default function InvestmentScreen() {
           {summaryCard}
 
           <InvestmentTimelineSection
-            timelines={investmentTimelines}
-            trades={filteredTrades}
-            onOpenMonthTrades={openTimelineMonthTrades}
+            holdings={currentHoldings}
+            onOpenHolding={openHoldingDetail}
           />
 
           <View style={styles.section}>

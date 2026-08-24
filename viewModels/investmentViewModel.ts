@@ -7,8 +7,10 @@ import {
   withResolvedSymbols,
 } from '../services/stockTradeService';
 import {
+  buildCurrentHoldings,
   buildPortfolio,
   buildPortfolioInsights,
+  type CurrentHolding,
 } from '../services/portfolioService';
 import {
   filterByDateRange,
@@ -81,6 +83,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
   const moverByPositionId = new Map(insights.movers.map(mover => [mover.id, mover]));
 
   return {
+    currentHoldings: buildCurrentHoldings(portfolio.positions),
     filteredIssues,
     filteredTrades,
     hasStockData: stockData.trades.length > 0 || stockData.issues.length > 0,

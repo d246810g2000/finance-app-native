@@ -93,6 +93,21 @@ export interface PortfolioInsights {
   worstPosition?: StockPosition;
 }
 
+export interface CurrentHolding {
+  id: string;
+  name: string;
+  symbol?: string;
+  shares: number;
+  totalCost: number;
+  averageCost: number;
+  latestPrice?: number;
+  latestPriceDate?: string;
+  /** Present only when every underlying account lot has a current close. */
+  marketValue?: number;
+  unrealizedPnl?: number;
+  displayValue: number;
+}
+
 function groupKey(trade: StockTrade): string {
   return [trade.ownership, trade.account, trade.name].join('¦');
 }
@@ -144,6 +159,46 @@ function positionMergeKey(position: StockPosition): string {
 
 function positionDisplayName(position: StockPosition): string {
   return position.symbol ? `${position.name} ${position.symbol}` : position.name;
+}
+
+/** Merge account-level FIFO positions into one current balance per tradable symbol. */
+export function buildCurrentHoldings(positions: StockPosition[]): CurrentHolding[] {
+  const groups = new Map<string, StockPosition[]>();
+
+  positions.forEach(position => {
+    if (position.shares <= 0) return;
+    const key = positionMergeKey(position);
+    groups.set(key, [...(groups.get(key) || []), position]);
+  });
+
+  return Array.from(groups.entries()).map(([id, parts]) => {
+    const shares = parts.reduce((sum, position) => sum + position.shares, 0);
+    const totalCost = parts.reduce((sum, position) => sum + position.totalCost, 0);
+    const fullyPriced = parts.every(position => position.marketValue !== undefined);
+    const marketValue = fullyPriced
+      ? parts.reduce((sum, position) => sum + (position.marketValue || 0), 0)
+      : undefined;
+    const priced = parts.find(position => position.latestPrice !== undefined);
+    const latestPriceDate = parts
+      .map(position => position.latestPriceDate)
+      .filter((date): date is string => Boolean(date))
+      .sort()
+      .pop();
+
+    return {
+      id,
+      name: parts[0].name,
+      symbol: parts[0].symbol,
+      shares,
+      totalCost,
+      averageCost: shares > 0 ? totalCost / shares : 0,
+      latestPrice: priced?.latestPrice,
+      latestPriceDate,
+      marketValue,
+      unrealizedPnl: marketValue === undefined ? undefined : marketValue - totalCost,
+      displayValue: marketValue ?? totalCost,
+    };
+  }).sort((a, b) => b.displayValue - a.displayValue || a.name.localeCompare(b.name));
 }
 
 /** Merge personal + shared lots of the same symbol for overview allocation. */
