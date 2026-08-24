@@ -194,29 +194,69 @@ function AllocationChart({
 
 function AllocationLegend({
   items,
+  colors,
   styles,
+  holdingsById,
+  onSelectHolding,
+  onSelectOther,
 }: {
   items: PortfolioInsights['allocation'];
+  colors: AppColors;
   styles: InvestmentStyles;
+  holdingsById: Map<string, CurrentHolding>;
+  onSelectHolding: (holding: CurrentHolding) => void;
+  onSelectOther: () => void;
 }) {
   return (
     <View style={styles.allocationLegend}>
-      {items.map((item, index) => (
-        <View key={item.id} style={styles.legendItem}>
-          <View
-            style={[
-              styles.legendDot,
-              {
-                backgroundColor: item.id === '__other__'
-                  ? undefined
-                  : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-              },
+      {items.map((item, index) => {
+        const holding = holdingsById.get(item.id);
+        const isOther = item.id === '__other__';
+        const onPress = holding
+          ? () => onSelectHolding(holding)
+          : isOther
+            ? onSelectOther
+            : undefined;
+
+        return (
+          <Pressable
+            key={item.id}
+            onPress={onPress}
+            accessibilityRole={onPress ? 'button' : 'text'}
+            accessibilityLabel={holding
+              ? `${holding.name}，市值 ${formatMoney(holding.displayValue)}，佔比 ${formatPercent(item.weight)}`
+              : `${item.name}，佔比 ${formatPercent(item.weight)}`}
+            style={({ pressed }) => [
+              styles.legendItem,
+              onPress && styles.legendItemPressed,
+              pressed && onPress && { opacity: 0.72 },
             ]}
-          />
-          <Text style={styles.legendName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.legendValue}>{formatPercent(item.weight)}</Text>
-        </View>
-      ))}
+          >
+            <View
+              style={[
+                styles.legendDot,
+                {
+                  backgroundColor: isOther
+                    ? colors.outlineVariant
+                    : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+                },
+              ]}
+            />
+            <View style={styles.legendIdentity}>
+              <Text style={styles.legendName} numberOfLines={1}>{item.name}</Text>
+              <Text style={styles.legendMeta} numberOfLines={1}>
+                {holding
+                  ? `${holding.shares.toLocaleString()} 股 · ${formatMoney(holding.displayValue)}`
+                  : isOther ? '查看完整持股清單' : '無可評估部位'}
+              </Text>
+            </View>
+            <Text style={styles.legendValue}>{formatPercent(item.weight)}</Text>
+            {onPress ? (
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            ) : null}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -391,6 +431,11 @@ export default function InvestmentScreen() {
     startDate,
     endDate,
   }), [records, ownership, infoCache, priceCache, startDate, endDate]);
+
+  const holdingsById = useMemo(
+    () => new Map(currentHoldings.map(holding => [holding.id, holding])),
+    [currentHoldings],
+  );
 
   const resolveMoverForPosition = useCallback((position: typeof portfolio.positions[number]) => {
     const key = position.symbol || `name:${position.name}`;
@@ -831,9 +876,7 @@ export default function InvestmentScreen() {
           {summaryCard}
 
           <InvestmentTimelineSection
-            holdings={currentHoldings}
             assetTimeline={assetTimeline}
-            onOpenHolding={openHoldingDetail}
           />
 
           <View style={styles.section}>
@@ -895,7 +938,14 @@ export default function InvestmentScreen() {
             />
             <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
               <AllocationChart items={insights.allocation} colors={colors} styles={styles} />
-              <AllocationLegend items={insights.allocation} styles={styles} />
+              <AllocationLegend
+                items={insights.allocation}
+                colors={colors}
+                styles={styles}
+                holdingsById={holdingsById}
+                onSelectHolding={openHoldingDetail}
+                onSelectOther={() => openDetail('holdings')}
+              />
               {insights.accountAllocation.length > 0 ? (
                 <Text style={styles.accountSummary} numberOfLines={2}>
                   {insights.accountAllocation
@@ -1109,14 +1159,27 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   },
   allocationSegment: { height: '100%' },
   allocationLegend: { gap: 7 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingVertical: 4,
+  },
+  legendItemPressed: { opacity: 0.72 },
+  legendIdentity: { flex: 1, minWidth: 0 },
   legendDot: {
     width: 8,
     height: 8,
     ...withContinuousRadius(RADIUS.full),
     backgroundColor: colors.primary,
   },
-  legendName: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant },
+  legendName: { fontSize: 12, fontWeight: '600', color: colors.onSurfaceVariant },
+  legendMeta: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
   legendValue: {
     fontSize: 12,
     fontWeight: '700',
