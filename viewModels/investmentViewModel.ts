@@ -70,7 +70,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
   ));
   const quotes = input.priceCache ? getLatestQuotes(input.priceCache, symbols) : {};
   const previousQuotes = input.priceCache ? getPreviousQuotes(input.priceCache, symbols) : {};
-  const portfolio = buildPortfolio(filteredTrades, quotes);
+  const portfolio = buildPortfolio(stockData.trades, quotes);
   const insights = buildPortfolioInsights(
     portfolio.positions,
     portfolio.realizedTrades,
