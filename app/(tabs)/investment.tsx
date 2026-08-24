@@ -28,23 +28,17 @@ import InvestmentDetailSheet, {
 import InvestmentDrillHeader from '../../components/investment/InvestmentDrillHeader';
 import InvestmentTimelineSection from '../../components/investment/InvestmentTimelineSection';
 import {
-  deriveStockData,
   StockNoteIssue,
   StockNoteIssueReason,
   StockOwnership,
   StockTrade,
-  withResolvedSymbols,
 } from '../../services/stockTradeService';
-import { buildPortfolio, buildPortfolioInsights, StockRealizedTrade } from '../../services/portfolioService';
+import { StockRealizedTrade, type PortfolioInsights } from '../../services/portfolioService';
 import {
   createDefaultInvestmentDateRange,
-  filterByDateRange,
   matchesPosition,
-  sumRealizedPnl,
 } from '../../services/investmentFilters';
 import {
-  getLatestQuotes,
-  getPreviousQuotes,
   loadStockPriceCache,
   StockPriceCache,
   syncStockPrices,
@@ -54,7 +48,10 @@ import {
   StockInfoCache,
   syncStockInfo,
 } from '../../services/stockInfoService';
-import { computeInvestmentTimelines } from '../../services/investmentTimelineService';
+import {
+  buildInvestmentScreenData,
+  collectInvestmentSymbols,
+} from '../../viewModels/investmentViewModel';
 
 type OwnershipFilter = 'all' | StockOwnership;
 type DetailPanel = 'holdings' | 'realized' | 'trades' | 'issues';
@@ -158,7 +155,7 @@ function AllocationChart({
   colors,
   styles,
 }: {
-  items: ReturnType<typeof buildPortfolioInsights>['allocation'];
+  items: PortfolioInsights['allocation'];
   colors: AppColors;
   styles: InvestmentStyles;
 }) {
@@ -195,7 +192,7 @@ function AllocationLegend({
   items,
   styles,
 }: {
-  items: ReturnType<typeof buildPortfolioInsights>['allocation'];
+  items: PortfolioInsights['allocation'];
   styles: InvestmentStyles;
 }) {
   return (
@@ -226,7 +223,7 @@ function MoverRow({
   styles,
   onPress,
 }: {
-  mover: ReturnType<typeof buildPortfolioInsights>['movers'][number];
+  mover: PortfolioInsights['movers'][number];
   colors: AppColors;
   styles: InvestmentStyles;
   onPress?: () => void;
@@ -369,67 +366,26 @@ export default function InvestmentScreen() {
     setSheetContent(null);
   }, []);
 
-  const stockData = useMemo(() => {
-    const parsed = deriveStockData(records);
-    return {
-      ...parsed,
-      trades: withResolvedSymbols(parsed.trades, infoCache?.byName),
-    };
-  }, [records, infoCache]);
-  const filteredTrades = useMemo(() => (
-    ownership === 'all'
-      ? stockData.trades
-      : stockData.trades.filter(trade => trade.ownership === ownership)
-  ), [ownership, stockData.trades]);
-
-  const filteredIssues = useMemo(() => (
-    ownership === 'all'
-      ? stockData.issues
-      : stockData.issues.filter(issue => (
-        ownership === 'shared'
-          ? issue.account === '共享股票帳戶'
-          : issue.account !== '共享股票帳戶'
-      ))
-  ), [ownership, stockData.issues]);
-
-  const symbols = useMemo(() => Array.from(new Set(
-    filteredTrades
-      .map(trade => trade.symbol)
-      .filter((symbol): symbol is string => Boolean(symbol)),
-  )), [filteredTrades]);
-
-  const quotes = useMemo(() => (
-    priceCache ? getLatestQuotes(priceCache, symbols) : {}
-  ), [priceCache, symbols]);
-  const portfolio = useMemo(() => buildPortfolio(filteredTrades, quotes), [filteredTrades, quotes]);
-  const previousQuotes = useMemo(() => (
-    priceCache ? getPreviousQuotes(priceCache, symbols) : {}
-  ), [priceCache, symbols]);
-  const insights = useMemo(() => buildPortfolioInsights(
-    portfolio.positions,
-    portfolio.realizedTrades,
-    previousQuotes,
-  ), [portfolio.positions, portfolio.realizedTrades, previousQuotes]);
-
-  const rangeRealizedTrades = useMemo(() => (
-    filterByDateRange(portfolio.realizedTrades, startDate, endDate)
-  ), [portfolio.realizedTrades, startDate, endDate]);
-
-  const periodRealizedPnl = useMemo(
-    () => sumRealizedPnl(rangeRealizedTrades),
-    [rangeRealizedTrades],
-  );
-
-  const rangeFilteredTrades = useMemo(() => (
-    filterByDateRange(filteredTrades, startDate, endDate)
-      .sort((a, b) => b.date.localeCompare(a.date) || b.lineNumber - a.lineNumber)
-  ), [filteredTrades, startDate, endDate]);
-
-  const moverByPositionId = useMemo(() => {
-    const map = new Map<string, typeof insights.movers[number]>();
-    insights.movers.forEach(mover => map.set(mover.id, mover));
-    return map;
-  }, [insights.movers]);
+  const {
+    filteredIssues,
+    filteredTrades,
+    hasStockData: computedHasStockData,
+    insights,
+    investmentTimelines,
+    moverByPositionId,
+    portfolio,
+    rangeFilteredTrades,
+    rangeRealizedTrades,
+    periodRealizedPnl,
+    stockData,
+  } = useMemo(() => buildInvestmentScreenData({
+    records,
+    ownership,
+    infoCache,
+    priceCache,
+    startDate,
+    endDate,
+  }), [records, ownership, infoCache, priceCache, startDate, endDate]);
 
   const resolveMoverForPosition = useCallback((position: typeof portfolio.positions[number]) => {
     const key = position.symbol || `name:${position.name}`;
@@ -446,11 +402,6 @@ export default function InvestmentScreen() {
     });
   }, [filteredTrades, openSheet, portfolio.realizedTrades]);
 
-  const investmentTimelines = useMemo(
-    () => computeInvestmentTimelines(filteredTrades),
-    [filteredTrades],
-  );
-
   const openTimelineMonthTrades = useCallback((title: string, trades: StockTrade[]) => {
     openSheet({ kind: 'monthTrades', title, trades });
   }, [openSheet]);
@@ -461,12 +412,11 @@ export default function InvestmentScreen() {
       const infoResult = await syncStockInfo({ force });
       setInfoCache(infoResult.cache);
 
-      const nextSymbols = Array.from(new Set(
-        withResolvedSymbols(deriveStockData(records).trades, infoResult.cache.byName)
-          .filter(trade => ownership === 'all' || trade.ownership === ownership)
-          .map(trade => trade.symbol)
-          .filter((symbol): symbol is string => Boolean(symbol)),
-      ));
+      const nextSymbols = collectInvestmentSymbols({
+        records,
+        ownership,
+        byName: infoResult.cache.byName,
+      });
 
       if (nextSymbols.length === 0) {
         setSyncErrors(infoResult.errors);
@@ -506,7 +456,7 @@ export default function InvestmentScreen() {
   const lastSyncLabel = priceCache?.syncedAt
     ? new Date(priceCache.syncedAt).toLocaleString('zh-TW', { hour12: false })
     : '尚未同步';
-  const hasStockData = stockData.trades.length > 0 || stockData.issues.length > 0;
+  const hasStockData = computedHasStockData;
 
   const ownershipOptions = [
     { value: 'all' as OwnershipFilter, label: '全部', icon: 'apps-outline' as const },

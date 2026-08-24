@@ -322,7 +322,7 @@ const createStyles = (
 ) => StyleSheet.create({
   dismissArea: { flex: 1 },
   container: {
-    backgroundColor: colors.surfaceContainer,
+    backgroundColor: colors.surfaceContainerHigh,
     borderTopLeftRadius: RADIUS.lg,
     borderTopRightRadius: RADIUS.lg,
     overflow: 'hidden',

@@ -22,11 +22,12 @@ export type RecordsRepositoryOptions = {
   client?: FileSystemRecordsClient;
 };
 
-/** Derived dates are query state; keeping them out of storage preserves the legacy JSON shape. */
+/** Derived dates and deprecated local-only fields never belong in storage. */
 export function sanitizeRecordsForStorage(records: RawRecord[]): RawRecord[] {
   return records.map(record => {
     const persisted: RawRecord = { ...record };
     delete persisted.parsedDate;
+    delete persisted.postponedToPeriod;
     return persisted;
   });
 }

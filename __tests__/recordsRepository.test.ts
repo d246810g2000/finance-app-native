@@ -12,6 +12,7 @@ describe('file records repository', () => {
       '日期': '20260702',
       '金額': '100',
       parsedDate: new Date('2026-07-02'),
+      postponedToPeriod: '2026-06',
     } as RawRecord;
     const repository = createFileSystemRecordsRepository({
       client: {

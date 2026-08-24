@@ -45,6 +45,7 @@ export type AppColors = {
     // M3 semantic roles
     surface: AppColorValue;
     surfaceContainer: AppColorValue;
+    surfaceContainerHigh: AppColorValue;
     surfaceVariant: AppColorValue;
     onSurface: AppColorValue;
     onSurfaceVariant: AppColorValue;
@@ -66,6 +67,7 @@ export const PRIMARY_SEED = '#2563EB';
 const LIGHT_STATIC = {
     surface: '#F7F8FC',
     surfaceContainer: '#FFFFFF',
+    surfaceContainerHigh: '#F1F5FB',
     surfaceVariant: '#E8EDF5',
     onSurface: '#0F172A',
     onSurfaceVariant: '#475569',
@@ -98,6 +100,7 @@ const LIGHT_STATIC = {
 const DARK_STATIC = {
     surface: '#0F172A',
     surfaceContainer: '#192134',
+    surfaceContainerHigh: '#212C40',
     surfaceVariant: '#2A3650',
     onSurface: '#FFFFFF',
     onSurfaceVariant: '#B9C5D8',
@@ -132,6 +135,7 @@ function buildPalette(s: typeof LIGHT_STATIC | typeof DARK_STATIC, isDark: boole
         // M3
         surface: s.surface,
         surfaceContainer: s.surfaceContainer,
+        surfaceContainerHigh: s.surfaceContainerHigh,
         surfaceVariant: s.surfaceVariant,
         onSurface: s.onSurface,
         onSurfaceVariant: s.onSurfaceVariant,

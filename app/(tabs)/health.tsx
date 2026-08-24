@@ -15,16 +15,14 @@ import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useFinance } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
-import { TransformedRecord } from '../../types';
 import { AppColors, RADIUS, SHADOWS, withContinuousRadius } from '../../theme';
 import {
-    buildHealthDashboard,
-    getIncomeExpenseRows,
     HEALTH_SCORE_WEIGHTS,
     shiftMonth,
     type Achievement,
     type HealthInsight,
 } from '../../services/financialHealthService';
+import { buildHealthScreenData, type HealthDashboard } from '../../viewModels/healthViewModel';
 import { PROJECT_DEFINITIONS } from '../../services/projectDefinitions';
 import PageChrome from '../../components/layout/PageChrome';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
@@ -52,8 +50,6 @@ const SCORE_PARTS = [
 const DAILY_EXCLUDED_PROJECTS = PROJECT_DEFINITIONS
     .filter((item) => item.owner === 'capital' || item.owner === 'event')
     .map((item) => item.name);
-
-const EMPTY_PREPARED_ROWS: TransformedRecord[] = [];
 
 const TAB_OPTIONS = [
     { value: 'overview', label: '總覽' },
@@ -130,46 +126,35 @@ export default function HealthScreen() {
 
     // Heavy aggregation is gated behind focus so background tabs don't burn JS time
     // when records change while the user is on another screen.
-    const preparedRows = useMemo(
-        () => (isFocused ? getIncomeExpenseRows(records) : EMPTY_PREPARED_ROWS),
-        [isFocused, records]
-    );
-
-    const healthScope = useMemo(() => {
-        const accountFilter =
-            accountViewType === 'personal'
-                ? personalAccounts
-                : accountViewType === 'shared'
-                    ? sharedAccounts
-                    : null;
-        return {
-            accountFilter,
-            isSplitShared: !!budgetConfig.isSplitEnabled,
-            sharedAccounts,
-            excludedProjects: healthMode === 'daily' ? DAILY_EXCLUDED_PROJECTS : [],
-            excludeTravelProjects: healthMode === 'daily',
-            preparedRows,
-        };
-    }, [
+    const lastGoodDashboard = useRef<ReturnType<typeof buildHealthScreenData>['dashboard'] | null>(null);
+    const { dashboard } = useMemo(() => buildHealthScreenData({
+        accountViewType,
+        personalAccounts,
+        sharedAccounts,
+        isSplitShared: !!budgetConfig.isSplitEnabled,
+        dailyOnly: healthMode === 'daily',
+        excludedDailyProjects: DAILY_EXCLUDED_PROJECTS,
+        records,
+        targetMonth,
+        budgetConfig,
+        budgets,
+        isFocused,
+        previousDashboard: lastGoodDashboard.current,
+    }), [
         accountViewType,
         personalAccounts,
         sharedAccounts,
         budgetConfig.isSplitEnabled,
         healthMode,
-        preparedRows,
+        records,
+        targetMonth,
+        budgetConfig,
+        budgets,
+        isFocused,
     ]);
-
-    const lastGoodDashboard = useRef<ReturnType<typeof buildHealthDashboard> | null>(null);
-
-    const dashboard = useMemo(
-        () => {
-            if (!isFocused) return lastGoodDashboard.current ?? buildHealthDashboard([], targetMonth, budgetConfig, budgets, healthScope);
-            const next = buildHealthDashboard(records, targetMonth, budgetConfig, budgets, healthScope);
-            lastGoodDashboard.current = next;
-            return next;
-        },
-        [isFocused, records, targetMonth, budgetConfig, budgets, healthScope]
-    );
+    if (isFocused && dashboard !== lastGoodDashboard.current) {
+        lastGoodDashboard.current = dashboard;
+    }
 
     const chartWidth = Math.max(240, width - 104);
     const monthLabel = `${targetMonth.getFullYear()}年${targetMonth.getMonth() + 1}月`;
@@ -384,7 +369,7 @@ const OverviewTab = memo(function OverviewTab({
     styles,
     onShowAlerts,
 }: {
-    dashboard: ReturnType<typeof buildHealthDashboard>;
+    dashboard: HealthDashboard;
     topAlerts: HealthInsight[];
     scoreSummary: string;
     scoreColor: (score: number | null) => string;
@@ -572,7 +557,7 @@ const StructureTab = memo(function StructureTab({
     colors,
     styles,
 }: {
-    dashboard: ReturnType<typeof buildHealthDashboard>;
+    dashboard: HealthDashboard;
     colors: AppColors;
     styles: HealthStyles;
 }) {
@@ -664,7 +649,7 @@ const TrendsTab = memo(function TrendsTab({
     styles,
     chartsReady,
 }: {
-    dashboard: ReturnType<typeof buildHealthDashboard>;
+    dashboard: HealthDashboard;
     chartWidth: number;
     colors: AppColors;
     styles: HealthStyles;
@@ -835,7 +820,7 @@ const AlertsTab = memo(function AlertsTab({
     colors,
     styles,
 }: {
-    dashboard: ReturnType<typeof buildHealthDashboard>;
+    dashboard: HealthDashboard;
     colors: AppColors;
     styles: HealthStyles;
 }) {

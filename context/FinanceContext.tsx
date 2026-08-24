@@ -208,7 +208,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
                 id: r.id || Math.random().toString(36).substring(2, 11) + Date.now().toString(36)
             }));
             setRecords(withIds);
-            recordSynchronizerRef.current.syncNotifications(withIds).catch((error: unknown) => {
+            recordSynchronizerRef.current.sync(withIds).catch((error: unknown) => {
                 console.error('Failed to synchronize notifications', error);
             });
         } catch (error) {
