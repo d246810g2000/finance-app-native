@@ -1,4 +1,5 @@
 import { StockTrade } from './stockTradeService';
+import type { StockPriceQuote } from './stockPriceService';
 
 export const PORTFOLIO_TIMELINE_ID = '__portfolio__';
 
@@ -18,6 +19,11 @@ export type InvestmentTimeline = {
   lastDate: string;
   monthSpan: number;
   monthlyAccumulation: InvestmentTimelineMonth[];
+};
+
+export type InvestmentAssetTimelinePoint = {
+  month: string;
+  value: number;
 };
 
 function formatYmdDisplay(ymd: string): string {
@@ -44,6 +50,24 @@ export function timelineStockKey(trade: StockTrade): string {
   return trade.symbol || `name:${trade.name}`;
 }
 
+function nextMonth(month: string): string {
+  const [yearText, monthText] = month.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  if (monthIndex === 11) return `${year + 1}-01`;
+  return `${year}-${String(monthIndex + 2).padStart(2, '0')}`;
+}
+
+function compareTrades(left: StockTrade, right: StockTrade): number {
+  return left.date.localeCompare(right.date)
+    || left.lineNumber - right.lineNumber
+    || left.id.localeCompare(right.id);
+}
+
+function tradeUnitPrice(trade: StockTrade): number | undefined {
+  return trade.side === 'buy' ? trade.purchasePrice : trade.salePrice;
+}
+
 /** Positive = capital in (buy), negative = capital out at cost (sell). */
 export function tradeNetFlow(trade: StockTrade): number | null {
   if (trade.side === 'buy') {
@@ -64,6 +88,68 @@ export function tradesInTimelineMonth(
     : trades.filter(trade => timelineStockKey(trade) === timelineId);
 
   return scoped.filter(trade => ymdToMonth(trade.date) === monthKey);
+}
+
+/**
+ * Value each month's share balance at the latest close. Account-level balances are
+ * clamped at zero because CSV exports may omit lots that existed before the export.
+ */
+export function computeInvestmentAssetTimeline(
+  inputTrades: StockTrade[],
+  quotes: Record<string, StockPriceQuote> = {},
+): InvestmentAssetTimelinePoint[] {
+  const trades = inputTrades
+    .filter(trade => ymdToMonth(trade.date) !== null)
+    .sort(compareTrades);
+  if (trades.length === 0) return [];
+
+  const prices = new Map<string, number>();
+  [...trades].reverse().forEach(trade => {
+    const price = tradeUnitPrice(trade);
+    if (price && price > 0 && !prices.has(timelineStockKey(trade))) {
+      prices.set(timelineStockKey(trade), price);
+    }
+  });
+  Object.values(quotes).forEach(quote => {
+    if (quote.symbol && quote.close > 0) prices.set(quote.symbol, quote.close);
+  });
+
+  const tradesByMonth = new Map<string, StockTrade[]>();
+  const months: string[] = [];
+  trades.forEach(trade => {
+    const month = ymdToMonth(trade.date)!;
+    if (tradesByMonth.size === 0 || month.localeCompare(months[months.length - 1]) > 0) {
+      months.push(month);
+    }
+    tradesByMonth.set(month, [...(tradesByMonth.get(month) || []), trade]);
+  });
+
+  const firstMonth = months[0];
+  const lastMonth = months[months.length - 1];
+  const balances = new Map<string, { symbolKey: string; shares: number }>();
+  const timeline: InvestmentAssetTimelinePoint[] = [];
+
+  for (let month = firstMonth; month.localeCompare(lastMonth) <= 0; month = nextMonth(month)) {
+    tradesByMonth.get(month)?.forEach(trade => {
+      const groupKey = [trade.ownership, trade.account, timelineStockKey(trade)].join('¦');
+      const balance = balances.get(groupKey) || { symbolKey: timelineStockKey(trade), shares: 0 };
+      balance.shares += trade.side === 'buy' ? trade.shares : -trade.shares;
+      balances.set(groupKey, balance);
+    });
+
+    balances.forEach(balance => {
+      if (balance.shares < 0) balance.shares = 0;
+    });
+
+    const value = Array.from(balances.values()).reduce((sum, balance) => {
+      if (balance.shares <= 0) return sum;
+      return sum + balance.shares * (prices.get(balance.symbolKey) || 0);
+    }, 0);
+
+    timeline.push({ month, value: Math.round(value) });
+  }
+
+  return timeline;
 }
 
 function buildTimeline(

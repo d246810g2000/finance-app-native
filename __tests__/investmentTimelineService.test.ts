@@ -1,4 +1,5 @@
 import {
+  computeInvestmentAssetTimeline,
   computeInvestmentTimelines,
   PORTFOLIO_TIMELINE_ID,
   tradeNetFlow,
@@ -21,6 +22,68 @@ function makeTrade(partial: Partial<StockTrade> & Pick<StockTrade, 'id' | 'date'
 }
 
 describe('investmentTimelineService', () => {
+  it('builds a non-negative asset timeline from share balances and current prices', () => {
+    const trades = [
+      makeTrade({
+        id: 'buy',
+        date: '20260115',
+        side: 'buy',
+        name: '鴻海',
+        symbol: '2317',
+        purchasePrice: 100,
+        shares: 10,
+      }),
+      makeTrade({
+        id: 'sell',
+        date: '20260210',
+        side: 'sell',
+        name: '鴻海',
+        symbol: '2317',
+        costPrice: 100,
+        salePrice: 110,
+        shares: 10,
+      }),
+    ];
+
+    expect(computeInvestmentAssetTimeline(trades, {
+      '2317': { symbol: '2317', date: '20260220', close: 120 },
+    })).toEqual([
+      { month: '2026-01', value: 1200 },
+      { month: '2026-02', value: 0 },
+    ]);
+  });
+
+  it('clamps missing opening inventory to zero instead of producing negative assets', () => {
+    const trades = [
+      makeTrade({
+        id: 'sell-without-lot',
+        date: '20260110',
+        side: 'sell',
+        name: '鴻海',
+        symbol: '2317',
+        costPrice: 100,
+        salePrice: 110,
+        shares: 5,
+      }),
+      makeTrade({
+        id: 'buy',
+        date: '20260210',
+        side: 'buy',
+        name: '鴻海',
+        symbol: '2317',
+        purchasePrice: 100,
+        shares: 5,
+      }),
+    ];
+
+    expect(computeInvestmentAssetTimeline(trades, {
+      '2317': { symbol: '2317', date: '20260220', close: 120 },
+    })).toEqual([
+      { month: '2026-01', value: 0 },
+      { month: '2026-02', value: 600 },
+    ]);
+  });
+
   it('computes net flow for buys and sells', () => {
     expect(tradeNetFlow(makeTrade({
       id: '1',

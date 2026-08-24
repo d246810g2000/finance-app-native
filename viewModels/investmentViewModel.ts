@@ -22,7 +22,7 @@ import {
   StockPriceCache,
 } from '../services/stockPriceService';
 import { StockInfoCache } from '../services/stockInfoService';
-import { computeInvestmentTimelines } from '../services/investmentTimelineService';
+import { computeInvestmentAssetTimeline } from '../services/investmentTimelineService';
 
 export interface InvestmentViewModelInput {
   records: RawRecord[];
@@ -88,7 +88,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
     filteredTrades,
     hasStockData: stockData.trades.length > 0 || stockData.issues.length > 0,
     insights,
-    investmentTimelines: computeInvestmentTimelines(filteredTrades),
+    assetTimeline: computeInvestmentAssetTimeline(stockData.trades, quotes),
     moverByPositionId,
     portfolio,
     rangeFilteredTrades,

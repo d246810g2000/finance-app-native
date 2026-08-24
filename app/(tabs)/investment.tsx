@@ -371,6 +371,7 @@ export default function InvestmentScreen() {
   }, []);
 
   const {
+    assetTimeline,
     currentHoldings,
     filteredIssues,
     filteredTrades,
@@ -831,6 +832,7 @@ export default function InvestmentScreen() {
 
           <InvestmentTimelineSection
             holdings={currentHoldings}
+            assetTimeline={assetTimeline}
             onOpenHolding={openHoldingDetail}
           />
 
