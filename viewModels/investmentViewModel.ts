@@ -70,7 +70,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
   ));
   const quotes = input.priceCache ? getLatestQuotes(input.priceCache, symbols) : {};
   const previousQuotes = input.priceCache ? getPreviousQuotes(input.priceCache, symbols) : {};
-  const portfolio = buildPortfolio(stockData.trades, quotes);
+  const portfolio = buildPortfolio(filteredTrades, quotes);
   const insights = buildPortfolioInsights(
     portfolio.positions,
     portfolio.realizedTrades,
@@ -88,7 +88,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
     filteredTrades,
     hasStockData: stockData.trades.length > 0 || stockData.issues.length > 0,
     insights,
-    assetTimeline: computeInvestmentAssetTimeline(stockData.trades, quotes),
+    assetTimeline: computeInvestmentAssetTimeline(filteredTrades, quotes),
     moverByPositionId,
     portfolio,
     rangeFilteredTrades,
