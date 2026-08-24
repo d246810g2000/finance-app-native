@@ -8,6 +8,8 @@ import type { CurrentHolding } from '../../services/portfolioService';
 import type { InvestmentAssetTimelinePoint } from '../../services/investmentTimelineService';
 
 const CHART_WIDTH = Dimensions.get('window').width - 64;
+const DEFAULT_VISIBLE_MONTHS = 12;
+const CHART_SPACING = 32;
 
 function formatMoney(value: number): string {
   return `$${Math.round(value).toLocaleString()}`;
@@ -86,6 +88,9 @@ export default function InvestmentTimelineSection({
           <Text style={styles.chartCaption}>
             資產累積時間軸 · 最新收盤價評價
           </Text>
+          <Text style={styles.chartHint}>
+            預設顯示最近 12 個月，左右滑動可看更早紀錄
+          </Text>
           <LineChart
             data={chartData}
             areaChart
@@ -99,13 +104,14 @@ export default function InvestmentTimelineSection({
             hideDataPoints={false}
             maxValue={maxValue * 1.25}
             noOfSections={3}
-            spacing={Math.max(
-              28,
-              Math.min(48, (CHART_WIDTH - 48) / Math.max(chartData.length - 1, 1)),
-            )}
+            spacing={CHART_SPACING}
             initialSpacing={12}
-            endSpacing={20}
-            scrollToEnd
+            endSpacing={12}
+            scrollToIndex={Math.max(0, chartData.length - DEFAULT_VISIBLE_MONTHS)}
+            scrollAnimation={false}
+            showScrollIndicator
+            indicatorColor="default"
+            nestedScrollEnabled
             rulesColor={colors.divider}
             yAxisThickness={0}
             xAxisThickness={0}
@@ -165,5 +171,10 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     fontWeight: '700',
     color: colors.onSurfaceVariant,
     marginBottom: 8,
+  },
+  chartHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginBottom: 10,
   },
 });
