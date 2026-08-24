@@ -476,8 +476,8 @@ export default function InvestmentScreen() {
       const result = await syncStockPrices(nextSymbols, { force });
       setPriceCache(result.cache);
       setSyncErrors([...infoResult.errors, ...result.errors]);
-    } catch (error: any) {
-      setSyncErrors([error?.message || '價格同步失敗']);
+    } catch (error: unknown) {
+      setSyncErrors([error instanceof Error ? error.message : '價格同步失敗']);
       setInfoCache(await loadStockInfoCache());
       setPriceCache(await loadStockPriceCache());
     } finally {

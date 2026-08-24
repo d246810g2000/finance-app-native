@@ -1,37 +1,38 @@
 
 import { RawRecord, TransformedRecord, AccountsSummaryMap, TrendDataPoint, BudgetGlobalConfig, CustomAccountMappings, ExpenseSpike } from '../types';
-import { ACCOUNT_CATEGORIES, EXCHANGE_RATES, SHARED_ACCOUNTS, PERSONAL_ACCOUNTS } from '../constants';
+import { ACCOUNT_CATEGORIES, EXCHANGE_RATES } from '../constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import iconv from 'iconv-lite';
 import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
+import {
+  findUnmappedAccounts as findUnmappedAccountsCore,
+  getCategoryForAccount as getCategoryForAccountCore,
+  isPaidOnBehalfRecord,
+  isSharedAccountName as isSharedAccountNameCore,
+  resolveExpenseSplitFactor as resolveExpenseSplitFactorCore,
+} from './core/attribution';
+import {
+  convertAmountToTwd,
+  endOfDay,
+  getDateKey as getIsoDateKey,
+  isValidDate,
+  normalizeDate,
+  parseAmount,
+} from './core/parsing';
+import {
+  classifyStatsKind,
+  normalizeTransaction,
+} from './core/transactionNormalization';
 
-// 輔助函數：根據帳戶名稱獲取其類別
-export const getCategoryForAccount = (accountName: string, customMappings: CustomAccountMappings = {}): string => {
-  if (customMappings && customMappings[accountName]) {
-    return customMappings[accountName].category;
-  }
-  for (const category in ACCOUNT_CATEGORIES) {
-    if (ACCOUNT_CATEGORIES[category].includes(accountName)) {
-      return category;
-    }
-  }
-  return '未分類';
-};
-
-// 輔助函數：取得時區安全的日期 Key (YYYY-MM-DD)
-const getDateKey = (d: Date): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
+export const getCategoryForAccount = getCategoryForAccountCore;
 
 // 輔助函數：讀取檔案內容並解碼 (支援 Web 與 Native)
-export const readFileContent = async (fileObjOrUri: any, encoding: string): Promise<string> => {
+export const readFileContent = async (fileObjOrUri: unknown, encoding: string): Promise<string> => {
   try {
     // 判斷是否在 Web 環境 (直接傳入 File object)
-    if (fileObjOrUri instanceof File || (fileObjOrUri && typeof fileObjOrUri.text === 'function')) {
+    const isWebFile = typeof File !== 'undefined' && fileObjOrUri instanceof File;
+    if (isWebFile) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -62,7 +63,9 @@ export const readFileContent = async (fileObjOrUri: any, encoding: string): Prom
     }
 
     // Native 環境，原本的處理邏輯
-    const fileUri = typeof fileObjOrUri === 'string' ? fileObjOrUri : fileObjOrUri.uri;
+    const fileUri = typeof fileObjOrUri === 'string'
+      ? fileObjOrUri
+      : String((fileObjOrUri as { uri?: unknown } | null)?.uri ?? '');
     if (encoding === 'big5') {
       const base64 = await FileSystem.readAsStringAsync(fileUri, {
         encoding: FileSystem.EncodingType.Base64
@@ -75,8 +78,9 @@ export const readFileContent = async (fileObjOrUri: any, encoding: string): Prom
       encoding: FileSystem.EncodingType.UTF8
     });
     return text;
-  } catch (error: any) {
-    throw new Error(`無法讀取檔案或編碼不支援 (${encoding})：${error?.message ?? ''}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    throw new Error(`無法讀取檔案或編碼不支援 (${encoding})：${message}`);
   }
 };
 
@@ -118,7 +122,7 @@ export const parseCsvData = (csvText: string): RawRecord[] => {
 
   const rows = lines.slice(2).map(line => {
     const values = parseCsvLine(line);
-    const rowObject: { [key: string]: string | any } = {};
+    const rowObject: Record<string, string> = {};
     headers.forEach((header, index) => {
       // 移除引號與 BOM (Byte Order Mark)
       const cleanHeader = header.replace(/^"|"$/g, '').replace(/^\uFEFF/, '').trim();
@@ -268,7 +272,7 @@ export const upsertRecordsById = (
         merged.isReconciled = prev.isReconciled;
       }
       // 清理已廢棄的延後入帳欄位
-      delete (merged as any).postponedToPeriod;
+      delete merged.postponedToPeriod;
       map.set(id, merged);
       updated += 1;
     } else {
@@ -347,9 +351,7 @@ export const aggregateMerchants = (
     // 略過純分類後備
     if (/^(餐飲食品|居家生活|運輸交通|休閒娛樂|人情交際|其他|費用|醫療保健|汽機車|理財投資)-/.test(name)) return;
 
-    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
-    const currency = row['幣別'];
-    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+    const amount = Math.abs(convertAmountToTwd(row['金額'], row['幣別']));
 
     if (!map[name]) map[name] = { total: 0, count: 0 };
     map[name].total += amount;
@@ -455,11 +457,7 @@ export const isSharedAccountName = (
   accountName: string,
   customMappings: CustomAccountMappings = {}
 ): boolean => {
-  if (!accountName) return false;
-  const mapping = customMappings[accountName];
-  if (mapping?.type === 'shared') return true;
-  if (mapping?.type === 'personal') return false;
-  return SHARED_ACCOUNTS.includes(accountName);
+  return isSharedAccountNameCore(accountName, customMappings);
 };
 
 /**
@@ -474,12 +472,7 @@ export const resolveExpenseSplitFactor = (
     isSplitShared?: boolean;
     customMappings?: CustomAccountMappings;
   } = {}
-): number => {
-  const { splitProjects = null, isSplitShared = false, customMappings = {} } = options;
-  if (project && splitProjects?.includes(project)) return 0.5;
-  if (isSplitShared && payAccount && isSharedAccountName(payAccount, customMappings)) return 0.5;
-  return 1;
-};
+): number => resolveExpenseSplitFactorCore(project, payAccount, options);
 
 export type BurdenSplitSummary = {
   personalFull: number;
@@ -515,9 +508,7 @@ export const summarizePersonalVsSharedBurden = (
     if (cat === 'SYSTEM' || cat === '代付' || cat === '轉帳') return;
     if (cat === '其他' && row['子分類'] === '代付') return;
 
-    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
-    const currency = row['幣別'];
-    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+    const amount = Math.abs(convertAmountToTwd(row['金額'], row['幣別']));
 
     const project = row['專案'] || '';
     const isSharedBurden =
@@ -585,9 +576,7 @@ export const computeProjectLifecycles = (
     // 略過未來排程／預記帳
     if (ymd.length >= 8 && ymd > todayYmd) return;
 
-    let amount = Math.abs(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0);
-    const currency = row['幣別'];
-    if (EXCHANGE_RATES[currency]) amount *= EXCHANGE_RATES[currency];
+    const amount = Math.abs(convertAmountToTwd(row['金額'], row['幣別']));
 
     if (!buckets[name]) buckets[name] = { expense: 0, count: 0, dates: [], byMonth: {} };
     buckets[name].expense += amount;
@@ -638,11 +627,11 @@ export const initializeAccountData = (rawRecords: RawRecord[], accountFilter: st
   if (accountFilter) {
     accountFilter.forEach(account => allKnownAccountNames.add(account));
   } else {
-    Object.values(ACCOUNT_CATEGORIES).flat().forEach(account => allKnownAccountNames.add(account));
+    Object.values(ACCOUNT_CATEGORIES).flat().forEach(account => allKnownAccountNames.add(String(account)));
     Object.keys(customMappings).forEach(account => allKnownAccountNames.add(account));
     rawRecords.forEach(row => {
-      if (row['收款(轉入)']) allKnownAccountNames.add(row['收款(轉入)']);
-      if (row['付款(轉出)']) allKnownAccountNames.add(row['付款(轉出)']);
+      if (row['收款(轉入)']) allKnownAccountNames.add(String(row['收款(轉入)']));
+      if (row['付款(轉出)']) allKnownAccountNames.add(String(row['付款(轉出)']));
     });
   }
 
@@ -670,47 +659,30 @@ export const filterAndSortRecords = (rawRecords: RawRecord[], startDate: Date | 
       const recordDateStr = typeof row['日期'] === 'string' ? row['日期'] : '';
       return !(recordDateStr.length < 8);
     })
-    .map(row => {
-      const dateStr = (row['日期'] || '').toString();
-      // 使用共用工具解析日期，解決 Hermes 兼容性問題
-      const date = parseFormattedDate(dateStr);
-
-      // 兼容性補強：確保 '分類' 欄位存在
-      const category = row['分類'] || row['主類別'] || '';
-
-      return { ...row, '分類': category, parsedDate: date };
-    })
+    .map(row => ({
+      ...row,
+      '分類': row['分類'] || row['主類別'] || '',
+      parsedDate: normalizeDate(row['日期']),
+    }))
     .sort((a, b) => (a.parsedDate?.getTime() ?? 0) - (b.parsedDate?.getTime() ?? 0));
 
   if (startDate && endDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    return allRecords.filter(row => row.parsedDate && !isNaN(row.parsedDate.getTime()) && row.parsedDate >= start && row.parsedDate <= end);
+    const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+    const end = endOfDay(endDate);
+    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate >= start && row.parsedDate <= end);
   } else if (endDate) {
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    return allRecords.filter(row => row.parsedDate && !isNaN(row.parsedDate.getTime()) && row.parsedDate <= end);
+    const end = endOfDay(endDate);
+    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate <= end);
   } else {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    return allRecords.filter(row => row.parsedDate && !isNaN(row.parsedDate.getTime()) && row.parsedDate <= today);
+    const today = endOfDay(new Date());
+    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate <= today);
   }
 };
 
 // 輔助函數：更新帳戶餘額和快照
 export const updateAccountBalancesAndSnapshots = (filteredRecords: RawRecord[], accountRunningBalances: { [key: string]: number }, isSplitShared: boolean = false): void => {
   filteredRecords.forEach(row => {
-    const amountStrRaw = row['金額'];
-    const cleanedAmountStr = (amountStrRaw || '').replace(/[,￥$€£]/g, '').trim();
-    let amount = parseFloat(cleanedAmountStr) || 0;
-
-    const currency = row['幣別'];
-    const exchangeRate = EXCHANGE_RATES[currency] || 1;
-    if (currency && currency !== 'TWD' && EXCHANGE_RATES[currency]) {
-      amount *= exchangeRate;
-    }
+    const amount = convertAmountToTwd(row['金額'], row['幣別']);
 
     const incomeAccountName = row['收款(轉入)'];
     const expenseAccountName = row['付款(轉出)'];
@@ -763,26 +735,28 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
   dailyCursor.setHours(0, 0, 0, 0);
   let recordIndex = 0;
   while (dailyCursor.getTime() <= finalDateForSnapshots.getTime()) {
-    const dateKey = getDateKey(dailyCursor);
+    const dateKey = getIsoDateKey(dailyCursor);
     let dayIncome = 0;
     let dayExpense = 0;
 
     if (dailyCursor.getTime() <= maxDateOverall.getTime()) {
       while (recordIndex < sortedAllRecords.length && sortedAllRecords[recordIndex].parsedDate!.getTime() === dailyCursor.getTime()) {
         const row = sortedAllRecords[recordIndex];
-        const amount = Math.round(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) * (EXCHANGE_RATES[row['幣別']] || 1));
+        const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
 
-        const isIncomeAccountInFilter = row['收款(轉入)'] && currentOverallBalances.hasOwnProperty(row['收款(轉入)']);
-        const isExpenseAccountInFilter = row['付款(轉出)'] && currentOverallBalances.hasOwnProperty(row['付款(轉出)']);
+        const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
+        const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
+        const isIncomeAccountInFilter = Boolean(incomeAccountName && currentOverallBalances.hasOwnProperty(incomeAccountName));
+        const isExpenseAccountInFilter = Boolean(expenseAccountName && currentOverallBalances.hasOwnProperty(expenseAccountName));
 
         // Balance updates must include ALL transactions to be accurate
         if (isIncomeAccountInFilter) {
-          const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
-          currentOverallBalances[row['收款(轉入)']] += amount * splitFactor;
+          const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
+          currentOverallBalances[incomeAccountName] += amount * splitFactor;
         }
         if (isExpenseAccountInFilter) {
-          const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
-          currentOverallBalances[row['付款(轉出)']] -= amount * splitFactor;
+          const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
+          currentOverallBalances[expenseAccountName] -= amount * splitFactor;
         }
 
         // Stats filtering: Determine what counts as "Income" or "Expense" for the chart
@@ -802,10 +776,10 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
         }
 
         if (isIncome) {
-          const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
           dayIncome += amount * splitFactor;
         } else if (isExpense) {
-          const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
+          const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
           dayExpense += amount * splitFactor;
         }
 
@@ -824,12 +798,12 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
   chartCursor.setHours(0, 0, 0, 0);
 
   let prevDayForChartStart = new Date(startDateOfPeriod.getTime() - (1000 * 60 * 60 * 24));
-  const prevDayKeyForChartStart = getDateKey(prevDayForChartStart);
+  const prevDayKeyForChartStart = getIsoDateKey(prevDayForChartStart);
   const initialSnapshot = fullDailyBalanceSnapshots.get(prevDayKeyForChartStart);
   let currentRenderTotalBalance = initialSnapshot ? Object.values(initialSnapshot).reduce((s: number, v: number) => s + v, 0) : 0;
 
   while (chartCursor.getTime() <= endDateOfPeriod.getTime()) {
-    const dateKeyDaily = getDateKey(chartCursor);
+    const dateKeyDaily = getIsoDateKey(chartCursor);
     let incomeForPeriod = 0;
     let expenseForPeriod = 0;
     let balanceForPoint = currentRenderTotalBalance;
@@ -852,7 +826,7 @@ export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Da
       if (actualMonthEndDate.getTime() > endDateOfPeriod.getTime()) actualMonthEndDate = new Date(endDateOfPeriod);
 
       while (monthDayCursor.getTime() <= actualMonthEndDate.getTime()) {
-        const dailyKey = getDateKey(monthDayCursor);
+        const dailyKey = getIsoDateKey(monthDayCursor);
         const dailyAgg = fullDailyIncomeExpense.get(dailyKey);
         if (dailyAgg) {
           tempMonthIncome += dailyAgg.income;
@@ -912,16 +886,18 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
   const { trendData: dailyTrend, fullDailyBalanceSnapshots } = generateTrendData(rawRecords, chartStartDate, chartEndDate, durationInDays, accountFilter, excludedAccounts, isSplitShared);
 
   let periodSummary = { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
-  const chartEndDateKey = getDateKey(chartEndDate);
+  const chartEndDateKey = getIsoDateKey(chartEndDate);
   if (fullDailyBalanceSnapshots.has(chartEndDateKey)) {
     periodSummary.totalBalance = Math.round(Object.values(fullDailyBalanceSnapshots.get(chartEndDateKey)!).reduce((s: number, v: number) => s + v, 0));
   }
 
   const recordsInCurrentChartPeriod = filterAndSortRecords(rawRecords, chartStartDate, chartEndDate);
   recordsInCurrentChartPeriod.forEach(row => {
-    let amount = Math.round(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) * (EXCHANGE_RATES[row['幣別']] || 1));
-    const isIncomeAccountInFilter = row['收款(轉入)'] && currentAccumulatedBalancesForSummary.hasOwnProperty(row['收款(轉入)']) && (!accountFilter || accountFilter.includes(row['收款(轉入)']));
-    const isExpenseAccountInFilter = row['付款(轉出)'] && currentAccumulatedBalancesForSummary.hasOwnProperty(row['付款(轉出)']) && (!accountFilter || accountFilter.includes(row['付款(轉出)']));
+    const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
+    const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
+    const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
+    const isIncomeAccountInFilter = Boolean(incomeAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(incomeAccountName) && (!accountFilter || accountFilter.includes(incomeAccountName)));
+    const isExpenseAccountInFilter = Boolean(expenseAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(expenseAccountName) && (!accountFilter || accountFilter.includes(expenseAccountName)));
 
     let isIncome = isIncomeAccountInFilter && !isExpenseAccountInFilter;
     let isExpense = isExpenseAccountInFilter && !isIncomeAccountInFilter;
@@ -937,10 +913,10 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
     }
 
     if (isIncome) {
-      const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
       periodSummary.totalIncome += amount * splitFactor;
     } else if (isExpense) {
-      const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
       periodSummary.totalExpense += amount * splitFactor;
     }
   });
@@ -950,15 +926,17 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
   const durationMs = durationInDays * ONE_DAY_MS;
   const prevEndDate = new Date(chartStartDate.getTime() - ONE_DAY_MS);
   const prevStartDate = new Date(prevEndDate.getTime() - durationMs + ONE_DAY_MS);
-  const prevEndDateKey = getDateKey(prevEndDate);
+  const prevEndDateKey = getIsoDateKey(prevEndDate);
   if (fullDailyBalanceSnapshots.has(prevEndDateKey)) {
     previousPeriodSummary.totalBalance = Math.round(Object.values(fullDailyBalanceSnapshots.get(prevEndDateKey)!).reduce((s: number, v: number) => s + v, 0));
   }
   const recordsInPrevChartPeriod = filterAndSortRecords(rawRecords, prevStartDate, prevEndDate);
   recordsInPrevChartPeriod.forEach(row => {
-    let amount = Math.round(parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) * (EXCHANGE_RATES[row['幣別']] || 1));
-    const isIncomeAccountInFilter = row['收款(轉入)'] && currentAccumulatedBalancesForSummary.hasOwnProperty(row['收款(轉入)']) && (!accountFilter || accountFilter.includes(row['收款(轉入)']));
-    const isExpenseAccountInFilter = row['付款(轉出)'] && currentAccumulatedBalancesForSummary.hasOwnProperty(row['付款(轉出)']) && (!accountFilter || accountFilter.includes(row['付款(轉出)']));
+    const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
+    const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
+    const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
+    const isIncomeAccountInFilter = Boolean(incomeAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(incomeAccountName) && (!accountFilter || accountFilter.includes(incomeAccountName)));
+    const isExpenseAccountInFilter = Boolean(expenseAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(expenseAccountName) && (!accountFilter || accountFilter.includes(expenseAccountName)));
 
     let isIncome = isIncomeAccountInFilter && !isExpenseAccountInFilter;
     let isExpense = isExpenseAccountInFilter && !isIncomeAccountInFilter;
@@ -974,10 +952,10 @@ export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDa
     }
 
     if (isIncome) {
-      const splitFactor = (isSplitShared && isSharedAccountName(row['收款(轉入)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
       previousPeriodSummary.totalIncome += amount * splitFactor;
     } else if (isExpense) {
-      const splitFactor = (isSplitShared && isSharedAccountName(row['付款(轉出)'])) ? 0.5 : 1.0;
+      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
       previousPeriodSummary.totalExpense += amount * splitFactor;
     }
   });
@@ -1064,9 +1042,9 @@ export const extractMerchantName = (record: RawRecord): string => {
 export const transformRecord = (record: RawRecord): TransformedRecord[] | TransformedRecord | null => {
   if (record['分類'] === 'SYSTEM') return null;
 
-  let amount = Math.round(parseFloat((record['金額'] || '').replace(/[,￥$€£]/g, '').trim()) * (EXCHANGE_RATES[record['幣別']] || 1));
-  const incomeAccountName = record['收款(轉入)'];
-  const expenseAccountName = record['付款(轉出)'];
+  const amount = Math.round(convertAmountToTwd(record['金額'], record['幣別']));
+  const incomeAccountName = record['收款(轉入)'] || '';
+  const expenseAccountName = record['付款(轉出)'] || '';
   const originalDate = record['日期'] || '';
   const originalTimeStr = record['時間'] || '';
   const formattedTime = originalTimeStr.length >= 4 ? `${originalTimeStr.substring(0, 2)}:${originalTimeStr.substring(2, 4)}` : '09:00';
@@ -1109,15 +1087,15 @@ export const transformRecord = (record: RawRecord): TransformedRecord[] | Transf
 
   const baseExportRecord: Omit<TransformedRecord, '帳戶' | '記錄類型' | '金額'> = {
     id: record.id,
-    '幣種': 'TWD', '主類別': record['分類'] || record['主類別'] || '', '子類別': record['子分類'],
+    '幣種': 'TWD', '主類別': record['分類'] || record['主類別'] || '', '子類別': record['子分類'] || '',
     '手續費': 0, '折扣': 0, '名稱': '', '商家': finalMerchant ? finalMerchant.substring(0, 48) : '',
-    '日期': formattedDate, '時間': formattedTime, '專案': record['專案'], '描述': finalDescriptionContent,
+    '日期': formattedDate, '時間': formattedTime, '專案': record['專案'] || '', '描述': finalDescriptionContent,
     '標籤': '', '對象': '',
   };
 
-  if (recordType === '收入') return { ...baseExportRecord, '帳戶': incomeAccountName, '記錄類型': '收入', '金額': Math.abs(amount) };
-  if (recordType === '支出') return { ...baseExportRecord, '帳戶': expenseAccountName, '記錄類型': '支出', '金額': -Math.abs(amount) };
-  if (recordType === '轉帳') {
+  if (recordType === '收入' && incomeAccountName) return { ...baseExportRecord, '帳戶': incomeAccountName, '記錄類型': '收入', '金額': Math.abs(amount) };
+  if (recordType === '支出' && expenseAccountName) return { ...baseExportRecord, '帳戶': expenseAccountName, '記錄類型': '支出', '金額': -Math.abs(amount) };
+  if (recordType === '轉帳' && incomeAccountName && expenseAccountName) {
     return [
       { ...baseExportRecord, id: `${record.id}-out`, '帳戶': expenseAccountName, '記錄類型': '轉出', '主類別': '轉帳', '子類別': '轉帳', '金額': -Math.abs(amount) },
       { ...baseExportRecord, id: `${record.id}-in`, '帳戶': incomeAccountName, '記錄類型': '轉入', '主類別': '轉帳', '子類別': '轉帳', '金額': Math.abs(amount) },
@@ -1292,13 +1270,7 @@ export const getCategoryAverage = (
     if (!config.includedProjects.includes(project || '')) return;
 
     // Amount
-    const rawAmount = parseFloat((r['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0;
-    let amount = Math.abs(rawAmount);
-
-    const currency = r['幣別'];
-    if (EXCHANGE_RATES[currency]) {
-      amount *= EXCHANGE_RATES[currency];
-    }
+    let amount = Math.abs(convertAmountToTwd(r['金額'], r['幣別']));
 
     // Split Logic（專案分帳優先；否則共享帳戶；不疊加）
     amount *= resolveExpenseSplitFactor(project, r['付款(轉出)'], {
@@ -1318,27 +1290,7 @@ export const findUnmappedAccounts = (
   rawRecords: RawRecord[],
   customMappings: CustomAccountMappings = {}
 ): string[] => {
-  const allAccounts = new Set<string>();
-  rawRecords.forEach(r => {
-    if (r['收款(轉入)']) allAccounts.add(r['收款(轉入)'].trim());
-    if (r['付款(轉出)']) allAccounts.add(r['付款(轉出)'].trim());
-  });
-
-  // 移除常見的非帳戶關鍵字
-  allAccounts.delete('代付');
-  allAccounts.delete('轉帳');
-  allAccounts.delete('');
-
-  const unmapped: string[] = [];
-  allAccounts.forEach(acc => {
-    const isStatic = PERSONAL_ACCOUNTS.includes(acc) || SHARED_ACCOUNTS.includes(acc);
-    const isCustom = !!customMappings[acc];
-    if (!isStatic && !isCustom) {
-      unmapped.push(acc);
-    }
-  });
-
-  return unmapped;
+  return findUnmappedAccountsCore(rawRecords, customMappings);
 };
 
 // 財務健檢：偵測異常消費 (Expense Spike Detection)
@@ -1377,13 +1329,7 @@ export const detectExpenseSpikes = (
     if (projectFilter && !projectFilter.includes(project)) return;
 
     const cat = row['分類'] || '未分類';
-    let amount = parseFloat((row['金額'] || '').replace(/[,￥$€£]/g, '').trim()) || 0;
-    amount = Math.abs(amount);
-
-    const currency = row['幣別'];
-    if (EXCHANGE_RATES[currency]) {
-      amount *= EXCHANGE_RATES[currency];
-    }
+    let amount = Math.abs(convertAmountToTwd(row['金額'], row['幣別']));
 
     amount *= resolveExpenseSplitFactor(project, row['付款(轉出)'], {
       splitProjects,
@@ -1474,4 +1420,3 @@ export const detectExpenseSpikes = (
   // 依超額金額降序排序
   return spikes.sort((a, b) => b.difference - a.difference);
 };
-

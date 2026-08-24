@@ -1,16 +1,8 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 import { RawRecord, BudgetRule, BudgetStatus, BudgetCalculationResult, BudgetGlobalConfig, FixedProjectStatus } from '../types';
-import { SHARED_ACCOUNTS, EXCHANGE_RATES } from '../constants';
-import { CustomAccountMappings } from '../types';
-
-const isSharedAccountName = (accountName: string, customMappings: CustomAccountMappings = {}): boolean => {
-  if (!accountName) return false;
-  const mapping = customMappings[accountName];
-  if (mapping?.type === 'shared') return true;
-  if (mapping?.type === 'personal') return false;
-  return SHARED_ACCOUNTS.includes(accountName);
-};
+import { isSharedAccountName } from './core/attribution';
+import { convertAmountToTwd } from './core/parsing';
 
 const BUDGET_FILE_NAME = 'budget_rules.json';
 const CONFIG_FILE_NAME = 'budget_config.json';
@@ -31,11 +23,14 @@ export const loadBudgets = async (): Promise<BudgetRule[]> => {
     const content = await FileSystem.readAsStringAsync(BUDGET_FILE_URI);
     const parsed = JSON.parse(content);
     // 向下相容：移除舊的 group 欄位（如果有的話）
-    return parsed.map((b: any) => ({
-      id: b.id,
-      category: b.category,
-      monthlyLimit: b.monthlyLimit,
-    }));
+    return parsed.map((b: unknown) => {
+      const rule = b as Partial<BudgetRule>;
+      return {
+        id: rule.id,
+        category: rule.category,
+        monthlyLimit: rule.monthlyLimit,
+      } as BudgetRule;
+    });
   } catch (e) {
     console.error('Failed to load budgets', e);
     return [];
@@ -166,6 +161,7 @@ export const calculateBudgetStatus = (
   monthRecords.forEach(record => {
     const expenseAccount = record['付款(轉出)'];
     const incomeAccount = record['收款(轉入)'];
+    const category = record['分類'] || '';
 
     if (expenseAccount && !incomeAccount && record['分類'] !== 'SYSTEM' && record['分類'] !== '代付') {
       const project = record['專案'] || '';
@@ -174,13 +170,7 @@ export const calculateBudgetStatus = (
         return;
       }
 
-      const category = record['分類'];
-      const rawAmountStr = (record['金額'] || '').replace(/[,￥$€£]/g, '').trim();
-      let amount = parseFloat(rawAmountStr) || 0;
-
-      const currency = record['幣別'];
-      const exchangeRate = EXCHANGE_RATES[currency] || 1;
-      amount = Math.abs(amount * exchangeRate);
+      let amount = Math.abs(convertAmountToTwd(record['金額'], record['幣別']));
 
       if (config.splitProjects.includes(project)) {
         amount = amount * 0.5;
@@ -213,7 +203,7 @@ export const calculateBudgetStatus = (
     
     // 如果該類別下有任何一個專案是固定支出，則整個類別的預算計入固定預算
     // 這裡我們預設使用者會把固定支出類別分開
-    const hasFixedProjectInThisCategory = records.some(r => r['分類'] === rule.category && getProjectGroup(r['專案'], config) === 'fixed');
+    const hasFixedProjectInThisCategory = records.some(r => r['分類'] === rule.category && getProjectGroup(r['專案'] || '', config) === 'fixed');
     if (hasFixedProjectInThisCategory) {
       totalFixedBudget += rule.monthlyLimit;
       fixedCategories.add(rule.category);
@@ -241,15 +231,15 @@ export const calculateBudgetStatus = (
       }
     }
 
-    return { 
+    return {
       rule: { ...rule, monthlyLimit: effectiveLimit },
       originalLimit: rule.monthlyLimit,
       spent: dailySpent, 
       remaining, 
       percentage, 
       status, 
-      dailySafeSpend 
-    } as any;
+      dailySafeSpend,
+    };
   });
 
   // 4. Build fixed project statuses
@@ -279,10 +269,7 @@ export const calculateBudgetStatus = (
     const dueDay = getDueDayFromRecord(lastRecord);
     if (dueDay === null) return;
 
-    const rawAmountStr = (lastRecord['金額'] || '').replace(/[,￥$€£]/g, '').trim();
-    let lastAmount = parseFloat(rawAmountStr) || 0;
-    const exchangeRate = EXCHANGE_RATES[lastRecord['幣別']] || 1;
-    lastAmount = Math.abs(lastAmount * exchangeRate);
+    let lastAmount = Math.abs(convertAmountToTwd(lastRecord['金額'], lastRecord['幣別']));
     if (config.splitProjects.includes(project)) lastAmount *= 0.5;
 
     pendingItems.push({

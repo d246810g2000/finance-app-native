@@ -1,21 +1,25 @@
 
 // A raw record directly from the parsed CSV
 export interface RawRecord {
-  [key: string]: any;
-  id?: string; // Added for unique identification
-  '日期': string;
-  '時間': string;
-  '分類': string;
-  '子分類': string;
-  '收款(轉入)': string;
-  '付款(轉出)': string;
-  '金額': string;
-  '幣別': string;
-  '商家(公司)': string;
-  '專案': string;
-  '備註': string;
+  [key: string]: unknown;
+  id?: string;
+  '日期'?: string;
+  '時間'?: string;
+  '分類'?: string;
+  '主類別'?: string;
+  '子分類'?: string;
+  '收款(轉入)'?: string;
+  '付款(轉出)'?: string;
+  '金額'?: string;
+  '幣別'?: string;
+  '商家(公司)'?: string;
+  '專案'?: string;
+  '備註'?: string;
   '摘要'?: string;
-  parsedDate?: Date; // Optional, added after initial processing
+  /** Derived at query time and never written to storage. */
+  parsedDate?: Date;
+  /** Deprecated local-only field retained while cleaning older app versions. */
+  postponedToPeriod?: string;
   /** 對帳模式：是否已確認對帳 */
   isReconciled?: boolean;
 }
@@ -88,6 +92,7 @@ export interface BudgetRule {
 
 export interface BudgetStatus {
   rule: BudgetRule;
+  originalLimit?: number;
   spent: number;
   remaining: number;
   percentage: number;

@@ -243,7 +243,7 @@ export default function BudgetScreen() {
 
             if (isOther) {
                 const budgetedCats = new Set(budgets.map(b => b.category));
-                return !budgetedCats.has(record['分類']);
+                return !budgetedCats.has(record['分類'] || '');
             } else {
                 return record['分類'] === categoryName;
             }

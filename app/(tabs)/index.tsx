@@ -22,6 +22,7 @@ import PageChrome from '../../components/layout/PageChrome';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { loadExcludedAccounts, saveExcludedAccounts } from '../../services/accountConfigService';
+import { buildHistoricalPeriods } from '../../viewModels/assetViewModel';
 import AccountSettingsModal from '../../components/account/AccountSettingsModal';
 import { useBottomSheetSwipe } from '../../components/ui/useBottomSheetSwipe';
 import BottomSheetGestureWrapper from '../../components/ui/BottomSheetGestureWrapper';
@@ -588,76 +589,18 @@ export default function DashboardScreen() {
     // Calculate 12 periods of history for Savings Rate & Asset Trend modals
     const past12PeriodsData = useMemo(() => {
         if (!savingsModalVisible && !balanceModalVisible) return [];
+        return buildHistoricalPeriods({
+            records,
+            startDate,
+            endDate,
+            durationInDays,
+            enabled: true,
+            accountFilter,
+            isSplitShared: !!budgetConfig.isSplitEnabled,
+            endBalance: periodSummary.totalBalance,
+        });
 
-        const results = [];
-        const baseEnd = new Date(endDate);
-        const baseStart = new Date(startDate);
-        const ONE_DAY = 1000 * 60 * 60 * 24;
-        const durationMs = (durationInDays || 1) * ONE_DAY;
 
-        let runningBalance = periodSummary.totalBalance;
-
-        for (let i = 0; i < 12; i++) {
-            const pStart = new Date(baseStart.getTime() - (i * durationMs));
-            const pEnd = new Date(baseEnd.getTime() - (i * durationMs));
-
-            let mInc = 0;
-            let mExp = 0;
-
-            const recordsInM = filterAndSortRecords(records, pStart, pEnd);
-            recordsInM.forEach(row => {
-                const amountStr = (row['金額'] || '').replace(/[,￥$€£]/g, '').trim();
-                let amount = Math.abs(parseFloat(amountStr) || 0);
-
-                const isIncomeAcc = row['收款(轉入)'] && (!accountFilter || accountFilter.includes(row['收款(轉入)']));
-                const isExpenseAcc = row['付款(轉出)'] && (!accountFilter || accountFilter.includes(row['付款(轉出)']));
-                let isIncome = isIncomeAcc && !isExpenseAcc;
-                let isExpense = isExpenseAcc && !isIncomeAcc;
-
-                if (row['分類'] === '代付' || (row['分類'] === '其他' && row['子分類'] === '代付') || row['分類'] === 'SYSTEM') {
-                    isIncome = false;
-                    isExpense = false;
-                } else if (row['分類'] === '轉帳') {
-                    if (!(row['子分類'] === '小伊轉帳' && isIncome)) {
-                        isIncome = false;
-                        isExpense = false;
-                    }
-                }
-
-                if (isIncome) mInc += amount;
-                if (isExpense) mExp += amount;
-            });
-
-            const mRate = mInc > 0 ? ((mInc - mExp) / mInc) * 100 : 0;
-            const net = mInc - mExp;
-
-            let mLabel = '';
-            let shortLabel = '';
-            if (durationInDays <= 31) {
-                mLabel = `${pStart.getMonth() + 1}/${pStart.getDate()} - ${pEnd.getMonth() + 1}/${pEnd.getDate()}`;
-                shortLabel = `${pStart.getMonth() + 1}/${pStart.getDate()}`;
-            } else if (durationInDays <= 92) {
-                mLabel = `${pStart.getFullYear()}/${pStart.getMonth() + 1} - ${pEnd.getFullYear()}/${pEnd.getMonth() + 1}`;
-                shortLabel = `${pStart.getMonth() + 1}/${pEnd.getMonth() + 1}`;
-            } else {
-                mLabel = `${pStart.getFullYear()}/${pStart.getMonth() + 1}`;
-                shortLabel = `${pStart.getFullYear()}`;
-            }
-
-            results.push({
-                monthLabel: i === 0 ? '本期' : `過去 ${i} 期`,
-                shortLabel: shortLabel,
-                income: mInc,
-                expense: mExp,
-                rate: mRate,
-                net: net,
-                endBalance: runningBalance,
-                index: i
-            });
-
-            runningBalance -= net;
-        }
-        return results;
     }, [savingsModalVisible, balanceModalVisible, records, startDate, endDate, durationInDays, accountFilter, periodSummary.totalBalance]);
 
     const accountTableData = useMemo(() => {

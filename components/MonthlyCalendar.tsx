@@ -6,7 +6,7 @@ import { TransformedRecord } from '../types';
 import { AppColors, SHADOWS } from '../theme';
 import { useAppTheme } from '../context/ThemeContext';
 import { hapticSelection } from '../utils/haptics';
-import { EXCHANGE_RATES } from '../constants';
+import { convertAmountToTwd } from '../services/core/parsing';
 import { parseFormattedDate } from '../utils/dateUtils';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -54,11 +54,8 @@ export default function MonthlyCalendar({ records, accountFilter, currentMonthSt
             }
 
             if (expenseAccount && !incomeAccount) {
-                const amountStr = (r['金額'] || '').replace(/[,￥$€£]/g, '').trim();
-                let amount = parseFloat(amountStr) || 0;
-                const currency = r['幣別'];
-                const exchangeRate = EXCHANGE_RATES[currency] || 1;
-                amount = Math.abs(amount * exchangeRate);
+                let amount = convertAmountToTwd(r['金額'], r['幣別']);
+                amount = Math.abs(amount);
                 expenses[rDay] = (expenses[rDay] || 0) + amount;
                 total += amount;
             }

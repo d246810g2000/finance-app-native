@@ -22,7 +22,7 @@ class WidgetService {
             if (budgets.length === 0) return;
 
             const now = new Date();
-            const syncOps: Promise<any>[] = [];
+            const syncOps: Promise<void>[] = [];
 
             // 同步前後各 12 個月，讓桌面小工具可連續切換
             const MONTH_RANGE = 12;
@@ -50,7 +50,7 @@ class WidgetService {
         config: BudgetGlobalConfig,
         targetMonth: Date,
         prefix: string
-    ): Promise<Promise<any>[]> {
+    ): Promise<Promise<void>[]> {
         const {
             totalDailyBudget,
             totalDailySpent,

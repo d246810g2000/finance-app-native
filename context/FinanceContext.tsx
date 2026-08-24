@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode, useMemo } from 'react';
-import * as FileSystem from 'expo-file-system/legacy';
 import { RawRecord, CustomAccountMappings, BudgetRule, BudgetGlobalConfig, CreditCardSettingsMap } from '../types';
-import { Alert, AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS } from '../constants';
 import { loadCustomAccountMappings, saveCustomAccountMappings, loadExcludedAccounts, saveExcludedAccounts as saveExcludedAccountsService } from '../services/accountConfigService';
 import { loadBudgetConfig, saveBudgetConfig as saveBudgetConfigService, loadBudgets, saveBudgets as saveBudgetsService } from '../services/budgetService';
 import { loadCreditCardSettings, saveCreditCardSettings as saveCreditCardSettingsService } from '../services/creditCardSettingsService';
 import { upsertRecordsById, UpsertResult } from '../services/financeService';
+import { createPersistenceQueue } from '../services/persistence/persistenceQueue';
+import { createFileSystemRecordsRepository } from '../services/persistence/recordsRepository';
+import { showPersistenceIssueAlert } from '../services/persistence/persistenceFeedback';
+import { createRecordSynchronizer } from '../services/recordSyncService';
 import { parseFormattedDate } from '../utils/dateUtils';
 import { FinanceUIProvider, useFinanceUI } from './FinanceUIContext';
 import type { SearchFilters } from './FinanceUIContext';
@@ -14,12 +17,10 @@ import type { SearchFilters } from './FinanceUIContext';
 export type { SearchFilters };
 export { useFinanceUI };
 
-const RECORDS_FILE_NAME = 'finance_records.json';
-const RECORDS_FILE_URI = (FileSystem.documentDirectory || FileSystem.cacheDirectory) + RECORDS_FILE_NAME;
-
 interface FinanceContextType {
     records: RawRecord[];
     isLoading: boolean;
+    persistenceError: string | null;
     loadRecords: (records: RawRecord[]) => void;
     mergeRecords: (records: RawRecord[], options?: { syncDelete?: boolean }) => UpsertResult;
     clearRecords: () => void;
@@ -101,6 +102,7 @@ export function buildSearchMetadata(records: RawRecord[]): SearchMetadata {
 function FinanceDataProvider({ children }: { children: ReactNode }) {
     const [records, setRecords] = useState<RawRecord[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [persistenceError, setPersistenceError] = useState<string | null>(null);
     const [globalExcludeTravel, setGlobalExcludeTravel] = useState(false);
     const [customMappings, setCustomMappings] = useState<CustomAccountMappings>({});
     const [excludedAccounts, setExcludedAccounts] = useState<string[]>([]);
@@ -108,11 +110,25 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
     const [budgets, setBudgets] = useState<BudgetRule[]>([]);
     const [creditCardSettings, setCreditCardSettings] = useState<CreditCardSettingsMap>({});
 
-    const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
     const pendingSaveRef = useRef<RawRecord[] | null>(null);
-    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const recordsRef = useRef<RawRecord[]>([]);
     recordsRef.current = records;
+
+    const recordsRepositoryRef = useRef(createFileSystemRecordsRepository());
+    const recordSynchronizerRef = useRef(createRecordSynchronizer());
+    const persistenceQueueRef = useRef(createPersistenceQueue<RawRecord[]>({
+        save: async newRecords => {
+            setPersistenceError(null);
+            await recordsRepositoryRef.current.save(newRecords);
+            await recordSynchronizerRef.current.sync(newRecords);
+        },
+        clear: () => recordsRepositoryRef.current.clear(),
+        onError: error => {
+            console.error('Failed to persist finance records', error);
+            showPersistenceIssueAlert('無法儲存記錄。');
+            setPersistenceError('無法儲存記錄。');
+        },
+    }));
 
     useEffect(() => {
         loadCustomAccountMappings().then(setCustomMappings);
@@ -177,70 +193,28 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
         return base;
     }, [customMappings]);
 
-    const writeRecordsToFile = useCallback(async (newRecords: RawRecord[]) => {
-        try {
-            const cleanForStorage = newRecords.map(({ parsedDate, ...rest }) => rest);
-            await FileSystem.writeAsStringAsync(RECORDS_FILE_URI, JSON.stringify(cleanForStorage));
-            import('../services/NotificationService').then(s => s.default.syncWithRecords(newRecords));
-            import('../services/WidgetService').then(s => s.default.syncWidgetData(newRecords));
-        } catch (e) {
-            console.error('Failed to save records to file', e);
-            Alert.alert('儲存錯誤', '無法儲存記錄。');
-        }
-    }, []);
-
     /** 所有寫入走同一線性佇列；immediate=true 時略過防抖（背景 flush / 匯入刪除） */
     const enqueueSave = useCallback((recordsToSave: RawRecord[], immediate = false) => {
         pendingSaveRef.current = recordsToSave;
-
-        const executeWrite = () => {
-            if (debounceTimerRef.current) {
-                clearTimeout(debounceTimerRef.current);
-                debounceTimerRef.current = null;
-            }
-            const data = pendingSaveRef.current;
-            if (!data) return;
-            pendingSaveRef.current = null;
-
-            writeQueueRef.current = writeQueueRef.current
-                .catch(() => undefined)
-                .then(() => writeRecordsToFile(data));
-        };
-
-        if (immediate) {
-            executeWrite();
-            return;
-        }
-
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(executeWrite, 150);
-    }, [writeRecordsToFile]);
+        persistenceQueueRef.current.enqueue(recordsToSave, immediate);
+    }, []);
 
     const refreshRecords = useCallback(async () => {
         setIsLoading(true);
         try {
-            const fileInfo = await FileSystem.getInfoAsync(RECORDS_FILE_URI);
-            if (fileInfo.exists) {
-                const stored = await FileSystem.readAsStringAsync(RECORDS_FILE_URI);
-                if (stored) {
-                    const parsed: RawRecord[] = JSON.parse(stored);
-                    if (Array.isArray(parsed)) {
-                        const withIds = parsed.map(r => ({
-                            ...r,
-                            id: r.id || Math.random().toString(36).substr(2, 9) + Date.now().toString(36)
-                        }));
-                        setRecords(withIds);
-                        import('../services/NotificationService').then(service => {
-                            service.default.syncWithRecords(withIds);
-                        });
-                    }
-                }
-            } else {
-                setRecords([]);
-            }
-        } catch (e: any) {
-            console.error('Failed to restore records from file storage', e);
-            Alert.alert('讀取錯誤', '無法讀取記錄檔案。');
+            const storedRecords = await recordsRepositoryRef.current.load();
+            const withIds = storedRecords.map(r => ({
+                ...r,
+                id: r.id || Math.random().toString(36).substring(2, 11) + Date.now().toString(36)
+            }));
+            setRecords(withIds);
+            recordSynchronizerRef.current.syncNotifications(withIds).catch((error: unknown) => {
+                console.error('Failed to synchronize notifications', error);
+            });
+        } catch (error) {
+            console.error('Failed to restore records from file storage', error);
+            showPersistenceIssueAlert('無法讀取記錄檔案。');
+            setPersistenceError('無法讀取記錄檔案。');
         } finally {
             setIsLoading(false);
         }
@@ -255,8 +229,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
             if (appState.current.match(/inactive|background/) && nextState === 'active') {
-                import('../services/NotificationService').then(s => s.default.syncWithRecords(recordsRef.current));
-                import('../services/WidgetService').then(s => s.default.syncWidgetData(recordsRef.current));
+                recordSynchronizerRef.current.sync(recordsRef.current);
             }
             if (nextState.match(/inactive|background/) && pendingSaveRef.current) {
                 enqueueSave(pendingSaveRef.current, true);
@@ -267,10 +240,10 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
     }, [enqueueSave]);
 
     useEffect(() => () => {
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         if (pendingSaveRef.current) {
             enqueueSave(pendingSaveRef.current, true);
         }
+        persistenceQueueRef.current.dispose();
     }, [enqueueSave]);
 
     const loadRecords = useCallback((newRecords: RawRecord[]) => {
@@ -295,14 +268,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
     const clearRecords = useCallback(() => {
         setRecords([]);
         pendingSaveRef.current = null;
-        if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-            debounceTimerRef.current = null;
-        }
-        writeQueueRef.current = writeQueueRef.current
-            .catch(() => undefined)
-            .then(() => FileSystem.deleteAsync(RECORDS_FILE_URI, { idempotent: true }).then(() => undefined))
-            .catch(e => console.error('Failed to clear records file', e));
+        persistenceQueueRef.current.clear();
     }, []);
 
     const deleteRecord = useCallback((recordId: string) => {
@@ -327,7 +293,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
                 if ('isReconciled' in patch && patch.isReconciled === undefined) {
                     delete next.isReconciled;
                 }
-                delete (next as any).postponedToPeriod;
+                delete next.postponedToPeriod;
                 return next;
             });
             if (!changed) return prev;
@@ -340,6 +306,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
         () => ({
             records,
             isLoading,
+            persistenceError,
             loadRecords,
             mergeRecords,
             clearRecords,
