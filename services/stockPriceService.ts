@@ -7,7 +7,7 @@ export interface StockPriceQuote {
 }
 
 export interface StockPriceCache {
-  version: 1;
+  version: 1 | 2;
   syncedAt: string | null;
   prices: Record<string, Record<string, number>>;
 }
@@ -22,7 +22,7 @@ const CACHE_FILE_NAME = 'stock_daily_prices.json';
 const API_BASE = 'https://api.finmindtrade.com/api/v4/data';
 
 export function createEmptyStockPriceCache(): StockPriceCache {
-  return { version: 1, syncedAt: null, prices: {} };
+  return { version: 2, syncedAt: null, prices: {} };
 }
 
 function cacheUri(): string {
@@ -38,11 +38,12 @@ function toApiDate(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
 
-function isCache(value: any): value is StockPriceCache {
-  return Boolean(value)
-    && value.version === 1
-    && typeof value.prices === 'object'
-    && value.prices !== null;
+function isCache(value: unknown): value is StockPriceCache {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<StockPriceCache>;
+  return (candidate.version === 1 || candidate.version === 2)
+    && typeof candidate.prices === 'object'
+    && candidate.prices !== null;
 }
 
 export function mergeStockPriceCache(
@@ -61,7 +62,7 @@ export function mergeStockPriceCache(
   });
 
   return {
-    version: 1,
+    version: 2,
     syncedAt: syncedAt.toISOString(),
     prices,
   };
@@ -160,7 +161,40 @@ async function fetchSymbolPrices(symbol: string, startDate: Date): Promise<Stock
     ));
 }
 
-/** Refresh daily closes; a failed symbol keeps its existing cached prices. */
+/** Get the latest quote, or the quote `pointsAgo` trading observations earlier. */
+export function getTradingPointQuote(
+  cache: StockPriceCache,
+  symbol: string,
+  pointsAgo: number,
+  today = new Date(),
+): StockPriceQuote | undefined {
+  const maxDate = toCacheDate(today);
+  const dates = Object.keys(cache.prices[symbol] || {})
+    .filter(date => date <= maxDate)
+    .sort();
+  const date = dates[dates.length - 1 - Math.max(0, pointsAgo)];
+  if (!date) return undefined;
+
+  return { symbol, date, close: cache.prices[symbol][date] };
+}
+
+/** Get the last close on or before the prior year end, for year-to-date return. */
+export function getYearStartQuote(
+  cache: StockPriceCache,
+  symbol: string,
+  today = new Date(),
+): StockPriceQuote | undefined {
+  const year = today.getFullYear();
+  const maxDate = `${year - 1}1231`;
+  const dates = Object.keys(cache.prices[symbol] || {})
+    .filter(date => date <= maxDate)
+    .sort();
+  const date = dates[dates.length - 1];
+  if (!date) return undefined;
+
+  return { symbol, date, close: cache.prices[symbol][date] };
+}
+
 export async function syncStockPrices(
   symbols: string[],
   options: { days?: number; today?: Date; force?: boolean } = {},
@@ -169,13 +203,21 @@ export async function syncStockPrices(
   const uniqueSymbols = Array.from(new Set(symbols.filter(Boolean)));
   let cache = await loadStockPriceCache();
   const sameDay = Boolean(cache.syncedAt && toCacheDate(new Date(cache.syncedAt)) === toCacheDate(today));
+  // Version 1 caches used the old short sync window. Refresh once with the longer
+  // window so period returns have enough history.
+  const needsHistoryBackfill = cache.version < 2;
 
-  if (!options.force && sameDay && uniqueSymbols.every(symbol => Object.keys(cache.prices[symbol] || {}).length > 0)) {
+  if (
+    !options.force
+    && !needsHistoryBackfill
+    && sameDay
+    && uniqueSymbols.every(symbol => Object.keys(cache.prices[symbol] || {}).length > 0)
+  ) {
     return { cache, errors: [], updatedSymbols: [] };
   }
 
   const startDate = new Date(today);
-  startDate.setDate(startDate.getDate() - (options.days || 45));
+  startDate.setDate(startDate.getDate() - (options.days || 400));
   const errors: string[] = [];
   const updatedSymbols: string[] = [];
   const quotes: StockPriceQuote[] = [];

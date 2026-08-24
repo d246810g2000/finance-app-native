@@ -73,5 +73,11 @@ describe('investment screen view model', () => {
     expect(all.assetTimeline.at(-1)?.value).toBe(4000);
     expect(personal.assetTimeline.at(-1)?.value).toBe(2000);
     expect(shared.assetTimeline.at(-1)?.value).toBe(2000);
+    expect(all.pnl.rows[0].shares).toBe(2);
+    expect(personal.pnl.rows[0].shares).toBe(1);
+    expect(shared.pnl.rows[0].shares).toBe(1);
+    expect(all.pnl.summary.marketValue).toBe(4000);
+    expect(personal.pnl.summary.marketValue).toBe(2000);
+    expect(shared.pnl.summary.marketValue).toBe(2000);
   });
 });

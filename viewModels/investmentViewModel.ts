@@ -23,6 +23,7 @@ import {
 } from '../services/stockPriceService';
 import { StockInfoCache } from '../services/stockInfoService';
 import { computeInvestmentAssetTimeline } from '../services/investmentTimelineService';
+import { buildInvestmentPnlViewModel } from './investmentPnlViewModel';
 
 export interface InvestmentViewModelInput {
   records: RawRecord[];
@@ -81,9 +82,14 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
   const rangeFilteredTrades = filterByDateRange(filteredTrades, input.startDate, input.endDate)
     .sort((a, b) => b.date.localeCompare(a.date) || b.lineNumber - a.lineNumber);
   const moverByPositionId = new Map(insights.movers.map(mover => [mover.id, mover]));
+  const currentHoldings = buildCurrentHoldings(portfolio.positions);
+  const pnl = buildInvestmentPnlViewModel({
+    holdings: currentHoldings,
+    moversById: moverByPositionId,
+  });
 
   return {
-    currentHoldings: buildCurrentHoldings(portfolio.positions),
+    currentHoldings,
     filteredIssues,
     filteredTrades,
     hasStockData: stockData.trades.length > 0 || stockData.issues.length > 0,
@@ -94,6 +100,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
     rangeFilteredTrades,
     rangeRealizedTrades,
     periodRealizedPnl,
+    pnl,
     stockData,
     symbols,
   };
