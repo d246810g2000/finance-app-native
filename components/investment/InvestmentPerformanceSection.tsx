@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../context/ThemeContext';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import SegmentedControl from '../ui/SegmentedControl';
+import SectionHeader from '../ui/SectionHeader';
 import {
   INVESTMENT_PERFORMANCE_PERIODS,
   InvestmentPerformancePeriodId,
@@ -117,12 +118,15 @@ export default function InvestmentPerformanceSection({
 
   return (
     <View style={styles.section}>
-      <View style={styles.header}>
-        <Text style={styles.title}>期間表現</Text>
-        <Pressable onPress={onOpenHoldings} hitSlop={8}>
-          <Text style={styles.trailing}>全部持股 · {rows.length} 檔</Text>
-        </Pressable>
-      </View>
+      <SectionHeader
+        title="期間表現"
+        accent={colors.primary}
+        trailing={(
+          <Pressable onPress={onOpenHoldings} style={styles.trailingButton}>
+            <Text style={styles.trailing}>全部持股 · {rows.length} 檔</Text>
+          </Pressable>
+        )}
+      />
 
       <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
         <SegmentedControl
@@ -200,22 +204,12 @@ export default function InvestmentPerformanceSection({
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
   section: { marginTop: 14 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.onSurface,
-  },
   trailing: {
     fontSize: 12,
     fontWeight: '700',
     color: colors.primary,
   },
+  trailingButton: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
   panel: {
     backgroundColor: colors.surfaceContainer,
     borderWidth: StyleSheet.hairlineWidth,
@@ -270,13 +264,15 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.divider,
   },
-  rowList: { gap: 2 },
+  rowList: { gap: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    minHeight: 52,
-    paddingVertical: 6,
+    minHeight: 64,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
   },
   rowPressed: { opacity: 0.72 },
   identity: {

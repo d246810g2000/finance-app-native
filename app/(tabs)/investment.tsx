@@ -10,11 +10,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { PieChart } from 'react-native-gifted-charts';
 import { useFinance } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
-import { AppColors, CATEGORY_COLORS, RADIUS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import PageChrome from '../../components/layout/PageChrome';
 import SectionHeader from '../../components/ui/SectionHeader';
@@ -29,7 +29,6 @@ import InvestmentDetailSheet, {
 import InvestmentDrillHeader from '../../components/investment/InvestmentDrillHeader';
 import InvestmentTimelineSection from '../../components/investment/InvestmentTimelineSection';
 import InvestmentPnlSection from '../../components/investment/InvestmentPnlSection';
-import InvestmentPerformanceSection from '../../components/investment/InvestmentPerformanceSection';
 import SortChips from '../../components/ui/SortChips';
 import {
   StockNoteIssue,
@@ -40,7 +39,6 @@ import {
 import {
   StockRealizedTrade,
   type CurrentHolding,
-  type PortfolioInsights,
 } from '../../services/portfolioService';
 import {
   createDefaultInvestmentDateRange,
@@ -61,15 +59,12 @@ import {
   collectInvestmentSymbols,
 } from '../../viewModels/investmentViewModel';
 import {
-  buildInvestmentPerformanceViewModel,
   INVESTMENT_HOLDING_SORT_OPTIONS,
   sortInvestmentPositions,
 } from '../../viewModels/investmentPerformanceViewModel';
 import type { InvestmentPnlRow } from '../../viewModels/investmentPnlViewModel';
 import type {
   InvestmentHoldingSortId,
-  InvestmentPerformancePeriodId,
-  InvestmentPerformanceRow,
 } from '../../viewModels/investmentPerformanceViewModel';
 
 type OwnershipFilter = 'all' | StockOwnership;
@@ -117,12 +112,6 @@ function formatMoney(value: number, signed = false): string {
 function formatPercent(value: number, signed = false): string {
   const sign = signed && value > 0 ? '+' : '';
   return `${sign}${value.toFixed(2)}%`;
-}
-
-function formatCompactMoney(value: number): string {
-  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(1)}億`;
-  if (Math.abs(value) >= 10000) return `${(value / 10000).toFixed(1)}萬`;
-  return `$${Math.round(value).toLocaleString()}`;
 }
 
 /** Taiwan market convention: gains red, losses green. */
@@ -175,162 +164,6 @@ function IssueCard({
         <Text style={styles.exampleText}>建議格式：{issue.expectedFormat}</Text>
       </View>
     </View>
-  );
-}
-
-function AllocationChart({
-  items,
-  colors,
-  styles,
-}: {
-  items: PortfolioInsights['allocation'];
-  colors: AppColors;
-  styles: InvestmentStyles;
-}) {
-  if (items.length === 0) {
-    return <Text style={styles.emptyMetricText}>尚無可評估部位</Text>;
-  }
-
-  const total = items.reduce((sum, item) => sum + item.value, 0);
-
-  return (
-    <View style={styles.donutWrapper}>
-      <PieChart
-        data={items.map((item, index) => ({
-          value: Math.max(Math.round(item.value), 1),
-          color: item.id === '__other__'
-            ? colors.outlineVariant
-            : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-        }))}
-        donut
-        radius={64}
-        innerRadius={46}
-        centerLabelComponent={() => (
-          <View style={styles.donutCenter}>
-            <Text style={styles.donutTotal} selectable>{formatCompactMoney(total)}</Text>
-            <Text style={styles.donutLabel}>總市值</Text>
-          </View>
-        )}
-      />
-    </View>
-  );
-}
-
-function AllocationLegend({
-  items,
-  colors,
-  styles,
-  holdingsById,
-  onSelectHolding,
-  onSelectOther,
-}: {
-  items: PortfolioInsights['allocation'];
-  colors: AppColors;
-  styles: InvestmentStyles;
-  holdingsById: Map<string, CurrentHolding>;
-  onSelectHolding: (holding: CurrentHolding) => void;
-  onSelectOther: () => void;
-}) {
-  return (
-    <View style={styles.allocationLegend}>
-      {items.map((item, index) => {
-        const holding = holdingsById.get(item.id);
-        const isOther = item.id === '__other__';
-        const onPress = holding
-          ? () => onSelectHolding(holding)
-          : isOther
-            ? onSelectOther
-            : undefined;
-
-        return (
-          <Pressable
-            key={item.id}
-            onPress={onPress}
-            accessibilityRole={onPress ? 'button' : 'text'}
-            accessibilityLabel={holding
-              ? `${holding.name}，市值 ${formatMoney(holding.displayValue)}，佔比 ${formatPercent(item.weight)}`
-              : `${item.name}，佔比 ${formatPercent(item.weight)}`}
-            style={({ pressed }) => [
-              styles.legendItem,
-              onPress && styles.legendItemPressed,
-              pressed && onPress && { opacity: 0.72 },
-            ]}
-          >
-            <View
-              style={[
-                styles.legendDot,
-                {
-                  backgroundColor: isOther
-                    ? colors.outlineVariant
-                    : CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-                },
-              ]}
-            />
-            <View style={styles.legendIdentity}>
-              <Text style={styles.legendName} numberOfLines={1}>{item.name}</Text>
-              <Text style={styles.legendMeta} numberOfLines={1}>
-                {holding
-                  ? `${holding.shares.toLocaleString()} 股 · ${formatMoney(holding.displayValue)}`
-                  : isOther ? '查看完整持股清單' : '無可評估部位'}
-              </Text>
-            </View>
-            <Text style={styles.legendValue}>{formatPercent(item.weight)}</Text>
-            {onPress ? (
-              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-            ) : null}
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-function MoverRow({
-  mover,
-  colors,
-  styles,
-  onPress,
-}: {
-  mover: PortfolioInsights['movers'][number];
-  colors: AppColors;
-  styles: InvestmentStyles;
-  onPress?: () => void;
-}) {
-  const body = (
-    <>
-      <View style={styles.moverIdentity}>
-        <Text style={styles.moverName} numberOfLines={1}>
-          {mover.name}
-          {mover.symbol ? ` ${mover.symbol}` : ''}
-        </Text>
-        <Text style={styles.moverMeta}>
-          {mover.previousClose.toFixed(2)} → {mover.currentClose.toFixed(2)} · {mover.shares.toLocaleString()} 股
-        </Text>
-      </View>
-      <Text
-        style={[styles.moverValue, { color: pnlColor(mover.change, colors) }]}
-        selectable
-      >
-        {formatMoney(mover.change, true)}
-        {'\n'}
-        {formatPercent(mover.changePercent, true)}
-      </Text>
-    </>
-  );
-
-  if (!onPress) {
-    return <View style={styles.moverRow}>{body}</View>;
-  }
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.moverRow, pressed && styles.moverRowPressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`${mover.name} 今日變化`}
-    >
-      {body}
-    </Pressable>
   );
 }
 
@@ -411,6 +244,7 @@ export default function InvestmentScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { records } = useFinance();
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const { account: accountParam } = useLocalSearchParams<{ account?: string }>();
 
   const [ownership, setOwnership] = useState<OwnershipFilter>('all');
@@ -422,7 +256,6 @@ export default function InvestmentScreen() {
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
   const [sheetContent, setSheetContent] = useState<InvestmentSheetContent | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [performancePeriod, setPerformancePeriod] = useState<InvestmentPerformancePeriodId>('1d');
   const [holdingSort, setHoldingSort] = useState<InvestmentHoldingSortId>('pnl');
   const [holdingSortDirection, setHoldingSortDirection] = useState<'asc' | 'desc'>('desc');
   const syncStartedRef = useRef(false);
@@ -472,17 +305,6 @@ export default function InvestmentScreen() {
     startDate,
     endDate,
   }), [records, ownership, accountFilter, infoCache, priceCache, startDate, endDate]);
-
-  const holdingsById = useMemo(
-    () => new Map(currentHoldings.map(holding => [holding.id, holding])),
-    [currentHoldings],
-  );
-
-  const performance = useMemo(() => buildInvestmentPerformanceViewModel({
-    holdings: currentHoldings,
-    priceCache,
-    period: performancePeriod,
-  }), [currentHoldings, performancePeriod, priceCache]);
 
   const sortedHoldings = useMemo(
     () => sortInvestmentPositions(
@@ -557,11 +379,6 @@ export default function InvestmentScreen() {
     openHoldingDetail(row);
   }, [openHoldingDetail]);
 
-  const openPerformanceRow = useCallback((row: InvestmentPerformanceRow) => {
-    const holding = currentHoldings.find(item => item.id === row.id);
-    if (holding) openHoldingDetail(holding);
-  }, [currentHoldings, openHoldingDetail]);
-
   const loadPrices = useCallback(async (force = false) => {
     setSyncing(true);
     try {
@@ -623,17 +440,6 @@ export default function InvestmentScreen() {
   const openDetail = useCallback((panel: DetailPanel) => setDetailPanel(panel), []);
   const closeDetail = useCallback(() => setDetailPanel(null), []);
 
-  const openMoverDetail = useCallback((mover: typeof insights.movers[number]) => {
-    const matches = portfolio.positions.filter(position => (
-      (position.symbol || `name:${position.name}`) === mover.id
-    ));
-    if (matches.length === 1) {
-      openPositionSheet(matches[0]);
-      return;
-    }
-    openDetail('holdings');
-  }, [openDetail, openPositionSheet, portfolio.positions]);
-
   const renderTradeItem = useCallback(({ item }: { item: StockTrade }) => (
     <TradeListCard trade={item} colors={colors} styles={styles} />
   ), [colors, styles]);
@@ -644,6 +450,14 @@ export default function InvestmentScreen() {
     () => pnl.splits.filter(split => split.value > 0),
     [pnl.splits],
   );
+
+  const periodRealizedCost = useMemo(
+    () => rangeRealizedTrades.reduce((sum, trade) => sum + Math.max(0, trade.costPrice) * trade.shares, 0),
+    [rangeRealizedTrades],
+  );
+  const periodRealizedPercent = periodRealizedCost > 0
+    ? (periodRealizedPnl / periodRealizedCost) * 100
+    : undefined;
 
   const ownershipFilter = (
     <View style={styles.filterSection}>
@@ -692,6 +506,11 @@ export default function InvestmentScreen() {
     </View>
   );
 
+  const scrollContentStyle = useMemo(
+    () => [styles.scrollContent, { paddingBottom: Math.max(72, insets.bottom + 88) }],
+    [insets.bottom, styles.scrollContent],
+  );
+
   const summaryCard = (
     <View style={styles.summaryCard}>
       <LinearGradient
@@ -701,17 +520,15 @@ export default function InvestmentScreen() {
         style={styles.summaryCardAccent}
       />
       <Text style={styles.summaryHeadlineLabel}>總市值</Text>
-      <Text style={styles.summaryHeadlineValue} selectable>
+      <Text
+        style={styles.summaryHeadlineValue}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+        selectable
+      >
         {formatMoney(insights.totalMarketValue)}
       </Text>
-      <Text style={styles.summaryHeadlineSub}>
-        成本 {formatMoney(insights.totalCost)}
-        {' · '}
-        <Text style={{ color: pnlColor(insights.totalPnl, colors) }}>
-          總損益 {formatMoney(insights.totalPnl, true)} · {formatPercent(insights.totalReturnRate, true)}
-        </Text>
-      </Text>
-
       <View style={styles.segBarContainer}>
         <View style={styles.segBarTrack}>
           {summarySplits.map(split => (
@@ -758,16 +575,13 @@ export default function InvestmentScreen() {
               accessibilityLabel={`今日損益 ${formatMoney(insights.dayPnl, true)}，${insights.dayAdvances} 漲 ${insights.dayDeclines} 跌，查看持股`}
             >
               <View style={styles.metricLabelRow}>
-                <Ionicons name="pulse-outline" size={14} color={colors.blue} />
+                <Ionicons name="pulse-outline" size={12} color={colors.blue} />
                 <Text style={styles.metricLabel}>今日</Text>
               </View>
-              <Text style={[styles.metricValue, { color: pnlColor(insights.dayPnl, colors) }]}>
+              <Text style={[styles.metricValue, { color: pnlColor(insights.dayPnl, colors) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
                 {formatMoney(insights.dayPnl, true)}
               </Text>
-              <Text
-                style={[styles.metricSubValue, { color: pnlColor(insights.dayPnl, colors) }]}
-                selectable
-              >
+              <Text style={[styles.metricSubValue, { color: pnlColor(insights.dayPnl, colors) }]} numberOfLines={1}>
                 {formatPercent(insights.dayPnlPercent, true)}
               </Text>
             </Pressable>
@@ -778,43 +592,46 @@ export default function InvestmentScreen() {
               onPress={() => openDetail('holdings')}
               style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
               accessibilityRole="button"
-              accessibilityLabel={`未實現損益 ${formatMoney(pnl.summary.unrealizedPnl, true)}，${pnl.summary.profitCount} 獲利 ${pnl.summary.lossCount} 虧損，查看持股`}
+              accessibilityLabel={`未實現損益 ${formatMoney(pnl.summary.unrealizedPnl, true)}，報酬率 ${formatPercent(pnl.summary.unrealizedPnlPercent, true)}，${pnl.summary.profitCount} 獲利 ${pnl.summary.lossCount} 虧損，查看持股`}
             >
               <View style={styles.metricLabelRow}>
-                <Ionicons name="trending-up-outline" size={14} color={colors.primary} />
+                <Ionicons name="trending-up-outline" size={12} color={colors.primary} />
                 <Text style={styles.metricLabel}>未實現</Text>
               </View>
-              <Text
-                style={[
-                  styles.metricValue,
-                  { color: pnlColor(pnl.summary.unrealizedPnl, colors) },
-                ]}
-              >
+              <Text style={[styles.metricValue, { color: pnlColor(pnl.summary.unrealizedPnl, colors) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
                 {formatMoney(pnl.summary.unrealizedPnl, true)}
               </Text>
-            </Pressable>
-          </View>
-        </View>
-        <View style={styles.metricDividerH} />
-        <View style={styles.metricsRow}>
-          <View style={styles.metricItem}>
-            <Pressable
-              onPress={() => openDetail('realized')}
-              style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`區間已實現 ${formatMoney(periodRealizedPnl, true)}，${rangeRealizedTrades.length} 筆`}
-            >
-              <View style={styles.metricLabelRow}>
-                <Ionicons name="checkmark-done-outline" size={14} color={colors.primary} />
-                <Text style={styles.metricLabel}>已實現</Text>
-              </View>
-              <Text style={[styles.metricValue, { color: pnlColor(periodRealizedPnl, colors) }]}>
-                {formatMoney(periodRealizedPnl, true)}
+              <Text style={[styles.metricSubValue, { color: pnlColor(pnl.summary.unrealizedPnlPercent, colors) }]} numberOfLines={1}>
+                {formatPercent(pnl.summary.unrealizedPnlPercent, true)}
               </Text>
             </Pressable>
           </View>
           <View style={styles.metricDividerV} />
           <View style={styles.metricItem}>
+            <Pressable
+              onPress={() => openDetail('realized')}
+              style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`區間已實現 ${formatMoney(periodRealizedPnl, true)}，報酬率 ${periodRealizedPercent === undefined ? '無法評價' : formatPercent(periodRealizedPercent, true)}，${rangeRealizedTrades.length} 筆`}
+            >
+              <View style={styles.metricLabelRow}>
+                <Ionicons name="checkmark-done-outline" size={12} color={colors.primary} />
+                <Text style={styles.metricLabel}>已實現</Text>
+              </View>
+              <Text style={[styles.metricValue, { color: pnlColor(periodRealizedPnl, colors) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+                {formatMoney(periodRealizedPnl, true)}
+              </Text>
+              <Text style={[styles.metricSubValue, {
+                color: periodRealizedPercent === undefined
+                  ? colors.textMuted
+                  : pnlColor(periodRealizedPercent, colors),
+              }]} numberOfLines={1}>
+                {periodRealizedPercent === undefined ? '—' : formatPercent(periodRealizedPercent, true)}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.metricDividerV} />
+          <View style={[styles.metricItem, styles.metricItemTrade]}>
             <Pressable
               onPress={() => openDetail('trades')}
               style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
@@ -822,10 +639,10 @@ export default function InvestmentScreen() {
               accessibilityLabel={`區間交易 ${rangeFilteredTrades.length} 筆`}
             >
               <View style={styles.metricLabelRow}>
-                <Ionicons name="swap-horizontal-outline" size={14} color={colors.textSecondary} />
+                <Ionicons name="swap-horizontal-outline" size={12} color={colors.textSecondary} />
                 <Text style={styles.metricLabel}>交易</Text>
               </View>
-              <Text style={styles.metricValue}>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
                 {rangeFilteredTrades.length}
               </Text>
             </Pressable>
@@ -882,7 +699,7 @@ export default function InvestmentScreen() {
               data={rangeFilteredTrades}
               renderItem={renderTradeItem}
               keyExtractor={tradeKeyExtractor}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(72, insets.bottom + 88) }]}
               // @ts-expect-error FlashList v2 estimatedItemSize
               estimatedItemSize={96}
               ListEmptyComponent={(
@@ -892,7 +709,7 @@ export default function InvestmentScreen() {
               )}
             />
           ) : (
-            <ScrollView contentContainerStyle={styles.scrollContent}>
+            <ScrollView contentContainerStyle={scrollContentStyle}>
               {detailPanel === 'realized' ? (
                 <View style={styles.section}>
                   <CompactSummaryBar
@@ -1005,7 +822,7 @@ export default function InvestmentScreen() {
           )}
         </>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={scrollContentStyle}>
           {summaryCard}
 
           <InvestmentTimelineSection
@@ -1015,98 +832,12 @@ export default function InvestmentScreen() {
           <InvestmentPnlSection
             data={pnl}
             onSelectRow={openPnlRow}
-            onOpenHoldings={() => openDetail('holdings')}
             onOpenMissingPrices={() => openSheet({
               kind: 'missingPrices',
               title: '缺收盤價持股',
               items: insights.missingPrices,
             })}
           />
-
-          <InvestmentPerformanceSection
-            data={performance}
-            period={performancePeriod}
-            onPeriodChange={setPerformancePeriod}
-            onSelectRow={openPerformanceRow}
-            onOpenHoldings={() => openDetail('holdings')}
-          />
-
-          <View style={styles.section}>
-            <SectionHeader
-              title="今日變化"
-              accent={colors.blue}
-              trailing={(
-                <Pressable onPress={() => openDetail('holdings')} hitSlop={8}>
-                  <Text style={styles.linkTrailing}>
-                    持股 · {portfolio.positions.length} 檔
-                  </Text>
-                </Pressable>
-              )}
-            />
-            <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
-              {insights.movers.length === 0 ? (
-                <Text style={styles.emptyMetricText}>沒有前一個交易日的可比收盤價。</Text>
-              ) : (
-                <>
-                  {insights.movers.slice(0, 3).map(mover => (
-                    <MoverRow
-                      key={mover.id}
-                      mover={mover}
-                      colors={colors}
-                      styles={styles}
-                      onPress={() => openMoverDetail(mover)}
-                    />
-                  ))}
-                  {insights.movers.length > 3 ? (
-                    <Pressable
-                      onPress={() => openSheet({
-                        kind: 'movers',
-                        title: '今日變化',
-                        items: insights.movers,
-                      })}
-                      hitSlop={6}
-                    >
-                      <Text style={styles.linkTrailing}>
-                        查看全部 · {insights.movers.length} 檔
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </>
-              )}
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <SectionHeader
-              title="配置"
-              accent={colors.primary}
-              trailing={(
-                <Pressable onPress={() => openDetail('holdings')} hitSlop={8}>
-                  <Text style={styles.linkTrailing}>
-                    前三大 {formatPercent(insights.top3Weight)}
-                  </Text>
-                </Pressable>
-              )}
-            />
-            <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
-              <AllocationChart items={insights.allocation} colors={colors} styles={styles} />
-              <AllocationLegend
-                items={insights.allocation}
-                colors={colors}
-                styles={styles}
-                holdingsById={holdingsById}
-                onSelectHolding={openHoldingDetail}
-                onSelectOther={() => openDetail('holdings')}
-              />
-              {insights.accountAllocation.length > 0 ? (
-                <Text style={styles.accountSummary} numberOfLines={2}>
-                  {insights.accountAllocation
-                    .map(item => `${item.name} ${formatPercent(item.weight)}`)
-                    .join(' · ')}
-                </Text>
-              ) : null}
-            </View>
-          </View>
 
           <View style={styles.section}>
             <SectionHeader title="資料狀態" accent={colors.yellow} />
@@ -1223,6 +954,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   scrollContent: { paddingTop: 8, paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
   listContent: { paddingHorizontal: 16, paddingBottom: 28 },
   linkTrailing: { fontSize: 12, fontWeight: '700', color: colors.primary },
+  linkTrailingButton: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
   syncIconButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1275,20 +1007,22 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   metricsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 54,
   },
   metricDividerH: {
     height: 1,
     backgroundColor: colors.divider,
   },
-  metricItem: { flex: 1, alignItems: 'center' },
-  metricHit: { alignItems: 'center', width: '100%' },
+  metricItem: { flex: 1, minWidth: 0, alignItems: 'center' },
+  metricItemTrade: { flex: 0.68 },
+  metricHit: { alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 44 },
   metricItemPressed: { opacity: 0.75 },
-  metricLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: -0.2 },
+  metricLabel: { fontSize: 10, fontWeight: '700', color: colors.textMuted, letterSpacing: -0.2 },
   metricLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
-  metricValue: { fontSize: 17, fontWeight: '800', letterSpacing: -0.5 },
+  metricValue: { fontSize: 15, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
   metricSubValue: {
     marginTop: 2,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
@@ -1377,22 +1111,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: colors.onSurface,
-    fontVariant: ['tabular-nums'],
-  },
-  moverRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  moverRowPressed: { opacity: 0.72 },
-  moverIdentity: { flex: 1, minWidth: 0 },
-  moverName: { fontSize: 14, fontWeight: '700', color: colors.onSurface },
-  moverMeta: {
-    marginTop: 2,
-    fontSize: 11,
-    color: colors.onSurfaceVariant,
-    fontVariant: ['tabular-nums'],
-  },
-  moverValue: {
-    fontSize: 13,
-    fontWeight: '800',
-    textAlign: 'right',
     fontVariant: ['tabular-nums'],
   },
   emptyMetricText: { fontSize: 12, color: colors.textMuted },

@@ -210,4 +210,26 @@ describe('investment P&L view model', () => {
       dayChangePercent: 5,
     });
   });
+
+  it('keeps large-value holdings evaluable for compact mobile rows', () => {
+    const result = buildInvestmentPnlViewModel({
+      holdings: [makeHolding({
+        id: 'large',
+        name: '大型部位',
+        shares: 100000,
+        totalCost: 123456789,
+        averageCost: 1234.56789,
+        marketValue: 135802468,
+        unrealizedPnl: 12345679,
+        displayValue: 135802468,
+      })],
+    });
+
+    expect(result.summary).toMatchObject({
+      marketValue: 135802468,
+      unrealizedPnl: 12345679,
+      unrealizedPnlPercent: 10,
+    });
+    expect(result.topRows[0].unrealizedPnlPercent).toBe(10);
+  });
 });

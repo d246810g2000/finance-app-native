@@ -4,6 +4,7 @@ import { LineChart } from 'react-native-gifted-charts';
 import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import type { InvestmentAssetTimelinePoint } from '../../services/investmentTimelineService';
+import SectionHeader from '../ui/SectionHeader';
 
 const CHART_WIDTH = Dimensions.get('window').width - 64;
 const DEFAULT_VISIBLE_MONTHS = 12;
@@ -44,53 +45,57 @@ export default function InvestmentTimelineSection({
   return (
     <View style={styles.section}>
       {chartData.length > 1 ? (
-        <View style={styles.chartWrap}>
-          <Text style={styles.chartCaption}>
-            資產累積時間軸 · 最新收盤價評價
-          </Text>
-          <Text style={styles.chartHint}>
-            預設顯示最近 12 個月，左右滑動可看更早紀錄
-          </Text>
-          <LineChart
-            data={chartData}
-            areaChart
-            curved
-            color={colors.primary}
-            startFillColor={colors.primary}
-            endFillColor={colors.primary}
-            startOpacity={0.2}
-            endOpacity={0.02}
-            thickness={2.5}
-            hideDataPoints={false}
-            maxValue={maxValue * 1.25}
-            noOfSections={3}
-            spacing={CHART_SPACING}
-            initialSpacing={12}
-            endSpacing={12}
-            scrollToIndex={Math.max(0, chartData.length - DEFAULT_VISIBLE_MONTHS)}
-            scrollAnimation={false}
-            showScrollIndicator
-            indicatorColor="default"
-            nestedScrollEnabled
-            rulesColor={colors.divider}
-            yAxisThickness={0}
-            xAxisThickness={0}
-            yAxisTextStyle={{ color: colors.textMuted, fontSize: 10 }}
-            xAxisLabelTextStyle={{ color: colors.textMuted, fontSize: 9 }}
-            width={CHART_WIDTH}
-            height={136}
-            formatYLabel={value => formatAmountShort(Number(value))}
+        <>
+          <SectionHeader
+            title="資產累積"
+            accent={colors.primary}
+            trailing={<Text style={styles.sectionTrailing}>最近 12 個月</Text>}
           />
-        </View>
+          <View style={styles.chartWrap}>
+            <Text style={styles.chartCaption}>最新收盤價評價</Text>
+            <Text style={styles.chartHint}>左右滑動可查看更早紀錄</Text>
+            <LineChart
+              data={chartData}
+              areaChart
+              curved
+              color={colors.primary}
+              startFillColor={colors.primary}
+              endFillColor={colors.primary}
+              startOpacity={0.2}
+              endOpacity={0.02}
+              thickness={2.5}
+              hideDataPoints={false}
+              maxValue={maxValue * 1.25}
+              noOfSections={3}
+              spacing={CHART_SPACING}
+              initialSpacing={12}
+              endSpacing={12}
+              scrollToIndex={Math.max(0, chartData.length - DEFAULT_VISIBLE_MONTHS)}
+              scrollAnimation={false}
+              showScrollIndicator
+              indicatorColor="default"
+              nestedScrollEnabled
+              rulesColor={colors.divider}
+              yAxisThickness={0}
+              xAxisThickness={0}
+              yAxisTextStyle={{ color: colors.textMuted, fontSize: 10 }}
+              xAxisLabelTextStyle={{ color: colors.textMuted, fontSize: 9 }}
+              width={CHART_WIDTH}
+              height={136}
+              formatYLabel={value => formatAmountShort(Number(value))}
+            />
+          </View>
+        </>
       ) : null}
     </View>
   );
 }
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
-  section: { marginTop: 4 },
+  section: { marginTop: 14 },
+  sectionTrailing: { fontSize: 12, fontWeight: '700', color: colors.primary },
   chartWrap: {
-    marginTop: 10,
+    marginTop: 0,
     padding: 14,
     backgroundColor: colors.surfaceContainer,
     borderWidth: StyleSheet.hairlineWidth,

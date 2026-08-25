@@ -19,11 +19,16 @@ import { useFinanceUI } from '../context/FinanceUIContext';
 import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
 import { EXCHANGE_RATES } from '../constants';
 import { getSettingsForCard } from '../services/creditCardSettingsService';
+import type { AccountInvestmentSummary } from '../viewModels/accountInvestmentViewModel';
+import { buildAccountInvestmentSummary } from '../viewModels/accountInvestmentViewModel';
+import { loadStockPriceCache, type StockPriceCache } from '../services/stockPriceService';
+import { loadStockInfoCache, type StockInfoCache } from '../services/stockInfoService';
 
 interface AccountDetailModalProps {
     visible: boolean;
     accountName: string;
     onClose: () => void;
+    onOpenInvestment?: (accountName: string) => void;
 }
 
 type AccountDisplayRecord = RawRecord & {
@@ -119,7 +124,12 @@ const AccountRecordRow = memo(function AccountRecordRow({
     );
 });
 
-export default function AccountDetailModal({ visible, accountName, onClose }: AccountDetailModalProps) {
+export default function AccountDetailModal({
+    visible,
+    accountName,
+    onClose,
+    onOpenInvestment,
+}: AccountDetailModalProps) {
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
@@ -129,6 +139,8 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
     const [currentDate, setCurrentDate] = useState(() => new Date());
     const [selectedRecord, setSelectedRecord] = useState<any>(null);
     const [accountData, setAccountData] = useState(EMPTY_ACCOUNT_DATA);
+    const [stockPriceCache, setStockPriceCache] = useState<StockPriceCache | null>(null);
+    const [stockInfoCache, setStockInfoCache] = useState<StockInfoCache | null>(null);
     const swipe = useBottomSheetSwipe(onClose, visible);
 
     const isCreditCard = useMemo(
@@ -143,6 +155,10 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
     useEffect(() => {
         if (visible) {
             setCurrentDate(new Date());
+            Promise.all([loadStockPriceCache(), loadStockInfoCache()]).then(([prices, info]) => {
+                setStockPriceCache(prices);
+                setStockInfoCache(info);
+            });
         } else {
             setAccountData(EMPTY_ACCOUNT_DATA);
         }
@@ -237,6 +253,14 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
     }, [visible, rawRecords, accountName, periodStart, periodEnd]);
 
     const { displayRecords, totalBalance } = accountData;
+    const investmentSummary = useMemo<AccountInvestmentSummary | null>(() => (
+        buildAccountInvestmentSummary({
+            records: rawRecords,
+            account: accountName,
+            priceCache: stockPriceCache,
+            infoCache: stockInfoCache,
+        })
+    ), [rawRecords, accountName, stockPriceCache, stockInfoCache]);
 
     const onSelectRecord = useCallback((item: AccountDisplayRecord) => {
         setSelectedRecord(item);
@@ -292,12 +316,82 @@ export default function AccountDetailModal({ visible, accountName, onClose }: Ac
 
                                 <View style={styles.headerRow}>
                                     <View style={styles.headerStatBox}>
-                                        <Text style={styles.statLabel}>當前餘額</Text>
+                                        <Text style={styles.statLabel}>{investmentSummary ? '目前市值' : '當前餘額'}</Text>
                                         <Text style={[styles.statValue, { color: colors.green }]} selectable>
-                                            TW$ {totalBalance.toLocaleString()}
+                                            {investmentSummary
+                                                ? investmentSummary.marketValue === undefined
+                                                    ? '待估值'
+                                                    : `TW$ ${investmentSummary.marketValue.toLocaleString()}`
+                                                : `TW$ ${totalBalance.toLocaleString()}`}
                                         </Text>
                                     </View>
                                 </View>
+
+                                {investmentSummary ? (
+                                    <View style={styles.investmentSummaryCard}>
+                                        <View style={styles.investmentSummaryHeader}>
+                                            <View style={styles.investmentSummaryTitleWrap}>
+                                                <Ionicons name="trending-up-outline" size={16} color={colors.primary} />
+                                                <Text style={styles.investmentSummaryTitle}>投資摘要</Text>
+                                            </View>
+                                            {onOpenInvestment ? (
+                                                <Pressable
+                                                    onPress={() => onOpenInvestment(accountName)}
+                                                    style={styles.investmentOpenButton}
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel="查看此帳戶持股"
+                                                >
+                                                    <Text style={styles.investmentOpenButtonText}>查看持股</Text>
+                                                    <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+                                                </Pressable>
+                                            ) : null}
+                                        </View>
+                                        <View style={styles.investmentMetricsRow}>
+                                            <View style={styles.investmentMetric}>
+                                                <Text style={styles.investmentMetricLabel}>持倉成本</Text>
+                                                <Text style={styles.investmentMetricValue} selectable>
+                                                    ${investmentSummary.holdingCost.toLocaleString()}
+                                                </Text>
+                                            </View>
+                                            <View style={styles.investmentMetric}>
+                                                <Text style={styles.investmentMetricLabel}>目前市值</Text>
+                                                <Text style={styles.investmentMetricValue} selectable>
+                                                    {investmentSummary.marketValue === undefined
+                                                        ? '待估值'
+                                                        : `$${investmentSummary.marketValue.toLocaleString()}`}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <View style={styles.investmentPnlRow}>
+                                            <Text style={styles.investmentMetricLabel}>未實現損益</Text>
+                                            <Text style={[styles.investmentPnlValue, {
+                                                color: investmentSummary.unrealizedPnl === undefined
+                                                    ? colors.yellow
+                                                    : investmentSummary.unrealizedPnl >= 0 ? colors.red : colors.green,
+                                            }]} selectable>
+                                                {investmentSummary.unrealizedPnl === undefined
+                                                    ? '—'
+                                                    : `${investmentSummary.unrealizedPnl >= 0 ? '+' : '-'}$${Math.abs(investmentSummary.unrealizedPnl).toLocaleString()}`}
+                                                {investmentSummary.unrealizedPnlPercent !== undefined
+                                                    ? `  ${investmentSummary.unrealizedPnlPercent >= 0 ? '+' : ''}${investmentSummary.unrealizedPnlPercent.toFixed(2)}%`
+                                                    : ''}
+                                            </Text>
+                                        </View>
+                                        <Text style={styles.investmentSummaryHint}>
+                                            {investmentSummary.status === 'partial_prices'
+                                                ? `部分持股缺收盤價，已估值 ${investmentSummary.pricedPositionCount}/${investmentSummary.positionCount} 檔`
+                                                : investmentSummary.status === 'missing_cost'
+                                                    ? '尚未建立可計算的持倉成本，暫無未實現損益'
+                                                : investmentSummary.latestPriceDate
+                                                        ? `收盤價截至 ${investmentSummary.latestPriceDate.slice(0, 4)}/${investmentSummary.latestPriceDate.slice(4, 6)}/${investmentSummary.latestPriceDate.slice(6)}`
+                                                        : '未實現損益以最新收盤價估算，不代表實際賣出金額'}
+                                        </Text>
+                                    </View>
+                                ) : null}
+
+                                {investmentSummary ? (
+                                    <Text style={styles.activityLabel}>資金異動</Text>
+                                ) : null}
 
                                 {isCreditCard ? (
                                     <View style={styles.reconEntryRow}>
@@ -444,6 +538,20 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     headerStatBox: { flex: 1, padding: 16, borderRadius: RADIUS.md, alignItems: 'center', backgroundColor: colors.greenLight, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
     statLabel: { ...typography.caption, color: colors.green },
     statValue: { fontSize: 20, fontWeight: '800', marginTop: 4, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+    investmentSummaryCard: { marginBottom: 14, padding: 12, borderRadius: RADIUS.md, backgroundColor: colors.surfaceVariant, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outlineVariant },
+    investmentSummaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    investmentSummaryTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    investmentSummaryTitle: { ...typography.subtitle, color: colors.textPrimary, fontWeight: '800' },
+    investmentOpenButton: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 40, paddingHorizontal: 8 },
+    investmentOpenButtonText: { color: colors.primary, fontSize: 12, fontWeight: '800' },
+    investmentMetricsRow: { flexDirection: 'row', gap: 8 },
+    investmentMetric: { flex: 1, minWidth: 0 },
+    investmentMetricLabel: { ...typography.caption, color: colors.textMuted },
+    investmentMetricValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '800', marginTop: 3, fontVariant: ['tabular-nums'] },
+    investmentPnlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.outlineVariant },
+    investmentPnlValue: { fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] },
+    investmentSummaryHint: { ...typography.caption, color: colors.textMuted, marginTop: 8, lineHeight: 17 },
+    activityLabel: { ...typography.caption, color: colors.textMuted, fontWeight: '800', marginBottom: 8 },
     reconEntryRow: {
         flexDirection: 'row',
         alignItems: 'center',

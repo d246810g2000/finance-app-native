@@ -1,4 +1,5 @@
 import type { CurrentHolding, PositionMover } from '../services/portfolioService';
+import type { StockDividend } from '../services/stockTradeService';
 
 export type InvestmentPnlSplitId = 'profit' | 'loss' | 'flat';
 
@@ -32,6 +33,10 @@ export interface InvestmentPnlRow extends CurrentHolding {
   unrealizedPnlPercent?: number;
   dayChange?: number;
   dayChangePercent?: number;
+  return5d?: number;
+  return20d?: number;
+  returnYtd?: number;
+  dividendIncome?: number;
 }
 
 export interface InvestmentPnlViewModel {
@@ -44,6 +49,8 @@ export interface InvestmentPnlViewModel {
 interface BuildInvestmentPnlViewModelInput {
   holdings: CurrentHolding[];
   moversById?: Map<string, PositionMover>;
+  periodReturnsById?: Map<string, { return5d?: number; return20d?: number; returnYtd?: number }>;
+  dividends?: StockDividend[];
   visibleCount?: number;
 }
 
@@ -60,7 +67,9 @@ function round(value: number): number {
 export function buildInvestmentPnlViewModel({
   holdings,
   moversById = new Map<string, PositionMover>(),
-  visibleCount = 4,
+  periodReturnsById = new Map(),
+  dividends = [],
+  visibleCount = 5,
 }: BuildInvestmentPnlViewModelInput): InvestmentPnlViewModel {
   const rows: InvestmentPnlRow[] = holdings
     .filter(holding => holding.shares > 0)
@@ -73,6 +82,12 @@ export function buildInvestmentPnlViewModel({
           : round((holding.unrealizedPnl / holding.totalCost) * 100),
         dayChange: mover?.change,
         dayChangePercent: mover?.changePercent,
+        ...periodReturnsById.get(holding.id),
+        dividendIncome: dividends
+          .filter(dividend => (holding.symbol && dividend.symbol
+            ? holding.symbol === dividend.symbol
+            : holding.name === dividend.name))
+          .reduce((sum, dividend) => sum + dividend.amount, 0),
       };
     });
 

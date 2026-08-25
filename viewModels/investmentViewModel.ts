@@ -25,6 +25,7 @@ import {
 import { StockInfoCache } from '../services/stockInfoService';
 import { computeInvestmentAssetTimeline } from '../services/investmentTimelineService';
 import { buildInvestmentPnlViewModel } from './investmentPnlViewModel';
+import { buildInvestmentPerformanceViewModel } from './investmentPerformanceViewModel';
 import { SHARED_ACCOUNTS } from '../constants';
 
 export interface InvestmentViewModelInput {
@@ -99,14 +100,34 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
     previousQuotes,
   );
   const rangeRealizedTrades = filterByDateRange(portfolio.realizedTrades, input.startDate, input.endDate);
+  const rangeDividends = filterByDateRange(accountDividends, input.startDate, input.endDate);
   const periodRealizedPnl = sumRealizedPnl(rangeRealizedTrades);
   const rangeFilteredTrades = filterByDateRange(accountTrades, input.startDate, input.endDate)
     .sort((a, b) => b.date.localeCompare(a.date) || b.lineNumber - a.lineNumber);
   const moverByPositionId = new Map(insights.movers.map(mover => [mover.id, mover]));
   const currentHoldings = buildCurrentHoldings(portfolio.positions);
+  const periodReturnsById = new Map<string, { return5d?: number; return20d?: number; returnYtd?: number }>();
+  (['5d', '20d', 'ytd'] as const).forEach(period => {
+    const performance = buildInvestmentPerformanceViewModel({
+      holdings: currentHoldings,
+      priceCache: input.priceCache,
+      period,
+    });
+    performance.rows.forEach(row => {
+      const current = periodReturnsById.get(row.id) || {};
+      periodReturnsById.set(row.id, {
+        ...current,
+        ...(period === '5d' ? { return5d: row.changePercent } : {}),
+        ...(period === '20d' ? { return20d: row.changePercent } : {}),
+        ...(period === 'ytd' ? { returnYtd: row.changePercent } : {}),
+      });
+    });
+  });
   const pnl = buildInvestmentPnlViewModel({
     holdings: currentHoldings,
     moversById: moverByPositionId,
+    periodReturnsById,
+    dividends: rangeDividends,
   });
 
   return {
@@ -118,7 +139,7 @@ export function buildInvestmentScreenData(input: InvestmentViewModelInput) {
       || accountDividends.length > 0
       || filteredIssues.length > 0,
     insights,
-    assetTimeline: computeInvestmentAssetTimeline(accountTrades, quotes),
+    assetTimeline: computeInvestmentAssetTimeline(accountTrades, quotes, input.endDate),
     moverByPositionId,
     portfolio,
     rangeFilteredTrades,

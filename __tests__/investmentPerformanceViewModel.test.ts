@@ -90,14 +90,14 @@ describe('investment performance view model', () => {
       today: new Date(2026, 7, 25),
     });
     expect(fiveDays.rows[0]).toMatchObject({
-      baselinePrice: 99,
-      baselineDate: '20260817',
-      changePercent: 11.11,
-      marketValueChange: 11000,
+      baselinePrice: 100,
+      baselineDate: '20260818',
+      changePercent: 10,
+      marketValueChange: 10000,
     });
   });
 
-  it('uses the prior-year-end close for year-to-date performance', () => {
+  it('uses the first trading close of the year for year-to-date performance', () => {
     const priceCache = mergeStockPriceCache(createEmptyStockPriceCache(), [
       { symbol: '2330', date: '20251231', close: 90 },
       { symbol: '2330', date: '20260104', close: 95 },
@@ -112,11 +112,11 @@ describe('investment performance view model', () => {
     });
 
     expect(result.rows[0]).toMatchObject({
-      baselinePrice: 90,
-      baselineDate: '20251231',
+      baselinePrice: 95,
+      baselineDate: '20260104',
       currentPrice: 99,
-      changePercent: 10,
-      marketValueChange: 9000,
+      changePercent: 4.21,
+      marketValueChange: 4000,
     });
   });
 
@@ -148,7 +148,7 @@ describe('investment performance view model', () => {
     expect(result.summary.availableCount).toBe(1);
     expect(result.summary.unavailableCount).toBe(1);
     expect(result.summary.currentMarketValue).toBe(100000);
-    expect(result.summary.baselineMarketValue).toBe(96000);
+    expect(result.summary.baselineMarketValue).toBe(97000);
     expect(result.rows.map(row => row.id)).toEqual(['2330', 'missing']);
     expect(result.rows[1].changePercent).toBeUndefined();
   });

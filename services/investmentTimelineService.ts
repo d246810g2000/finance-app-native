@@ -36,6 +36,10 @@ function ymdToMonth(ymd: string): string | null {
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}`;
 }
 
+function dateToMonth(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function monthSpanFromDates(first: string, last: string): number {
   if (first.length < 6 || last.length < 6) return 1;
   const fy = parseInt(first.slice(0, 4), 10);
@@ -97,6 +101,7 @@ export function tradesInTimelineMonth(
 export function computeInvestmentAssetTimeline(
   inputTrades: StockTrade[],
   quotes: Record<string, StockPriceQuote> = {},
+  throughDate?: Date,
 ): InvestmentAssetTimelinePoint[] {
   const trades = inputTrades
     .filter(trade => ymdToMonth(trade.date) !== null)
@@ -125,7 +130,11 @@ export function computeInvestmentAssetTimeline(
   });
 
   const firstMonth = months[0];
-  const lastMonth = months[months.length - 1];
+  const tradeLastMonth = months[months.length - 1];
+  const requestedLastMonth = throughDate ? dateToMonth(throughDate) : tradeLastMonth;
+  const lastMonth = requestedLastMonth.localeCompare(tradeLastMonth) > 0
+    ? requestedLastMonth
+    : tradeLastMonth;
   const balances = new Map<string, { symbolKey: string; shares: number }>();
   const timeline: InvestmentAssetTimelinePoint[] = [];
 

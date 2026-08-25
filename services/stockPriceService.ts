@@ -195,6 +195,24 @@ export function getYearStartQuote(
   return { symbol, date, close: cache.prices[symbol][date] };
 }
 
+/** Get the first available trading close in the current calendar year. */
+export function getFirstTradingYearQuote(
+  cache: StockPriceCache,
+  symbol: string,
+  today = new Date(),
+): StockPriceQuote | undefined {
+  const year = today.getFullYear();
+  const minDate = `${year}0101`;
+  const maxDate = toCacheDate(today);
+  const dates = Object.keys(cache.prices[symbol] || {})
+    .filter(date => date >= minDate && date <= maxDate)
+    .sort();
+  const date = dates[0];
+  if (!date) return undefined;
+
+  return { symbol, date, close: cache.prices[symbol][date] };
+}
+
 export async function syncStockPrices(
   symbols: string[],
   options: { days?: number; today?: Date; force?: boolean } = {},

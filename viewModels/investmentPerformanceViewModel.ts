@@ -1,7 +1,7 @@
 import type { CurrentHolding, PositionMover, StockPosition } from '../services/portfolioService';
 import {
   getTradingPointQuote,
-  getYearStartQuote,
+  getFirstTradingYearQuote,
   StockPriceCache,
 } from '../services/stockPriceService';
 
@@ -78,8 +78,8 @@ function baselineQuote(
   symbol: string,
   today: Date,
 ) {
-  if (period === 'ytd') return getYearStartQuote(cache, symbol, today);
-  const pointsAgo = period === '1d' ? 1 : period === '5d' ? 5 : 20;
+  if (period === 'ytd') return getFirstTradingYearQuote(cache, symbol, today);
+  const pointsAgo = period === '1d' ? 1 : period === '5d' ? 4 : 19;
   return getTradingPointQuote(cache, symbol, pointsAgo, today);
 }
 

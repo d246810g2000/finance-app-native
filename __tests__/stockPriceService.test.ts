@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import {
   createEmptyStockPriceCache,
+  getFirstTradingYearQuote,
   getTradingPointQuote,
   getYearStartQuote,
   getLatestQuotes,
@@ -93,6 +94,17 @@ describe('stock price cache', () => {
     expect(getYearStartQuote(cache, '2330', new Date(2026, 7, 20)))
       .toEqual({ symbol: '2330', date: '20251231', close: 980 });
     expect(getYearStartQuote(cache, '2330', new Date(2025, 7, 20))).toBeUndefined();
+  });
+
+  it('returns the first trading quote of the current year', () => {
+    const cache = mergeStockPriceCache(createEmptyStockPriceCache(), [
+      { symbol: '2330', date: '20251231', close: 980 },
+      { symbol: '2330', date: '20260102', close: 995 },
+      { symbol: '2330', date: '20260105', close: 1000 },
+    ]);
+
+    expect(getFirstTradingYearQuote(cache, '2330', new Date(2026, 7, 20)))
+      .toEqual({ symbol: '2330', date: '20260102', close: 995 });
   });
 
   it('marks legacy price caches for a one-time history refresh', async () => {

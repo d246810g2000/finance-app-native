@@ -26,6 +26,7 @@ import { buildHistoricalPeriods } from '../../viewModels/assetViewModel';
 import AccountSettingsModal from '../../components/account/AccountSettingsModal';
 import { useBottomSheetSwipe } from '../../components/ui/useBottomSheetSwipe';
 import BottomSheetGestureWrapper from '../../components/ui/BottomSheetGestureWrapper';
+import { useRouter } from 'expo-router';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -258,7 +259,7 @@ const AccountRow = memo(function AccountRow({
                 <Text style={styles.accountName} numberOfLines={1}>{account.name}</Text>
             </View>
             <View style={styles.accountAmountWrap}>
-                <Text style={[styles.accountAmount, { color: account.balance >= 0 ? colors.green : colors.red }]}>
+                <Text style={[styles.accountAmount, { color: account.balance >= 0 ? colors.green : colors.red }]}> 
                     {account.balance < 0 ? '-' : ''}{Math.abs(account.balance).toLocaleString()}
                 </Text>
             </View>
@@ -445,6 +446,7 @@ export default function DashboardScreen() {
     const isFocused = useIsFocused();
     const styles = useMemo(() => createStyles(colors), [colors]);
     const navigation = useNavigation();
+    const router = useRouter();
     const [accountViewType, setAccountViewType] = useState<AccountViewType>('personal');
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(Object.keys(ASSET_CLASSES)));
     const [expandedSubGroups, setExpandedSubGroups] = useState<Record<string, boolean>>({});
@@ -580,6 +582,11 @@ export default function DashboardScreen() {
     const handleAccountClick = useCallback((accountName: string) => {
         setAccountDetailModal({ visible: true, accountName });
     }, []);
+
+    const openAccountInvestment = useCallback((accountName: string) => {
+        setAccountDetailModal(prev => ({ ...prev, visible: false }));
+        router.push({ pathname: '/investment', params: { account: accountName } });
+    }, [router]);
 
     const [savingsModalVisible, setSavingsModalVisible] = useState(false);
     const [balanceModalVisible, setBalanceModalVisible] = useState(false);
@@ -812,6 +819,7 @@ export default function DashboardScreen() {
                 visible={accountDetailModal.visible}
                 accountName={accountDetailModal.accountName}
                 onClose={() => setAccountDetailModal({ ...accountDetailModal, visible: false })}
+                onOpenInvestment={openAccountInvestment}
             />
 
             {/* Dedicated Balance Modal */}

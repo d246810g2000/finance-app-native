@@ -84,6 +84,31 @@ describe('investmentTimelineService', () => {
     ]);
   });
 
+  it('extends the timeline through the requested current month when there are no new trades', () => {
+    const trades = [makeTrade({
+      id: 'buy',
+      date: '20260515',
+      side: 'buy',
+      name: '鴻海',
+      symbol: '2317',
+      purchasePrice: 100,
+      shares: 10,
+    })];
+
+    const timeline = computeInvestmentAssetTimeline(
+      trades,
+      { '2317': { symbol: '2317', date: '20260825', close: 120 } },
+      new Date(2026, 7, 26),
+    );
+
+    expect(timeline).toEqual([
+      { month: '2026-05', value: 1200 },
+      { month: '2026-06', value: 1200 },
+      { month: '2026-07', value: 1200 },
+      { month: '2026-08', value: 1200 },
+    ]);
+  });
+
   it('computes net flow for buys and sells', () => {
     expect(tradeNetFlow(makeTrade({
       id: '1',
