@@ -28,12 +28,30 @@ export interface StockTrade {
   note: string;
 }
 
+export interface StockDividend {
+  id: string;
+  sourceId: string;
+  date: string;
+  name: string;
+  symbol?: string;
+  shares: number;
+  dividendPerShare: number;
+  amount: number;
+  expectedAmount: number;
+  account: string;
+  ownership: StockOwnership;
+  lineNumber: number;
+  note: string;
+  project: string;
+}
+
 export type StockNoteIssueReason =
   | 'missing_note'
   | 'missing_name'
   | 'missing_buy_price'
   | 'missing_sell_prices'
   | 'missing_shares'
+  | 'missing_dividend_per_share'
   | 'unparsed_line'
   | 'amount_mismatch'
   | 'corporate_action';
@@ -42,7 +60,7 @@ export interface StockNoteIssue {
   id: string;
   sourceId: string;
   date: string;
-  side: StockTradeSide | 'corporate_action';
+  side: StockTradeSide | 'corporate_action' | 'dividend';
   amount: number;
   account: string;
   note: string;
@@ -52,6 +70,7 @@ export interface StockNoteIssue {
 
 export interface StockDataResult {
   trades: StockTrade[];
+  dividends: StockDividend[];
   issues: StockNoteIssue[];
 }
 
@@ -112,8 +131,20 @@ export function withResolvedSymbols(
   }));
 }
 
+/** Attach / refresh symbols on parsed dividends using the latest name map. */
+export function withResolvedDividendSymbols(
+  dividends: StockDividend[],
+  infoByName?: Record<string, string>,
+): StockDividend[] {
+  return dividends.map(dividend => ({
+    ...dividend,
+    symbol: resolveStockSymbol(dividend.name, infoByName) || dividend.symbol,
+  }));
+}
+
 const BUY_FORMAT = '鴻海 250 100股';
 const SELL_FORMAT = '鴻海 240->255 100股';
+const DIVIDEND_FORMAT = '台積電 股息 5 51股';
 
 interface ParsedStockLine {
   name: string;
@@ -274,22 +305,27 @@ function getStockAccount(record: RawRecord, side: StockTradeSide): string {
 
 function makeIssue(
   record: RawRecord,
-  side: StockTradeSide | 'corporate_action',
+  side: StockTradeSide | 'corporate_action' | 'dividend',
   reasons: StockNoteIssueReason[],
   note = '',
 ): StockNoteIssue {
+  const expectedFormat = side === 'sell'
+    ? SELL_FORMAT
+    : side === 'dividend'
+      ? DIVIDEND_FORMAT
+      : BUY_FORMAT;
   return {
     id: getSourceId(record),
     sourceId: getSourceId(record),
     date: String(record['日期'] || ''),
     side,
     amount: Number(record['金額'] || 0) || 0,
-    account: side === 'corporate_action'
+    account: side === 'corporate_action' || side === 'dividend'
       ? String(record['收款(轉入)'] || '').trim()
       : getStockAccount(record, side as StockTradeSide),
     note,
     reasons: Array.from(new Set(reasons)),
-    expectedFormat: side === 'sell' ? SELL_FORMAT : BUY_FORMAT,
+    expectedFormat,
   };
 }
 
@@ -364,17 +400,161 @@ function parseRecordLines(
   return { trades, reasons: [] };
 }
 
+function isDividendIncomeRecord(record: RawRecord): boolean {
+  if (String(record['分類'] || '') !== '投資收入') return false;
+  const sub = String(record['子分類'] || '');
+  const note = String(record['備註'] || '');
+  if (sub === '股息') return true;
+  if (/股息|配息/.test(note)) return true;
+  // Legacy: 台積電 15股 5元
+  if (/\d+(?:\.\d+)?\s*股\s+\d+(?:\.\d+)?\s*元/.test(note)) return true;
+  return false;
+}
+
+function looksLikeDividendLine(line: string): boolean {
+  return /股息|配息/.test(line)
+    || /\d+(?:\.\d+)?\s*股\s+\d+(?:\.\d+)?\s*元/.test(line);
+}
+
+function parseDividendPerShare(line: string): number | undefined {
+  const legacy = line.match(/(\d+(?:\.\d+)?)\s*股\s+(\d+(?:\.\d+)?)\s*元/);
+  if (legacy) {
+    const dps = Number(legacy[2]);
+    return Number.isFinite(dps) ? dps : undefined;
+  }
+
+  const stripped = stripTradePrefix(line)
+    .replace(/(股息|配息)/g, ' ')
+    .replace(QUANTITY_PATTERN, ' ')
+    .replace(/元/g, ' ');
+  const numbers = stripped.match(/[0-9]+(?:\.[0-9]+)?/g) || [];
+  if (numbers.length !== 1) return undefined;
+  const dps = Number(numbers[0]);
+  return Number.isFinite(dps) ? dps : undefined;
+}
+
+function parseDividendName(line: string): string {
+  const legacy = line.match(/^(.+?)\s+\d+(?:\.\d+)?\s*股\s+\d+(?:\.\d+)?\s*元/);
+  if (legacy) {
+    return legacy[1].replace(/[：:，,、|]/g, '').trim();
+  }
+  return parseName(
+    stripTradePrefix(line).replace(/(股息|配息)/g, ' '),
+  );
+}
+
+function dividendAmountTolerance(amount: number): number {
+  // Allow small bank/fee deltas common on cash dividends.
+  return Math.max(15, Math.abs(amount) * 0.01);
+}
+
+function parseDividendRecord(
+  record: RawRecord,
+  lines: string[],
+): { dividends?: StockDividend[]; reasons: StockNoteIssueReason[] } {
+  const parsed: Array<{
+    name: string;
+    shares: number;
+    dividendPerShare: number;
+    lineNumber: number;
+  }> = [];
+  const reasons = new Set<StockNoteIssueReason>();
+  const sourceId = getSourceId(record);
+  const account = String(record['收款(轉入)'] || '').trim();
+
+  lines.forEach((line, index) => {
+    if (!looksLikeDividendLine(line) && lines.length > 1) {
+      reasons.add('unparsed_line');
+      return;
+    }
+
+    const name = parseDividendName(line);
+    const quantity = parseQuantity(line);
+    const dividendPerShare = parseDividendPerShare(line);
+
+    if (!name || !/[\u4e00-\u9fffA-Za-z]/.test(name)) reasons.add('missing_name');
+    if (!quantity.shares) reasons.add('missing_shares');
+    if (dividendPerShare === undefined) reasons.add('missing_dividend_per_share');
+
+    if (!name || !quantity.shares || dividendPerShare === undefined) return;
+
+    parsed.push({
+      name,
+      shares: quantity.shares,
+      dividendPerShare,
+      lineNumber: index + 1,
+    });
+  });
+
+  if (parsed.length === 0 || parsed.length !== lines.length) {
+    reasons.add('unparsed_line');
+    return { reasons: Array.from(reasons) };
+  }
+
+  const expectedAmount = parsed.reduce(
+    (sum, item) => sum + item.dividendPerShare * item.shares,
+    0,
+  );
+  const sourceAmount = Number(record['金額'] || 0) || 0;
+  if (Math.abs(expectedAmount - sourceAmount) > dividendAmountTolerance(sourceAmount)) {
+    reasons.add('amount_mismatch');
+    return { reasons: Array.from(reasons) };
+  }
+
+  const dividends = parsed.map(item => ({
+    id: `${sourceId}:${item.lineNumber}`,
+    sourceId,
+    date: String(record['日期'] || ''),
+    name: item.name,
+    symbol: resolveStockSymbol(item.name),
+    shares: item.shares,
+    dividendPerShare: item.dividendPerShare,
+    amount: sourceAmount,
+    expectedAmount: Math.round(item.dividendPerShare * item.shares * 100) / 100,
+    account,
+    ownership: getOwnership(account),
+    lineNumber: item.lineNumber,
+    note: String(record['備註'] || ''),
+    project: String(record['專案'] || ''),
+  }));
+
+  // When one cash credit covers multiple lines, split amount proportionally.
+  if (dividends.length > 1 && expectedAmount > 0) {
+    dividends.forEach(item => {
+      item.amount = Math.round((sourceAmount * (item.expectedAmount / expectedAmount)) * 100) / 100;
+    });
+  }
+
+  return { dividends, reasons: [] };
+}
+
 /** Derive tradable stock activity and an actionable note audit from AndroMoney records. */
 export function deriveStockData(records: RawRecord[]): StockDataResult {
   const trades: StockTrade[] = [];
+  const dividends: StockDividend[] = [];
   const issues: StockNoteIssue[] = [];
 
   records.forEach(record => {
     if (String(record['分類'] || '') === 'SYSTEM') return;
 
-    const side = getTradeSide(record);
     const note = String(record['備註'] || '');
     const lines = normalizeStockNoteLines(note);
+
+    if (isDividendIncomeRecord(record)) {
+      if (lines.length === 0) {
+        issues.push(makeIssue(record, 'dividend', ['missing_note']));
+        return;
+      }
+      const parsed = parseDividendRecord(record, lines);
+      if (parsed.dividends) {
+        dividends.push(...parsed.dividends);
+        return;
+      }
+      issues.push(makeIssue(record, 'dividend', parsed.reasons, lines.join('\n')));
+      return;
+    }
+
+    const side = getTradeSide(record);
 
     if (!side) {
       const isCorporateAction = String(record['子分類'] || '') === '公司配股'
@@ -400,5 +580,5 @@ export function deriveStockData(records: RawRecord[]): StockDataResult {
     issues.push(makeIssue(record, side, parsed.reasons, lines.join('\n')));
   });
 
-  return { trades, issues };
+  return { trades, dividends, issues };
 }

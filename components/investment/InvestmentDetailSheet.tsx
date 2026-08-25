@@ -125,15 +125,22 @@ function RealizedListItem({
   colors: AppColors;
   styles: ReturnType<typeof createStyles>;
 }) {
+  const isDividend = item.kind === 'dividend';
+  const dps = item.dividendPerShare ?? item.salePrice;
   return (
     <View style={styles.row}>
       <View style={styles.rowMain}>
         <Text style={styles.rowTitle} numberOfLines={1}>
+          {isDividend ? '股息 · ' : ''}
           {item.name}
           {item.symbol ? ` ${item.symbol}` : ''}
         </Text>
         <Text style={styles.rowMeta}>
-          {formatDate(item.date)} · {item.costPrice.toFixed(2)}→{item.salePrice.toFixed(2)} · {item.shares.toLocaleString()} 股
+          {formatDate(item.date)}
+          {' · '}
+          {isDividend
+            ? `$${dps} × ${item.shares.toLocaleString()}股`
+            : `${item.costPrice.toFixed(2)}→${item.salePrice.toFixed(2)} · ${item.shares.toLocaleString()} 股`}
         </Text>
       </View>
       <Text style={[styles.rowValue, { color: pnlColor(item.pnl, colors) }]} selectable>
@@ -277,7 +284,9 @@ export default function InvestmentDetailSheet({
 
               {positionSections.sells.length > 0 ? (
                 <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionTitle}>已實現 ({positionSections.sells.length})</Text>
+                  <Text style={styles.sectionTitle}>
+                    已實現（賣出／股息） ({positionSections.sells.length})
+                  </Text>
                   {positionSections.sells.map(item => (
                     <RealizedListItem key={item.id} item={item} colors={colors} styles={styles} />
                   ))}

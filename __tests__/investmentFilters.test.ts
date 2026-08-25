@@ -32,6 +32,7 @@ describe('investmentFilters', () => {
     const realized: StockRealizedTrade[] = [
       {
         id: '1',
+        kind: 'sell',
         name: '鴻海',
         date: '20260105',
         shares: 100,
@@ -43,6 +44,7 @@ describe('investmentFilters', () => {
       },
       {
         id: '2',
+        kind: 'sell',
         name: '台積電',
         date: '20260201',
         shares: 10,

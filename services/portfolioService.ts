@@ -1,4 +1,5 @@
 import {
+  StockDividend,
   StockOwnership,
   StockTrade,
 } from './stockTradeService';
@@ -33,6 +34,7 @@ export interface StockPosition {
 
 export interface StockRealizedTrade {
   id: string;
+  kind: 'sell' | 'dividend';
   name: string;
   symbol?: string;
   account: string;
@@ -41,6 +43,7 @@ export interface StockRealizedTrade {
   shares: number;
   costPrice: number;
   salePrice: number;
+  dividendPerShare?: number;
   pnl: number;
 }
 
@@ -375,10 +378,11 @@ export function buildPortfolioInsights(
   };
 }
 
-/** Build current holdings and realized P&L using FIFO matching. */
+/** Build current holdings and realized P&L using FIFO matching (+ cash dividends). */
 export function buildPortfolio(
   inputTrades: StockTrade[],
   quotes: Record<string, StockPriceQuote> = {},
+  dividends: StockDividend[] = [],
 ): PortfolioResult {
   const lotsByGroup = new Map<string, StockLot[]>();
   const realizedTrades: StockRealizedTrade[] = [];
@@ -416,6 +420,7 @@ export function buildPortfolio(
 
     realizedTrades.push({
       id: trade.id,
+      kind: 'sell',
       name: trade.name,
       symbol: trade.symbol,
       account: trade.account,
@@ -425,6 +430,23 @@ export function buildPortfolio(
       costPrice: trade.costPrice,
       salePrice: trade.salePrice,
       pnl: (trade.salePrice - trade.costPrice) * trade.shares,
+    });
+  });
+
+  dividends.forEach(dividend => {
+    realizedTrades.push({
+      id: dividend.id,
+      kind: 'dividend',
+      name: dividend.name,
+      symbol: dividend.symbol,
+      account: dividend.account,
+      ownership: dividend.ownership,
+      date: dividend.date,
+      shares: dividend.shares,
+      costPrice: 0,
+      salePrice: dividend.dividendPerShare,
+      dividendPerShare: dividend.dividendPerShare,
+      pnl: dividend.amount,
     });
   });
 

@@ -146,6 +146,112 @@ describe('stock note parsing', () => {
     expect(issues[0].reasons).toContain('amount_mismatch');
   });
 
+  it('parses dividend income notes into dividends counted as realized cash', () => {
+    const { trades, dividends, issues } = deriveStockData([
+      {
+        id: 'div-1',
+        '日期': '20260709',
+        '時間': '',
+        '分類': '投資收入',
+        '子分類': '股息',
+        '收款(轉入)': '共享樂天帳戶',
+        '付款(轉出)': '',
+        '金額': '255',
+        '幣別': 'TWD',
+        '商家(公司)': '',
+        '專案': '投資股票',
+        '備註': '台積電 股息 5 51股',
+      } as RawRecord,
+    ]);
+
+    expect(trades).toHaveLength(0);
+    expect(issues).toHaveLength(0);
+    expect(dividends).toHaveLength(1);
+    expect(dividends[0]).toMatchObject({
+      name: '台積電',
+      symbol: '2330',
+      shares: 51,
+      dividendPerShare: 5,
+      amount: 255,
+      ownership: 'shared',
+      account: '共享樂天帳戶',
+    });
+  });
+
+  it('allows small fee deltas on dividend amounts', () => {
+    const { dividends, issues } = deriveStockData([
+      {
+        id: 'div-fee',
+        '日期': '20250731',
+        '時間': '',
+        '分類': '投資收入',
+        '子分類': '股息',
+        '收款(轉入)': '大戶 DAWHO',
+        '付款(轉出)': '',
+        '金額': '11590',
+        '幣別': 'TWD',
+        '商家(公司)': '',
+        '專案': '投資股票',
+        '備註': '鴻海 股息 5.8 2000股',
+      } as RawRecord,
+    ]);
+
+    expect(issues).toHaveLength(0);
+    expect(dividends[0].amount).toBe(11590);
+    expect(dividends[0].expectedAmount).toBe(11600);
+  });
+
+  it('parses legacy dividend notes like 台積電 15股 5元', () => {
+    const { dividends, issues } = deriveStockData([
+      {
+        id: 'div-legacy',
+        '日期': '20260109',
+        '時間': '',
+        '分類': '投資收入',
+        '子分類': '股息',
+        '收款(轉入)': 'iLEO 數位帳戶',
+        '付款(轉出)': '',
+        '金額': '75',
+        '幣別': 'TWD',
+        '商家(公司)': '',
+        '專案': '投資股票',
+        '備註': '台積電 15股 5元',
+      } as RawRecord,
+    ]);
+
+    expect(issues).toHaveLength(0);
+    expect(dividends[0]).toMatchObject({
+      name: '台積電',
+      shares: 15,
+      dividendPerShare: 5,
+      amount: 75,
+      ownership: 'personal',
+    });
+  });
+
+  it('flags unparsable dividend notes for repair', () => {
+    const { dividends, issues } = deriveStockData([
+      {
+        id: 'div-bad',
+        '日期': '20260709',
+        '時間': '',
+        '分類': '投資收入',
+        '子分類': '股息',
+        '收款(轉入)': 'Line bank',
+        '付款(轉出)': '',
+        '金額': '180',
+        '幣別': 'TWD',
+        '商家(公司)': '',
+        '專案': '投資股票',
+        '備註': '台積電股息',
+      } as RawRecord,
+    ]);
+
+    expect(dividends).toHaveLength(0);
+    expect(issues[0].reasons).toEqual(expect.arrayContaining(['missing_shares', 'missing_dividend_per_share']));
+    expect(issues[0].expectedFormat).toBe('台積電 股息 5 51股');
+  });
+
   it('excludes company trust contributions and matching shares from note audit', () => {
     const { trades, issues } = deriveStockData([
       buyRecord({
@@ -263,5 +369,30 @@ describe('FIFO portfolio calculation', () => {
     expect(insights.allocation[0]).toMatchObject({ name: '鴻海 2317' });
     expect(insights.top1Weight).toBeCloseTo(86.3, 1);
     expect(insights.concentrationStatus).toBe('high');
+  });
+
+  it('adds cash dividends into realized pnl', () => {
+    const result = buildPortfolio(
+      [{
+        id: 'b1', sourceId: 'b1', date: '20260101', side: 'buy', name: '台積電', symbol: '2330',
+        shares: 51, purchasePrice: 1000, amount: 51000, sourceAmount: 51000,
+        account: '共享股票帳戶', ownership: 'shared', lineNumber: 1, note: '',
+      }],
+      {},
+      [{
+        id: 'd1', sourceId: 'd1', date: '20260109', name: '台積電', symbol: '2330',
+        shares: 51, dividendPerShare: 5, amount: 255, expectedAmount: 255,
+        account: '共享樂天帳戶', ownership: 'shared', lineNumber: 1, note: '台積電 股息 5 51股',
+        project: '投資股票',
+      }],
+    );
+
+    expect(result.realizedTrades).toHaveLength(1);
+    expect(result.realizedTrades[0]).toMatchObject({
+      kind: 'dividend',
+      pnl: 255,
+      dividendPerShare: 5,
+    });
+    expect(result.realizedPnl).toBe(255);
   });
 });

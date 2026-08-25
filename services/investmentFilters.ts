@@ -40,6 +40,9 @@ export function matchesPosition(
   trade: StockTrade | StockRealizedTrade,
   position: { name: string; account: string; ownership: string },
 ): boolean {
+  if ('kind' in trade && trade.kind === 'dividend') {
+    return trade.name === position.name && trade.ownership === position.ownership;
+  }
   return trade.name === position.name
     && trade.account === position.account
     && trade.ownership === position.ownership;

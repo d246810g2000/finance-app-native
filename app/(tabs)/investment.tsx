@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
+import { useLocalSearchParams } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { PieChart } from 'react-native-gifted-charts';
 import { useFinance } from '../../context/FinanceContext';
@@ -88,6 +89,7 @@ const REASON_LABELS: Record<StockNoteIssueReason, string> = {
   missing_buy_price: '缺買入價',
   missing_sell_prices: '缺 成本->賣出價',
   missing_shares: '缺股數',
+  missing_dividend_per_share: '缺每股股利',
   unparsed_line: '備註格式無法解析',
   amount_mismatch: '價格×股數與金額不一致',
   corporate_action: '公司配股待確認',
@@ -96,6 +98,7 @@ const REASON_LABELS: Record<StockNoteIssueReason, string> = {
 const SIDE_LABELS: Record<string, string> = {
   buy: '買入',
   sell: '賣出',
+  dividend: '股息',
   corporate_action: '配股',
 };
 
@@ -139,7 +142,14 @@ function IssueCard({
   return (
     <View style={styles.issueCard}>
       <View style={styles.issueHeader}>
-        <View style={[styles.sideBadge, issue.side === 'sell' ? styles.sellBadge : styles.buyBadge]}>
+        <View style={[
+          styles.sideBadge,
+          issue.side === 'sell'
+            ? styles.sellBadge
+            : issue.side === 'dividend'
+              ? styles.dividendBadge
+              : styles.buyBadge,
+        ]}>
           <Text style={styles.sideBadgeText}>{SIDE_LABELS[issue.side] || '待確認'}</Text>
         </View>
         <Text style={styles.issueDate}>{formatDate(issue.date)}</Text>
@@ -371,18 +381,24 @@ function RealizedListCard({
   trade: StockRealizedTrade;
   colors: AppColors;
 }) {
+  const isDividend = trade.kind === 'dividend';
+  const dps = trade.dividendPerShare ?? trade.salePrice;
   return (
     <AccentListCard
-      title={`${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
+      title={`${isDividend ? '股息 · ' : ''}${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
       amount={formatMoney(trade.pnl, true)}
       amountColor={pnlColor(trade.pnl, colors)}
       meta={[
         { icon: 'calendar-outline', text: formatDate(trade.date) },
         {
-          icon: 'pricetag-outline',
-          text: `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`,
+          icon: isDividend ? 'cash-outline' : 'pricetag-outline',
+          text: isDividend
+            ? `$${dps} × ${trade.shares.toLocaleString()}股`
+            : `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`,
         },
-        { icon: 'cube-outline', text: `${trade.shares.toLocaleString()} 股` },
+        ...(isDividend
+          ? []
+          : [{ icon: 'cube-outline' as const, text: `${trade.shares.toLocaleString()} 股` }]),
         { icon: 'wallet-outline', text: trade.account },
         { icon: 'person-outline', text: OWNERSHIP_LABELS[trade.ownership] },
       ]}
@@ -395,8 +411,10 @@ export default function InvestmentScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { records } = useFinance();
   const isFocused = useIsFocused();
+  const { account: accountParam } = useLocalSearchParams<{ account?: string }>();
 
   const [ownership, setOwnership] = useState<OwnershipFilter>('all');
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const [detailPanel, setDetailPanel] = useState<DetailPanel | null>(null);
   const [priceCache, setPriceCache] = useState<StockPriceCache | null>(null);
   const [infoCache, setInfoCache] = useState<StockInfoCache | null>(null);
@@ -411,6 +429,10 @@ export default function InvestmentScreen() {
   const defaultRange = useMemo(() => createDefaultInvestmentDateRange(), []);
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
+
+  useEffect(() => {
+    setAccountFilter(typeof accountParam === 'string' && accountParam.length > 0 ? accountParam : null);
+  }, [accountParam]);
 
   const handleDateChange = useCallback((start: Date, end: Date) => {
     setStartDate(start);
@@ -444,11 +466,12 @@ export default function InvestmentScreen() {
   } = useMemo(() => buildInvestmentScreenData({
     records,
     ownership,
+    account: accountFilter,
     infoCache,
     priceCache,
     startDate,
     endDate,
-  }), [records, ownership, infoCache, priceCache, startDate, endDate]);
+  }), [records, ownership, accountFilter, infoCache, priceCache, startDate, endDate]);
 
   const holdingsById = useMemo(
     () => new Map(currentHoldings.map(holding => [holding.id, holding])),
@@ -652,6 +675,20 @@ export default function InvestmentScreen() {
           accessibilityLabel="帳戶範圍篩選"
         />
       </View>
+      {accountFilter ? (
+        <View style={styles.accountFilterBanner}>
+          <Ionicons name="wallet-outline" size={15} color={colors.primary} />
+          <Text style={styles.accountFilterText} numberOfLines={1}>帳戶：{accountFilter}</Text>
+          <Pressable
+            onPress={() => setAccountFilter(null)}
+            style={styles.accountFilterClear}
+            accessibilityRole="button"
+            accessibilityLabel="清除帳戶篩選"
+          >
+            <Ionicons name="close-circle" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -1149,6 +1186,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   filterSection: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
@@ -1169,6 +1207,19 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   filterControls: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  accountFilterBanner: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    minHeight: 36,
+    backgroundColor: colors.primaryContainer,
+    ...withContinuousRadius(RADIUS.sm),
+  },
+  accountFilterText: { flex: 1, color: colors.onPrimaryContainer, fontSize: 12, fontWeight: '700' },
+  accountFilterClear: { minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { paddingTop: 8, paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
   listContent: { paddingHorizontal: 16, paddingBottom: 28 },
   linkTrailing: { fontSize: 12, fontWeight: '700', color: colors.primary },
@@ -1366,6 +1417,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   sideBadge: { paddingHorizontal: 8, paddingVertical: 3, ...withContinuousRadius(RADIUS.full) },
   buyBadge: { backgroundColor: colors.primaryContainer },
   sellBadge: { backgroundColor: colors.greenLight },
+  dividendBadge: { backgroundColor: colors.yellowLight },
   sideBadgeText: { fontSize: 11, fontWeight: '800', color: colors.onSurface },
   issueDate: {
     flex: 1,
