@@ -33,6 +33,7 @@ import RealizedTradesTable from '../../components/investment/RealizedTradesTable
 import StockTradesTable from '../../components/investment/StockTradesTable';
 import InvestmentTimelineSection from '../../components/investment/InvestmentTimelineSection';
 import InvestmentPnlSection from '../../components/investment/InvestmentPnlSection';
+import HuiQianSection from '../../components/investment/HuiQianSection';
 import {
   StockNoteIssue,
   StockNoteIssueReason,
@@ -309,6 +310,10 @@ export default function InvestmentScreen() {
     ? formatSyncLabel(priceCache.syncedAt)
     : '尚未同步';
   const hasStockData = computedHasStockData;
+  const hasHuiQianData = useMemo(
+    () => records.some(record => record['收款(轉入)'] === '25號會錢'),
+    [records],
+  );
 
   const ownershipOptions = [
     { value: 'all' as OwnershipFilter, label: '全部', icon: 'apps-outline' as const },
@@ -537,7 +542,7 @@ export default function InvestmentScreen() {
     </View>
   );
 
-  if (!hasStockData) {
+  if (!hasStockData && !hasHuiQianData) {
     return (
       <View style={styles.container}>
         {ownershipFilter}
@@ -697,22 +702,41 @@ export default function InvestmentScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle}>
-          {summaryCard}
+          {hasStockData ? summaryCard : null}
 
-          <InvestmentTimelineSection
-            assetTimeline={assetTimeline}
-          />
+          {hasStockData ? (
+            <>
+              <InvestmentTimelineSection
+                assetTimeline={assetTimeline}
+              />
 
-          <InvestmentPnlSection
-            data={pnl}
-            onOpenMissingPrices={() => openSheet({
-              kind: 'missingPrices',
-              title: '缺收盤價持股',
-              items: insights.missingPrices,
-            })}
-          />
+              <InvestmentPnlSection
+                data={pnl}
+                onOpenMissingPrices={() => openSheet({
+                  kind: 'missingPrices',
+                  title: '缺收盤價持股',
+                  items: insights.missingPrices,
+                })}
+              />
+            </>
+          ) : null}
 
-          <View style={styles.section}>
+          {hasHuiQianData ? (
+            <View style={styles.section}>
+              <SectionHeader title="會錢" accent={colors.primary} />
+              <HuiQianSection records={records} />
+            </View>
+          ) : null}
+
+          {syncErrors.length > 0 ? (
+            <View style={[styles.errorBox, { borderColor: colors.outlineVariant }]}>
+              {syncErrors.map(error => (
+                <Text key={error} style={styles.errorText} numberOfLines={2}>{error}</Text>
+              ))}
+            </View>
+          ) : null}
+
+          {hasStockData ? <View style={styles.section}>
             <SectionHeader title="資料狀態" accent={colors.yellow} />
             {filteredIssues.length === 0 && insights.missingPrices.length === 0 ? (
               <View style={[styles.statusOk, { backgroundColor: colors.greenLight }]}>
@@ -765,15 +789,8 @@ export default function InvestmentScreen() {
             <Text style={styles.dataNote}>
               損益以備註成本與 FinMind 日收盤計算；未含手續費、稅負與除權息還原。
             </Text>
-          </View>
+          </View> : null}
 
-          {syncErrors.length > 0 ? (
-            <View style={[styles.errorBox, { borderColor: colors.outlineVariant }]}>
-              {syncErrors.map(error => (
-                <Text key={error} style={styles.errorText} numberOfLines={2}>{error}</Text>
-              ))}
-            </View>
-          ) : null}
         </ScrollView>
       )}
 
