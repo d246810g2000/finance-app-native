@@ -2,6 +2,7 @@ import {
   StockDividend,
   StockOwnership,
   StockTrade,
+  roundStockPrincipal,
 } from './stockTradeService';
 import { StockPriceQuote } from './stockPriceService';
 
@@ -127,7 +128,10 @@ function buildPosition(
   quotes: Record<string, StockPriceQuote>,
 ): StockPosition {
   const shares = lots.reduce((sum, lot) => sum + lot.shares, 0);
-  const totalCost = lots.reduce((sum, lot) => sum + lot.shares * lot.purchasePrice, 0);
+  const totalCost = lots.reduce(
+    (sum, lot) => sum + roundStockPrincipal(lot.purchasePrice, lot.shares),
+    0,
+  );
   const first = lots[0];
   const quote = first.symbol ? quotes[first.symbol] : undefined;
   const marketValue = quote ? quote.close * shares : undefined;
@@ -296,7 +300,10 @@ export function buildPortfolioInsights(
   const totalCost = positions.reduce((sum, position) => sum + position.totalCost, 0);
   const unrealizedPnl = positions.reduce((sum, position) => sum + (position.unrealizedPnl || 0), 0);
   const realizedPnl = realizedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
-  const realizedCost = realizedTrades.reduce((sum, trade) => sum + trade.costPrice * trade.shares, 0);
+  const realizedCost = realizedTrades.reduce(
+    (sum, trade) => sum + roundStockPrincipal(trade.costPrice, trade.shares),
+    0,
+  );
   const totalInvestedCost = totalCost + realizedCost;
 
   const movers = mergeMoversBySymbol(positions, previousQuotes);
@@ -429,7 +436,8 @@ export function buildPortfolio(
       shares: trade.shares,
       costPrice: trade.costPrice,
       salePrice: trade.salePrice,
-      pnl: (trade.salePrice - trade.costPrice) * trade.shares,
+      pnl: roundStockPrincipal(trade.salePrice, trade.shares)
+        - roundStockPrincipal(trade.costPrice, trade.shares),
     });
   });
 

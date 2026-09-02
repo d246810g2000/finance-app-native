@@ -1,4 +1,4 @@
-import { StockTrade } from './stockTradeService';
+import { StockTrade, roundStockPrincipal } from './stockTradeService';
 import type { StockPriceQuote } from './stockPriceService';
 
 export const PORTFOLIO_TIMELINE_ID = '__portfolio__';
@@ -76,10 +76,10 @@ function tradeUnitPrice(trade: StockTrade): number | undefined {
 export function tradeNetFlow(trade: StockTrade): number | null {
   if (trade.side === 'buy') {
     if (!trade.purchasePrice) return null;
-    return trade.purchasePrice * trade.shares;
+    return roundStockPrincipal(trade.purchasePrice, trade.shares);
   }
   if (!trade.costPrice) return null;
-  return -(trade.costPrice * trade.shares);
+  return -roundStockPrincipal(trade.costPrice, trade.shares);
 }
 
 export function tradesInTimelineMonth(

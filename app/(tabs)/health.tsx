@@ -582,6 +582,26 @@ const StructureTab = memo(function StructureTab({
                 ))}
             </View>
 
+            <SectionHeader title="生活 vs 投資現金流" style={styles.section} />
+            <Text style={[styles.sheetHelper, { marginTop: -8, marginBottom: 8, paddingHorizontal: 0 }]}>
+                依分類計算，不看專案欄（利息標正常開銷仍算投資收入）
+            </Text>
+            <View style={[styles.card, SHADOWS.sm]}>
+                {[
+                    ['生活收入', dashboard.cashFlowSplit.livingIncome, colors.green],
+                    ['生活支出', -dashboard.cashFlowSplit.livingExpense, colors.red],
+                    ['生活結餘', dashboard.cashFlowSplit.livingNet, dashboard.cashFlowSplit.livingNet >= 0 ? colors.green : colors.red],
+                    ['投資收入', dashboard.cashFlowSplit.investmentIncome, colors.blue],
+                    ['投資支出', -dashboard.cashFlowSplit.investmentExpense, colors.yellow],
+                    ['投資結餘', dashboard.cashFlowSplit.investmentNet, dashboard.cashFlowSplit.investmentNet >= 0 ? colors.green : colors.red],
+                ].map(([label, value, color], index) => (
+                    <View key={label as string} style={[styles.valueRow, index > 0 && styles.divider]}>
+                        <Text style={styles.rowLabel}>{label}</Text>
+                        <Text style={[styles.rowValue, { color: color as string }]}>{money(value as number)}</Text>
+                    </View>
+                ))}
+            </View>
+
             <SectionHeader title="支出結構" style={styles.section} />
             <View style={[styles.card, SHADOWS.sm]}>
                 {visibleStructure.map((item, index) => (

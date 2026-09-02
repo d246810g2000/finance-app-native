@@ -13,7 +13,9 @@
     "analyze:projects": "jest __tests__/projectMonthlyOutliers.fixture.test.ts --no-coverage",
     "analyze:attribution": "jest __tests__/projectAttribution.fixture.test.ts --no-coverage",
     "analyze:health": "jest __tests__/projectHealth.fixture.test.ts --no-coverage",
-    "analyze:report": "jest __tests__/financialHealthReport.fixture.test.ts --no-coverage"
+    "analyze:report": "jest __tests__/financialHealthReport.fixture.test.ts --no-coverage",
+    "audit:records": "node scripts/readOnlyAudit.mjs",
+    "audit:records:jest": "jest __tests__/recordAudit.fixture.test.ts --no-coverage"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

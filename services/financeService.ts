@@ -12,6 +12,7 @@ import {
   isSharedAccountName as isSharedAccountNameCore,
   resolveExpenseSplitFactor as resolveExpenseSplitFactorCore,
 } from './core/attribution';
+import { auditRecordsForImport, type RecordAuditFinding } from './recordAuditService';
 import {
   convertAmountToTwd,
   endOfDay,
@@ -24,6 +25,14 @@ import {
   classifyStatsKind,
   normalizeTransaction,
 } from './core/transactionNormalization';
+
+export {
+  ANDRO_MONEY_CSV_HEADERS,
+  recordToAndroMoneyRow,
+  serializeAndroMoneyCsv,
+  shareAndroMoneyCsv,
+} from './androMoneyCsvExport';
+export type { AndroMoneyCsvHeader, SerializeAndroMoneyCsvOptions } from './androMoneyCsvExport';
 
 export const getCategoryForAccount = getCategoryForAccountCore;
 
@@ -168,6 +177,9 @@ export type ImportReport = {
   uniqueProjects: number;
   dateMin: string | null;
   dateMax: string | null;
+  /** 唯讀建議檢查（不會自動套用） */
+  reviewHints: RecordAuditFinding[];
+  reviewHintCounts: { high: number; medium: number; low: number; info: number };
 };
 
 /** 匯入前分析：略過筆數、商家抽取來源、未對應帳戶等 */
@@ -213,6 +225,12 @@ export const analyzeImport = (
     else merchantFallback += 1;
   });
 
+  const reviewHints = auditRecordsForImport(rawRecords);
+  const reviewHintCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  for (const h of reviewHints) {
+    reviewHintCounts[h.severity] += 1;
+  }
+
   return {
     totalRows: rawRecords.length,
     systemSkipped,
@@ -225,6 +243,8 @@ export const analyzeImport = (
     uniqueProjects: projects.size,
     dateMin,
     dateMax,
+    reviewHints,
+    reviewHintCounts,
   };
 };
 

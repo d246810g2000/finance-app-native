@@ -6,40 +6,61 @@ import { useAppTheme } from '../../context/ThemeContext';
 export interface SummaryItem {
     label: string;
     value: string;
+    valueColor?: string;
     onPress?: () => void;
 }
 
 interface CompactSummaryBarProps {
     items: SummaryItem[];
     style?: StyleProp<ViewStyle>;
+    compact?: boolean;
 }
 
 /**
  * 精簡摘要列：surfaceContainer 上的「標籤 值」單列。
  */
-export default function CompactSummaryBar({ items, style }: CompactSummaryBarProps) {
+export default function CompactSummaryBar({ items, style, compact = false }: CompactSummaryBarProps) {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
     return (
-        <View style={[styles.row, style]}>
+        <View style={[styles.row, compact && styles.rowCompact, style]}>
             {items.map((item, idx) => (
                 <React.Fragment key={item.label}>
-                    {idx > 0 ? <View style={styles.divider} /> : null}
+                    {idx > 0 ? <View style={[styles.divider, compact && styles.dividerCompact]} /> : null}
                     {item.onPress ? (
                         <Pressable
-                            style={({ pressed }) => [styles.metric, pressed && styles.metricPressed]}
+                            style={({ pressed }) => [styles.metric, compact && styles.metricCompact, pressed && styles.metricPressed]}
                             onPress={item.onPress}
                             accessibilityRole="button"
                             accessibilityLabel={`${item.label} ${item.value}`}
                         >
                             <Text style={styles.text}>{item.label}</Text>
-                            <Text style={[styles.value, styles.valueLink]} selectable>{item.value}</Text>
+                            <Text
+                                style={[
+                                    styles.value,
+                                    compact && styles.valueCompact,
+                                    styles.valueLink,
+                                    item.valueColor ? { color: item.valueColor } : null,
+                                ]}
+                                selectable
+                            >
+                                {item.value}
+                            </Text>
                         </Pressable>
                     ) : (
-                        <View style={styles.metric}>
+                        <View style={[styles.metric, compact && styles.metricCompact]}>
                             <Text style={styles.text}>{item.label}</Text>
-                            <Text style={styles.value} selectable>{item.value}</Text>
+                            <Text
+                                style={[
+                                    styles.value,
+                                    compact && styles.valueCompact,
+                                    item.valueColor ? { color: item.valueColor } : null,
+                                ]}
+                                selectable
+                            >
+                                {item.value}
+                            </Text>
                         </View>
                     )}
                 </React.Fragment>
@@ -77,4 +98,12 @@ const createStyles = (
         },
         valueLink: { color: colors.primary },
         divider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: colors.outlineVariant },
+        rowCompact: {
+            marginTop: 0,
+            paddingVertical: 10,
+            paddingHorizontal: 10,
+        },
+        metricCompact: { gap: 2 },
+        valueCompact: { fontSize: 15 },
+        dividerCompact: { height: 22 },
     });

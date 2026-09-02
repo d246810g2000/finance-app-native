@@ -219,6 +219,12 @@ cd android && ./gradlew assembleRelease
 - 匯入後顯示報告：略過 SYSTEM、商家抽取來源、未對應帳戶、合併增刪統計
 - 本機驗證：將匯出檔放在 **本機** `data/AndroMoney.csv`（已 gitignore，勿提交），執行 `npm run test:csv`
 
+### 匯出（回 AndroMoney App）
+
+- 資料中心 → **匯出 AndroMoney.csv**
+- 格式與官方匯出一致：第一行 `"Google Documents","理財幫手AndroMoney","YYYYMMDD"`，表頭含 `Id`、`uid`、`Periodic` 等 14 欄
+- 保留原始 `uid`／`Id`、備註（含電子發票）、週期設定，可再匯入 AndroMoney 做增量合併
+
 ### 分帳規則
 
 支出最多套用一次 50%：優先「自動分帳專案」（如共同開銷），否則在設定開啟時對共享付款帳戶分帳。預算頁可看「個人全額 vs 共同份額」。

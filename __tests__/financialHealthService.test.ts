@@ -1,6 +1,7 @@
 import {
   computeHealthScore,
   computeCashflowMonth,
+  computeCashFlowSplitMonth,
   computeExpenseStructure,
   computeSavingsAnalysis,
   evaluateHealthRules,
@@ -114,6 +115,27 @@ describe('financialHealthService', () => {
     expect(cf.fixedExpense).toBe(20000);
     expect(cf.variableExpense).toBe(10000);
     expect(cf.remainder).toBe(70000);
+  });
+
+  it('computeCashFlowSplitMonth separates investment vs living by category', () => {
+    const records = [
+      income('2026/07/01', '80000'),
+      {
+        ...income('2026/07/02', '500'),
+        '分類': '投資收入',
+        '子分類': '利息',
+        '專案': '正常開銷',
+      },
+      expense('2026/07/05', '餐飲', '10000'),
+      expense('2026/07/06', '理財投資', '100', { '子分類': '手續費' }),
+    ];
+    const split = computeCashFlowSplitMonth(records, july, config);
+    expect(split.livingIncome).toBe(80000);
+    expect(split.investmentIncome).toBe(500);
+    expect(split.livingExpense).toBe(10000);
+    expect(split.investmentExpense).toBe(100);
+    expect(split.livingNet).toBe(70000);
+    expect(split.investmentNet).toBe(400);
   });
 
   it('computeExpenseStructure includes vs previous month', () => {

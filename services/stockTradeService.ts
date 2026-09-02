@@ -144,7 +144,16 @@ export function withResolvedDividendSymbols(
 
 const BUY_FORMAT = '鴻海 250 100股';
 const SELL_FORMAT = '鴻海 240->255 100股';
-const DIVIDEND_FORMAT = '台積電 股息 5 51股';
+const DIVIDEND_FORMAT = '名稱 股息 每股股利 股數股';
+
+function dividendExpectedFormat(note: string): string {
+  const firstLine = normalizeStockNoteLines(note)[0] || '';
+  const name = parseDividendName(firstLine);
+  if (name && /[\u4e00-\u9fffA-Za-z]/.test(name)) {
+    return `${name} 股息 5 51股`;
+  }
+  return DIVIDEND_FORMAT;
+}
 
 interface ParsedStockLine {
   name: string;
@@ -273,6 +282,15 @@ function amountTolerance(amount: number): number {
   return Math.max(1, Math.abs(amount) * 0.005);
 }
 
+/**
+ * Broker-style TWD 成交價金: round half away from zero to integer
+ * (matches Taiwan broker fills, e.g. 49.95×98 → 4895).
+ */
+export function roundStockPrincipal(price: number, shares: number): number {
+  if (!Number.isFinite(price) || !Number.isFinite(shares)) return 0;
+  return Math.round(price * shares);
+}
+
 function getOwnership(account: string): StockOwnership {
   return SHARED_ACCOUNTS.includes(account) ? 'shared' : 'personal';
 }
@@ -312,7 +330,7 @@ function makeIssue(
   const expectedFormat = side === 'sell'
     ? SELL_FORMAT
     : side === 'dividend'
-      ? DIVIDEND_FORMAT
+      ? dividendExpectedFormat(note)
       : BUY_FORMAT;
   return {
     id: getSourceId(record),
@@ -369,7 +387,7 @@ function parseRecordLines(
 
   const expectedAmount = parsed.reduce((sum, item) => {
     const price = side === 'buy' ? item.purchasePrice : item.costPrice;
-    return sum + (price || 0) * item.shares;
+    return sum + roundStockPrincipal(price || 0, item.shares);
   }, 0);
   const sourceAmount = Number(record['金額'] || 0) || 0;
   if (Math.abs(expectedAmount - sourceAmount) > amountTolerance(sourceAmount)) {
@@ -389,7 +407,10 @@ function parseRecordLines(
     purchasePrice: item.purchasePrice,
     costPrice: item.costPrice,
     salePrice: item.salePrice,
-    amount: (side === 'buy' ? item.purchasePrice || 0 : item.salePrice || 0) * item.shares,
+    amount: roundStockPrincipal(
+      side === 'buy' ? item.purchasePrice || 0 : item.salePrice || 0,
+      item.shares,
+    ),
     sourceAmount,
     account,
     ownership: getOwnership(account),

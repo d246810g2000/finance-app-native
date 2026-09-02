@@ -16,12 +16,15 @@ import ModalBackdrop from '../ui/ModalBackdrop';
 import SheetHeader from '../ui/SheetHeader';
 import BottomSheetGestureWrapper from '../ui/BottomSheetGestureWrapper';
 import { useBottomSheetSwipe } from '../ui/useBottomSheetSwipe';
+import PositionDetailPanel from './PositionDetailPanel';
+import { formatQuotePrice } from './investmentTablePrimitives';
 import {
   PositionMover,
   StockPosition,
   StockRealizedTrade,
 } from '../../services/portfolioService';
 import { StockTrade } from '../../services/stockTradeService';
+import { InvestmentPnlRow } from '../../viewModels/investmentPnlViewModel';
 
 export type InvestmentSheetContent =
   | { kind: 'movers'; title: string; items: PositionMover[] }
@@ -33,6 +36,7 @@ export type InvestmentSheetContent =
     position: StockPosition;
     trades: StockTrade[];
     realized: StockRealizedTrade[];
+    pnlMetrics?: InvestmentPnlRow;
   };
 
 interface InvestmentDetailSheetProps {
@@ -116,39 +120,6 @@ function PositionListItem({
   );
 }
 
-function RealizedListItem({
-  item,
-  colors,
-  styles,
-}: {
-  item: StockRealizedTrade;
-  colors: AppColors;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const isDividend = item.kind === 'dividend';
-  const dps = item.dividendPerShare ?? item.salePrice;
-  return (
-    <View style={styles.row}>
-      <View style={styles.rowMain}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
-          {isDividend ? '股息 · ' : ''}
-          {item.name}
-          {item.symbol ? ` ${item.symbol}` : ''}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {formatDate(item.date)}
-          {' · '}
-          {isDividend
-            ? `$${dps} × ${item.shares.toLocaleString()}股`
-            : `${item.costPrice.toFixed(2)}→${item.salePrice.toFixed(2)} · ${item.shares.toLocaleString()} 股`}
-        </Text>
-      </View>
-      <Text style={[styles.rowValue, { color: pnlColor(item.pnl, colors) }]} selectable>
-        {formatMoney(item.pnl, true)}
-      </Text>
-    </View>
-  );
-}
 
 function TradeListItem({
   item,
@@ -198,7 +169,10 @@ export default function InvestmentDetailSheet({
   const subtitle = useMemo(() => {
     if (!content) return undefined;
     if (content.kind === 'position') {
-      return `${content.position.shares.toLocaleString()} 股 · ${content.position.account}`;
+      const price = content.position.latestPrice !== undefined
+        ? formatQuotePrice(content.position.latestPrice)
+        : '缺收盤價';
+      return `${price} · ${content.position.shares.toLocaleString()} 股`;
     }
     if (content.kind === 'monthTrades') {
       return `${content.trades.length} 筆交易`;
@@ -259,48 +233,15 @@ export default function InvestmentDetailSheet({
               contentContainerStyle={styles.positionBody}
               onScroll={swipe.handleScroll}
               scrollEventThrottle={swipe.scrollEventThrottle}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
             >
-              <View style={styles.positionSummary}>
-                <Text style={styles.positionSummaryLabel}>未實現損益</Text>
-                <Text
-                  style={[
-                    styles.positionSummaryValue,
-                    { color: pnlColor(content.position.unrealizedPnl || 0, colors) },
-                  ]}
-                  selectable
-                >
-                  {content.position.unrealizedPnl === undefined
-                    ? '—'
-                    : formatMoney(content.position.unrealizedPnl, true)}
-                </Text>
-                <Text style={styles.positionSummaryMeta}>
-                  市值 {content.position.marketValue === undefined
-                    ? '缺收盤價'
-                    : formatMoney(content.position.marketValue)}
-                  {' · '}
-                  成本 {formatMoney(content.position.totalCost)}
-                </Text>
-              </View>
-
-              {positionSections.sells.length > 0 ? (
-                <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionTitle}>
-                    已實現（賣出／股息） ({positionSections.sells.length})
-                  </Text>
-                  {positionSections.sells.map(item => (
-                    <RealizedListItem key={item.id} item={item} colors={colors} styles={styles} />
-                  ))}
-                </View>
-              ) : null}
-
-              {positionSections.buys.length > 0 ? (
-                <View style={styles.sectionBlock}>
-                  <Text style={styles.sectionTitle}>買入紀錄 ({positionSections.buys.length})</Text>
-                  {positionSections.buys.map(item => (
-                    <TradeListItem key={item.id} item={item} colors={colors} styles={styles} />
-                  ))}
-                </View>
-              ) : null}
+              <PositionDetailPanel
+                position={content.position}
+                buys={positionSections.buys}
+                sells={positionSections.sells}
+                pnlMetrics={content.pnlMetrics}
+              />
             </ScrollView>
           ) : (
             <View style={styles.listWrap}>
@@ -348,18 +289,7 @@ const createStyles = (
   listWrap: { flex: 1, minHeight: 200 },
   listContent: { paddingHorizontal: 16, paddingBottom: 12 },
   positionScroll: { flex: 1 },
-  positionBody: { paddingHorizontal: 16, paddingBottom: 12, gap: 16 },
-  positionSummary: {
-    backgroundColor: colors.surfaceVariant,
-    padding: 14,
-    gap: 4,
-    ...withContinuousRadius(RADIUS.sm),
-  },
-  positionSummaryLabel: { ...typography.labelMedium, color: colors.onSurfaceVariant },
-  positionSummaryValue: { fontSize: 24, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  positionSummaryMeta: { ...typography.bodySm, color: colors.textMuted },
-  sectionBlock: { gap: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: '800', color: colors.onSurfaceVariant },
+  positionBody: { paddingHorizontal: 16, paddingBottom: 12 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

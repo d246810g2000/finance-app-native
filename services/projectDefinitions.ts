@@ -209,6 +209,23 @@ export const PROJECT_DEFINITIONS: ProjectDefinition[] = [
       { pattern: /房貸|頭期/, suggestProject: '房屋購置', reason: '購屋' },
     ],
   },
+  {
+    name: '投資股票',
+    owner: 'capital',
+    summary: '股票、股息、券商手續費與投資帳戶相關現金流。',
+    includes: [
+      '股票買賣、股息、公司配股',
+      '券商手續費、轉帳費用',
+      '部分券商回饋',
+    ],
+    excludes: [
+      '銀行活期／定存利息 → 投資收入/利息，專案可標正常或共同',
+      '日常開銷 → 正常／共同開銷',
+    ],
+    expectedCategories: ['投資收入/股票', '投資收入/股息', '理財投資/手續費', '費用/轉帳費用'],
+    suspiciousCategoryHints: [/餐飲食品/, /休閒娛樂/, /孝養/, /婚喪/],
+    reassignHints: [],
+  },
 ];
 
 export const PROJECT_DEFINITION_BY_NAME: Record<string, ProjectDefinition> = Object.fromEntries(

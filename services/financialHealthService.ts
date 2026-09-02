@@ -6,6 +6,11 @@ import { RawRecord, BudgetRule, BudgetGlobalConfig, TransformedRecord } from '..
 import { transformRecordsForExport } from './financeService';
 import { getProjectGroup } from './budgetService';
 import { parseFormattedDate } from '../utils/dateUtils';
+import {
+  accumulateCashFlowSplit,
+  emptyCashFlowSplit,
+  type CashFlowSplit,
+} from './cashFlowClassification';
 
 // ─── Weights（寫死、可測）───
 export const HEALTH_SCORE_WEIGHTS = {
@@ -48,6 +53,15 @@ export type CashflowMonth = {
   fixedExpense: number;
   variableExpense: number;
   remainder: number;
+};
+
+export type CashFlowSplitMonth = CashflowMonth & {
+  livingIncome: number;
+  investmentIncome: number;
+  livingExpense: number;
+  investmentExpense: number;
+  livingNet: number;
+  investmentNet: number;
 };
 
 export type CategoryShare = {
@@ -164,6 +178,8 @@ export type MonthlyAggregate = {
   variableExpense: number;
   categoryTotals: Record<string, number>;
   expenseCount: number;
+  /** 依分類區分（不看專案）：生活 vs 投資現金流 */
+  cashFlowSplit: CashFlowSplit;
 };
 
 // ─── Date helpers ───
@@ -275,19 +291,23 @@ export function aggregateMonth(
   let variableExpense = 0;
   let expenseCount = 0;
   const categoryTotals: Record<string, number> = {};
+  const cashFlowSplit = emptyCashFlowSplit();
 
   for (const r of rows) {
     const d = recordDate(r);
     if (isNaN(d.getTime()) || !inMonth(d, target)) continue;
 
     if (isIncome(r)) {
-      income += expenseAbs(r);
+      const amt = expenseAbs(r);
+      income += amt;
+      accumulateCashFlowSplit(cashFlowSplit, '收入', r['主類別'] || '其他', amt, r['子類別'] || '');
     } else if (isExpense(r)) {
       const amt = expenseAbs(r);
       expense += amt;
       expenseCount += 1;
       const cat = r['主類別'] || '其他';
       categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
+      accumulateCashFlowSplit(cashFlowSplit, '支出', cat, amt, r['子類別'] || '');
       if (isFixedExpense(r, config)) fixedExpense += amt;
       else variableExpense += amt;
     }
@@ -300,6 +320,14 @@ export function aggregateMonth(
     variableExpense: roundMoney(variableExpense),
     categoryTotals,
     expenseCount,
+    cashFlowSplit: {
+      livingIncome: roundMoney(cashFlowSplit.livingIncome),
+      investmentIncome: roundMoney(cashFlowSplit.investmentIncome),
+      livingExpense: roundMoney(cashFlowSplit.livingExpense),
+      investmentExpense: roundMoney(cashFlowSplit.investmentExpense),
+      livingNet: roundMoney(cashFlowSplit.livingNet),
+      investmentNet: roundMoney(cashFlowSplit.investmentNet),
+    },
   };
 }
 
@@ -322,18 +350,28 @@ export function buildMonthlyAggregateCache(
         variableExpense: 0,
         categoryTotals: {},
         expenseCount: 0,
+        cashFlowSplit: emptyCashFlowSplit(),
       };
       cache.set(key, month);
     }
 
     if (isIncome(row)) {
-      month.income += expenseAbs(row);
+      const amount = expenseAbs(row);
+      month.income += amount;
+      accumulateCashFlowSplit(
+        month.cashFlowSplit,
+        '收入',
+        row['主類別'] || '其他',
+        amount,
+        row['子類別'] || '',
+      );
     } else if (isExpense(row)) {
       const amount = expenseAbs(row);
       month.expense += amount;
       month.expenseCount += 1;
       const category = row['主類別'] || '其他';
       month.categoryTotals[category] = (month.categoryTotals[category] || 0) + amount;
+      accumulateCashFlowSplit(month.cashFlowSplit, '支出', category, amount, row['子類別'] || '');
       if (isFixedExpense(row, config)) month.fixedExpense += amount;
       else month.variableExpense += amount;
     }
@@ -344,6 +382,14 @@ export function buildMonthlyAggregateCache(
     month.expense = roundMoney(month.expense);
     month.fixedExpense = roundMoney(month.fixedExpense);
     month.variableExpense = roundMoney(month.variableExpense);
+    month.cashFlowSplit = {
+      livingIncome: roundMoney(month.cashFlowSplit.livingIncome),
+      investmentIncome: roundMoney(month.cashFlowSplit.investmentIncome),
+      livingExpense: roundMoney(month.cashFlowSplit.livingExpense),
+      investmentExpense: roundMoney(month.cashFlowSplit.investmentExpense),
+      livingNet: roundMoney(month.cashFlowSplit.livingNet),
+      investmentNet: roundMoney(month.cashFlowSplit.investmentNet),
+    };
   }
   return cache;
 }
@@ -491,6 +537,31 @@ export function computeCashflowMonth(
     fixedExpense: m.fixedExpense,
     variableExpense: m.variableExpense,
     remainder: m.income - m.fixedExpense - m.variableExpense,
+  };
+}
+
+/** 依分類分離生活 vs 投資現金流（不看專案欄） */
+export function computeCashFlowSplitMonth(
+  records: RawRecord[],
+  targetMonth: Date,
+  config: BudgetGlobalConfig = DEFAULT_CONFIG,
+  scope?: HealthScopeOptions
+): CashFlowSplitMonth {
+  const rows = getIncomeExpenseRows(records, scope);
+  const m = aggregateMonth(rows, targetMonth, config, scope?.monthlyCache);
+  const split = m.cashFlowSplit;
+  return {
+    monthKey: toMonthKey(targetMonth),
+    income: m.income,
+    fixedExpense: m.fixedExpense,
+    variableExpense: m.variableExpense,
+    remainder: m.income - m.fixedExpense - m.variableExpense,
+    livingIncome: split.livingIncome,
+    investmentIncome: split.investmentIncome,
+    livingExpense: split.livingExpense,
+    investmentExpense: split.investmentExpense,
+    livingNet: split.livingNet,
+    investmentNet: split.investmentNet,
   };
 }
 
@@ -1103,6 +1174,7 @@ export function buildHealthDashboard(
 
   const health = lazy(() => computeHealthScore(records, targetMonth, config, budgets, preparedScope));
   const cashflow = lazy(() => computeCashflowMonth(records, targetMonth, config, preparedScope));
+  const cashFlowSplit = lazy(() => computeCashFlowSplitMonth(records, targetMonth, config, preparedScope));
   const cashflowYear = lazy(() => computeCashflowYear(records, targetMonth, config, 12, preparedScope));
   const structure = lazy(() => computeExpenseStructure(records, targetMonth, preparedScope));
   const savings = lazy(() => computeSavingsAnalysis(records, targetMonth, 12, preparedScope));
@@ -1122,6 +1194,7 @@ export function buildHealthDashboard(
   return {
     get health() { return health(); },
     get cashflow() { return cashflow(); },
+    get cashFlowSplit() { return cashFlowSplit(); },
     get cashflowYear() { return cashflowYear(); },
     get structure() { return structure(); },
     get savings() { return savings(); },

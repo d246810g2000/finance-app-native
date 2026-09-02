@@ -8,6 +8,7 @@ import {
     analyzeImport,
     ImportReport,
     UpsertResult,
+    shareAndroMoneyCsv,
 } from '../services/financeService';
 import { RawRecord, CustomAccountMappings } from '../types';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
@@ -34,6 +35,7 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
     const [importMode, setImportMode] = useState<ImportMode>('merge');
     const [syncDelete, setSyncDelete] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [importReport, setImportReport] = useState<ImportReport | null>(null);
     const [mergeStats, setMergeStats] = useState<UpsertResult | null>(null);
@@ -129,6 +131,24 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
         if (onUploadSuccess) onUploadSuccess();
     };
 
+    const handleExportAndroMoney = useCallback(async () => {
+        if (records.length === 0) {
+            setError('尚無資料可匯出，請先匯入 CSV');
+            return;
+        }
+        setExporting(true);
+        setError(null);
+        try {
+            await shareAndroMoneyCsv(records);
+            hapticSuccess();
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : '未知錯誤';
+            setError(`匯出失敗：${message}`);
+        } finally {
+            setExporting(false);
+        }
+    }, [records]);
+
     const formatYmd = (ymd: string | null) => {
         if (!ymd || ymd.length < 8) return '—';
         return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
@@ -140,8 +160,46 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 <View style={styles.intro}>
                     <Text style={styles.eyebrow}>資料中心</Text>
                     <Text style={styles.pageTitle}>匯入你的消費紀錄</Text>
-                    <Text style={styles.pageDescription}>選擇 AndroMoney 匯出的 CSV，快速建立你的財務總覽。</Text>
+                    <Text style={styles.pageDescription}>
+                        選擇 AndroMoney 匯出的 CSV 建立總覽；本機已有資料時可匯出回 AndroMoney 格式。
+                    </Text>
                 </View>
+
+                {hasExistingData ? (
+                    <View style={styles.exportSectionTop}>
+                        <View style={styles.existingDataRow}>
+                            <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
+                            <Text style={styles.existingDataText}>
+                                本機 {records.length.toLocaleString()} 筆 · 可匯出至 AndroMoney
+                            </Text>
+                        </View>
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.exportBtn,
+                                exporting && styles.uploadBtnDisabled,
+                                pressed && !exporting ? styles.uploadBtnPressed : null,
+                            ]}
+                            onPress={handleExportAndroMoney}
+                            disabled={exporting}
+                            accessibilityRole="button"
+                            accessibilityLabel="匯出 AndroMoney CSV"
+                        >
+                            {exporting ? (
+                                <ActivityIndicator color={colors.primary} />
+                            ) : (
+                                <View style={styles.uploadBtnContent}>
+                                    <Ionicons name="download-outline" size={20} color={colors.primary} />
+                                    <Text style={styles.exportBtnText}>
+                                        匯出 AndroMoney.csv
+                                    </Text>
+                                </View>
+                            )}
+                        </Pressable>
+                        <Text style={styles.modeHint}>
+                            官方 CSV 格式（含 Id、uid、Periodic），可匯入回 AndroMoney App。
+                        </Text>
+                    </View>
+                ) : null}
 
                 <Pressable
                     style={({ pressed }) => [styles.uploadArea, pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : {}]}
@@ -252,15 +310,6 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                     </View>
                 ) : null}
 
-                {!successVisible && hasExistingData ? (
-                    <Animated.View entering={FadeInDown.springify()} style={styles.existingDataCard}>
-                        <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
-                        <Text style={styles.existingDataText}>
-                            目前已有 {records.length.toLocaleString()} 筆資料
-                        </Text>
-                    </Animated.View>
-                ) : null}
-
                 {!successVisible && (
                     <View style={styles.actionSection}>
                         <Pressable
@@ -330,6 +379,24 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                                 {mergeStats.removed > 0 ? `　·　刪除 ${mergeStats.removed}` : `　·　保留本機 ${mergeStats.kept}`}
                             </Text>
                         ) : null}
+                        {importReport.reviewHints.length > 0 ? (
+                            <View style={styles.hintSection}>
+                                <Text style={styles.hintTitle}>
+                                    建議檢查（{importReport.reviewHintCounts.high + importReport.reviewHintCounts.medium} 項，不會自動修改）
+                                </Text>
+                                {importReport.reviewHints.slice(0, 5).map((hint) => (
+                                    <Text key={`${hint.recordId}-${hint.kind}`} style={styles.hintLine}>
+                                        · [{hint.severity}] {hint.date} {hint.category}/{hint.sub}
+                                        {hint.project ? ` · ${hint.project}` : ''} — {hint.reason}
+                                    </Text>
+                                ))}
+                                {importReport.reviewHints.length > 5 ? (
+                                    <Text style={styles.hintMore}>另有 {importReport.reviewHints.length - 5} 項，執行 npm run audit:records 看完整報告</Text>
+                                ) : null}
+                            </View>
+                        ) : (
+                            <Text style={styles.reportOk}>記帳歸屬未發現需優先處理項目</Text>
+                        )}
                     </Animated.View>
                 ) : null}
             </Animated.View>
@@ -361,6 +428,33 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     fileStatus: { ...typography.caption, color: colors.primary, marginBottom: 2 },
     fileName: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
     encodingSection: { marginTop: 28 },
+    exportSectionTop: {
+        marginBottom: 24,
+        padding: 16,
+        backgroundColor: colors.primaryContainer,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
+        ...SHADOWS.sm,
+    },
+    existingDataRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+    },
+    exportBtn: {
+        marginTop: 12,
+        backgroundColor: colors.surfaceContainer,
+        minHeight: 56,
+        paddingHorizontal: 18,
+        borderRadius: RADIUS.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
+    },
+    exportBtnText: { ...typography.body, fontWeight: '700', color: colors.primary },
     encodingLabel: { ...typography.body, fontWeight: '700', marginBottom: 10 },
     encodingToggle: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: RADIUS.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
     encodingBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
@@ -391,6 +485,9 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     reportLine: { ...typography.bodySm, color: colors.textPrimary, lineHeight: 20 },
     reportOk: { ...typography.bodySm, color: colors.green, fontWeight: '600' },
     reportWarn: { ...typography.bodySm, color: colors.yellow, fontWeight: '600', marginTop: 2 },
-    existingDataCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, backgroundColor: colors.primaryContainer, padding: 14, borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.outlineVariant, ...SHADOWS.sm },
+    hintSection: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider, gap: 4 },
+    hintTitle: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '700' },
+    hintLine: { ...typography.bodySm, color: colors.textSecondary, lineHeight: 18 },
+    hintMore: { ...typography.bodySm, color: colors.textMuted, marginTop: 2 },
     existingDataText: { ...typography.body, color: colors.primary, fontWeight: '600', textAlign: 'left', flex: 1 },
 });

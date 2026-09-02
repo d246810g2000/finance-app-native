@@ -11,7 +11,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FlashList } from '@shopify/flash-list';
 import { useFinance } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
@@ -20,29 +19,28 @@ import PageChrome from '../../components/layout/PageChrome';
 import SectionHeader from '../../components/ui/SectionHeader';
 import SegmentedControl from '../../components/ui/SegmentedControl';
 import EmptyState from '../../components/ui/EmptyState';
-import AccentListCard from '../../components/ui/AccentListCard';
 import DateRangeSelector from '../../components/DateRangeSelector';
 import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
 import InvestmentDetailSheet, {
   InvestmentSheetContent,
 } from '../../components/investment/InvestmentDetailSheet';
 import InvestmentDrillHeader from '../../components/investment/InvestmentDrillHeader';
+import HoldingsPickGrid from '../../components/investment/HoldingsPickGrid';
+import PositionDetailPanel, {
+  buildPositionDetailFromHolding,
+} from '../../components/investment/PositionDetailPanel';
+import RealizedTradesTable from '../../components/investment/RealizedTradesTable';
+import StockTradesTable from '../../components/investment/StockTradesTable';
 import InvestmentTimelineSection from '../../components/investment/InvestmentTimelineSection';
 import InvestmentPnlSection from '../../components/investment/InvestmentPnlSection';
-import SortChips from '../../components/ui/SortChips';
 import {
   StockNoteIssue,
   StockNoteIssueReason,
   StockOwnership,
-  StockTrade,
+  roundStockPrincipal,
 } from '../../services/stockTradeService';
 import {
-  StockRealizedTrade,
-  type CurrentHolding,
-} from '../../services/portfolioService';
-import {
   createDefaultInvestmentDateRange,
-  matchesPosition,
 } from '../../services/investmentFilters';
 import {
   loadStockPriceCache,
@@ -58,24 +56,16 @@ import {
   buildInvestmentScreenData,
   collectInvestmentSymbols,
 } from '../../viewModels/investmentViewModel';
-import {
-  INVESTMENT_HOLDING_SORT_OPTIONS,
-  sortInvestmentPositions,
-} from '../../viewModels/investmentPerformanceViewModel';
 import type { InvestmentPnlRow } from '../../viewModels/investmentPnlViewModel';
-import type {
-  InvestmentHoldingSortId,
-} from '../../viewModels/investmentPerformanceViewModel';
-
 type OwnershipFilter = 'all' | StockOwnership;
 type DetailPanel = 'holdings' | 'realized' | 'trades' | 'issues';
 type InvestmentStyles = ReturnType<typeof createStyles>;
 
 const DETAIL_TITLES: Record<DetailPanel, string> = {
-  holdings: '目前持股',
+  holdings: '未實現持股',
   realized: '已實現損益',
-  trades: '區間交易',
-  issues: '待補備註',
+  trades: '交易紀錄',
+  issues: '資料問題',
 };
 
 const REASON_LABELS: Record<StockNoteIssueReason, string> = {
@@ -104,9 +94,29 @@ function formatDate(value: string): string {
   return value;
 }
 
+function formatSyncLabel(syncedAt: string | number): string {
+  const date = new Date(syncedAt);
+  if (Number.isNaN(date.getTime())) return '尚未同步';
+  const yy = String(date.getFullYear()).slice(-2);
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${yy}/${mm}/${dd} ${hh}:${min}`;
+}
+
 function formatMoney(value: number, signed = false): string {
   const sign = signed && value > 0 ? '+' : value < 0 ? '-' : '';
   return `${sign}$${Math.round(Math.abs(value)).toLocaleString()}`;
+}
+
+function formatShortDateRange(start: Date, end: Date): string {
+  const fmt = (date: Date) => date.toLocaleDateString('zh-TW', {
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 function formatPercent(value: number, signed = false): string {
@@ -167,78 +177,6 @@ function IssueCard({
   );
 }
 
-const OWNERSHIP_LABELS: Record<StockOwnership, string> = {
-  personal: '個人',
-  shared: '共享',
-};
-
-function TradeListCard({
-  trade,
-  colors,
-  styles,
-}: {
-  trade: StockTrade;
-  colors: AppColors;
-  styles: InvestmentStyles;
-}) {
-  const isBuy = trade.side === 'buy';
-  const priceText = isBuy
-    ? (trade.purchasePrice ? `$${trade.purchasePrice.toFixed(2)}` : '—')
-    : (trade.costPrice && trade.salePrice
-      ? `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`
-      : trade.salePrice ? `$${trade.salePrice.toFixed(2)}` : '—');
-
-  return (
-    <AccentListCard
-      title={`${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
-      amount={formatMoney(trade.amount, !isBuy)}
-      amountColor={isBuy ? colors.red : colors.green}
-      meta={[
-        {
-          icon: isBuy ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline',
-          text: SIDE_LABELS[trade.side],
-        },
-        { icon: 'cube-outline', text: `${trade.shares.toLocaleString()} 股` },
-        { icon: 'pricetag-outline', text: priceText },
-        { icon: 'calendar-outline', text: formatDate(trade.date) },
-        { icon: 'person-outline', text: OWNERSHIP_LABELS[trade.ownership] },
-      ]}
-    />
-  );
-}
-
-function RealizedListCard({
-  trade,
-  colors,
-}: {
-  trade: StockRealizedTrade;
-  colors: AppColors;
-}) {
-  const isDividend = trade.kind === 'dividend';
-  const dps = trade.dividendPerShare ?? trade.salePrice;
-  return (
-    <AccentListCard
-      title={`${isDividend ? '股息 · ' : ''}${trade.name}${trade.symbol ? ` ${trade.symbol}` : ''}`}
-      amount={formatMoney(trade.pnl, true)}
-      amountColor={pnlColor(trade.pnl, colors)}
-      meta={[
-        { icon: 'calendar-outline', text: formatDate(trade.date) },
-        {
-          icon: isDividend ? 'cash-outline' : 'pricetag-outline',
-          text: isDividend
-            ? `$${dps} × ${trade.shares.toLocaleString()}股`
-            : `$${trade.costPrice.toFixed(2)}→$${trade.salePrice.toFixed(2)}`,
-        },
-        ...(isDividend
-          ? []
-          : [{ icon: 'cube-outline' as const, text: `${trade.shares.toLocaleString()} 股` }]),
-        { icon: 'wallet-outline', text: trade.account },
-        { icon: 'person-outline', text: OWNERSHIP_LABELS[trade.ownership] },
-      ]}
-    />
-  );
-}
-
 export default function InvestmentScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -250,14 +188,13 @@ export default function InvestmentScreen() {
   const [ownership, setOwnership] = useState<OwnershipFilter>('all');
   const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const [detailPanel, setDetailPanel] = useState<DetailPanel | null>(null);
+  const [selectedHolding, setSelectedHolding] = useState<InvestmentPnlRow | null>(null);
   const [priceCache, setPriceCache] = useState<StockPriceCache | null>(null);
   const [infoCache, setInfoCache] = useState<StockInfoCache | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
   const [sheetContent, setSheetContent] = useState<InvestmentSheetContent | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [holdingSort, setHoldingSort] = useState<InvestmentHoldingSortId>('pnl');
-  const [holdingSortDirection, setHoldingSortDirection] = useState<'asc' | 'desc'>('desc');
   const syncStartedRef = useRef(false);
   const defaultRange = useMemo(() => createDefaultInvestmentDateRange(), []);
   const [startDate, setStartDate] = useState(defaultRange.startDate);
@@ -289,7 +226,6 @@ export default function InvestmentScreen() {
     filteredTrades,
     hasStockData: computedHasStockData,
     insights,
-    moverByPositionId,
     portfolio,
     rangeFilteredTrades,
     rangeRealizedTrades,
@@ -306,78 +242,21 @@ export default function InvestmentScreen() {
     endDate,
   }), [records, ownership, accountFilter, infoCache, priceCache, startDate, endDate]);
 
-  const sortedHoldings = useMemo(
-    () => sortInvestmentPositions(
+  useEffect(() => {
+    if (detailPanel !== 'holdings') {
+      setSelectedHolding(null);
+    }
+  }, [detailPanel]);
+
+  const selectedHoldingDetail = useMemo(() => {
+    if (!selectedHolding) return null;
+    return buildPositionDetailFromHolding(
+      selectedHolding,
       portfolio.positions,
-      moverByPositionId,
-      holdingSort,
-      holdingSortDirection,
-    ),
-    [holdingSort, holdingSortDirection, moverByPositionId, portfolio.positions],
-  );
-
-  const handleHoldingSortChange = useCallback((
-    key: InvestmentHoldingSortId,
-    direction: 'asc' | 'desc',
-  ) => {
-    setHoldingSort(key);
-    setHoldingSortDirection(direction);
-  }, []);
-
-  const resolveMoverForPosition = useCallback((position: typeof portfolio.positions[number]) => {
-    const key = position.symbol || `name:${position.name}`;
-    return moverByPositionId.get(key);
-  }, [moverByPositionId]);
-
-  const openPositionSheet = useCallback((position: typeof portfolio.positions[number]) => {
-    openSheet({
-      kind: 'position',
-      title: `${position.name}${position.symbol ? ` ${position.symbol}` : ''}`,
-      position,
-      trades: filteredTrades.filter(trade => matchesPosition(trade, position)),
-      realized: portfolio.realizedTrades.filter(trade => matchesPosition(trade, position)),
-    });
-  }, [filteredTrades, openSheet, portfolio.realizedTrades]);
-
-  const openHoldingDetail = useCallback((holding: CurrentHolding) => {
-    const positions = portfolio.positions.filter(position => (
-      (position.symbol || `name:${position.name}`) === holding.id
-    ));
-    const matchesHolding = (item: { name: string; symbol?: string }) => (
-      holding.symbol ? item.symbol === holding.symbol : item.name === holding.name
+      filteredTrades,
+      portfolio.realizedTrades,
     );
-    const ownership: StockOwnership = positions.every(position => position.ownership === 'shared')
-      ? 'shared'
-      : 'personal';
-
-    openSheet({
-      kind: 'position',
-      title: `${holding.name}${holding.symbol ? ` ${holding.symbol}` : ''}`,
-      position: {
-        id: holding.id,
-        name: holding.name,
-        symbol: holding.symbol,
-        account: positions.length === 1 ? positions[0].account : `${positions.length} 個帳戶`,
-        ownership,
-        shares: holding.shares,
-        averageCost: holding.averageCost,
-        totalCost: holding.totalCost,
-        latestPrice: holding.latestPrice,
-        latestPriceDate: holding.latestPriceDate,
-        marketValue: holding.marketValue,
-        unrealizedPnl: holding.unrealizedPnl,
-        unrealizedPnlPercent: holding.totalCost > 0 && holding.unrealizedPnl !== undefined
-          ? (holding.unrealizedPnl / holding.totalCost) * 100
-          : undefined,
-      },
-      trades: filteredTrades.filter(matchesHolding),
-      realized: portfolio.realizedTrades.filter(matchesHolding),
-    });
-  }, [filteredTrades, openSheet, portfolio.positions, portfolio.realizedTrades]);
-
-  const openPnlRow = useCallback((row: InvestmentPnlRow) => {
-    openHoldingDetail(row);
-  }, [openHoldingDetail]);
+  }, [filteredTrades, portfolio.positions, portfolio.realizedTrades, selectedHolding]);
 
   const loadPrices = useCallback(async (force = false) => {
     setSyncing(true);
@@ -427,7 +306,7 @@ export default function InvestmentScreen() {
   }, [isFocused, loadPrices]);
 
   const lastSyncLabel = priceCache?.syncedAt
-    ? new Date(priceCache.syncedAt).toLocaleString('zh-TW', { hour12: false })
+    ? formatSyncLabel(priceCache.syncedAt)
     : '尚未同步';
   const hasStockData = computedHasStockData;
 
@@ -438,13 +317,17 @@ export default function InvestmentScreen() {
   ];
 
   const openDetail = useCallback((panel: DetailPanel) => setDetailPanel(panel), []);
-  const closeDetail = useCallback(() => setDetailPanel(null), []);
-
-  const renderTradeItem = useCallback(({ item }: { item: StockTrade }) => (
-    <TradeListCard trade={item} colors={colors} styles={styles} />
-  ), [colors, styles]);
-
-  const tradeKeyExtractor = useCallback((item: StockTrade) => item.id, []);
+  const closeDetail = useCallback(() => {
+    setSelectedHolding(null);
+    setDetailPanel(null);
+  }, []);
+  const handleDrillBack = useCallback(() => {
+    if (detailPanel === 'holdings' && selectedHolding) {
+      setSelectedHolding(null);
+      return;
+    }
+    closeDetail();
+  }, [closeDetail, detailPanel, selectedHolding]);
 
   const summarySplits = useMemo(
     () => pnl.splits.filter(split => split.value > 0),
@@ -452,7 +335,10 @@ export default function InvestmentScreen() {
   );
 
   const periodRealizedCost = useMemo(
-    () => rangeRealizedTrades.reduce((sum, trade) => sum + Math.max(0, trade.costPrice) * trade.shares, 0),
+    () => rangeRealizedTrades.reduce(
+      (sum, trade) => sum + roundStockPrincipal(Math.max(0, trade.costPrice), trade.shares),
+      0,
+    ),
     [rangeRealizedTrades],
   );
   const periodRealizedPercent = periodRealizedCost > 0
@@ -509,6 +395,10 @@ export default function InvestmentScreen() {
   const scrollContentStyle = useMemo(
     () => [styles.scrollContent, { paddingBottom: Math.max(72, insets.bottom + 88) }],
     [insets.bottom, styles.scrollContent],
+  );
+  const drillScrollContentStyle = useMemo(
+    () => [styles.drillScrollContent, { paddingBottom: Math.max(72, insets.bottom + 88) }],
+    [insets.bottom, styles.drillScrollContent],
   );
 
   const summaryCard = (
@@ -568,12 +458,7 @@ export default function InvestmentScreen() {
       <View style={styles.metricsGrid}>
         <View style={styles.metricsRow}>
           <View style={styles.metricItem}>
-            <Pressable
-              onPress={() => openDetail('holdings')}
-              style={({ pressed }) => [styles.metricHit, pressed && styles.metricItemPressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`今日損益 ${formatMoney(insights.dayPnl, true)}，${insights.dayAdvances} 漲 ${insights.dayDeclines} 跌，查看持股`}
-            >
+            <View style={styles.metricHit} accessibilityLabel={`今日損益 ${formatMoney(insights.dayPnl, true)}，${insights.dayAdvances} 漲 ${insights.dayDeclines} 跌`}>
               <View style={styles.metricLabelRow}>
                 <Ionicons name="pulse-outline" size={12} color={colors.blue} />
                 <Text style={styles.metricLabel}>今日</Text>
@@ -584,7 +469,7 @@ export default function InvestmentScreen() {
               <Text style={[styles.metricSubValue, { color: pnlColor(insights.dayPnl, colors) }]} numberOfLines={1}>
                 {formatPercent(insights.dayPnlPercent, true)}
               </Text>
-            </Pressable>
+            </View>
           </View>
           <View style={styles.metricDividerV} />
           <View style={styles.metricItem}>
@@ -665,12 +550,28 @@ export default function InvestmentScreen() {
     );
   }
 
-  const detailSubtitle =
-    detailPanel === 'holdings' ? `${portfolio.positions.length} 檔`
-      : detailPanel === 'realized' ? `${rangeRealizedTrades.length} 筆 · ${formatMoney(periodRealizedPnl, true)}`
-        : detailPanel === 'trades' ? `${rangeFilteredTrades.length} 筆`
-          : detailPanel === 'issues' ? `${filteredIssues.length} 筆`
-            : undefined;
+  const rangeBuyAmount = rangeFilteredTrades
+    .filter(trade => trade.side === 'buy')
+    .reduce((sum, trade) => sum + trade.amount, 0);
+  const rangeSellAmount = rangeFilteredTrades
+    .filter(trade => trade.side === 'sell')
+    .reduce((sum, trade) => sum + trade.amount, 0);
+  const chromeSubLabel = detailPanel
+    ? (detailPanel === 'holdings'
+      ? `${pnl.rows.length} 檔 · 市值 ${formatMoney(insights.totalMarketValue)}`
+      : formatShortDateRange(startDate, endDate))
+    : `總市值 ${formatMoney(insights.totalMarketValue)} · ${portfolio.positions.length} 檔`;
+  const detailTrailing = detailPanel === 'holdings'
+    ? (selectedHolding
+      ? `${selectedHolding.shares.toLocaleString()} 股`
+      : `${pnl.rows.length} 檔`)
+    : detailPanel === 'realized'
+      ? `${rangeRealizedTrades.length} 筆`
+      : detailPanel === 'trades'
+        ? `${rangeFilteredTrades.length} 筆`
+        : detailPanel === 'issues'
+          ? `${filteredIssues.length} 筆`
+          : undefined;
 
   return (
     <View style={styles.container}>
@@ -679,148 +580,121 @@ export default function InvestmentScreen() {
           startDate={startDate}
           endDate={endDate}
           onDateChange={handleDateChange}
-          subLabel={`總市值 ${formatMoney(insights.totalMarketValue)} · ${portfolio.positions.length} 檔`}
+          subLabel={chromeSubLabel}
         />
       </PageChrome>
 
       {ownershipFilter}
 
       {detailPanel ? (
-        <>
+        <View style={styles.drillPanel}>
           <InvestmentDrillHeader
-            title={DETAIL_TITLES[detailPanel]}
-            subtitle={detailSubtitle}
-            onBack={closeDetail}
+            title={detailPanel === 'holdings' && selectedHolding
+              ? `${selectedHolding.name}${selectedHolding.symbol ? ` ${selectedHolding.symbol}` : ''}`
+              : DETAIL_TITLES[detailPanel]}
+            trailing={detailTrailing}
+            onBack={handleDrillBack}
             colors={colors}
           />
 
-          {detailPanel === 'trades' ? (
-            <FlashList
-              data={rangeFilteredTrades}
-              renderItem={renderTradeItem}
-              keyExtractor={tradeKeyExtractor}
-              contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(72, insets.bottom + 88) }]}
-              // @ts-expect-error FlashList v2 estimatedItemSize
-              estimatedItemSize={96}
-              ListEmptyComponent={(
-                <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
-                  <Text style={styles.cleanText}>此區間沒有有效交易紀錄。</Text>
-                </View>
-              )}
-            />
-          ) : (
-            <ScrollView contentContainerStyle={scrollContentStyle}>
-              {detailPanel === 'realized' ? (
-                <View style={styles.section}>
-                  <CompactSummaryBar
-                    style={styles.inlineSummary}
-                    items={[
-                      { label: '區間合計', value: formatMoney(periodRealizedPnl, true) },
-                      { label: '全期合計', value: formatMoney(insights.realizedPnl, true) },
-                    ]}
+          <ScrollView
+            style={styles.drillList}
+            contentContainerStyle={drillScrollContentStyle}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
+            {detailPanel === 'holdings' ? (
+              <View style={styles.drillSection}>
+                {selectedHolding && selectedHoldingDetail ? (
+                  <PositionDetailPanel
+                    position={selectedHoldingDetail.position}
+                    buys={selectedHoldingDetail.buys}
+                    sells={selectedHoldingDetail.sells}
+                    pnlMetrics={selectedHoldingDetail.pnlMetrics}
                   />
-                  {rangeRealizedTrades.length === 0 ? (
-                    <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
-                      <Text style={styles.cleanText}>此區間沒有賣出了結紀錄。</Text>
-                    </View>
-                  ) : (
-                    rangeRealizedTrades.map(trade => (
-                      <RealizedListCard key={trade.id} trade={trade} colors={colors} />
-                    ))
-                  )}
-                </View>
-              ) : null}
+                ) : (
+                  <>
+                    <CompactSummaryBar
+                      compact
+                      style={styles.inlineSummary}
+                      items={[
+                        { label: '持股', value: `${pnl.rows.length} 檔` },
+                        { label: '市值', value: formatMoney(insights.totalMarketValue) },
+                        {
+                          label: '未實現',
+                          value: formatMoney(insights.unrealizedPnl, true),
+                          valueColor: pnlColor(insights.unrealizedPnl, colors),
+                        },
+                      ]}
+                    />
+                    <Text style={styles.holdingGridHint}>點選個股查看庫存與成交明細</Text>
+                    <HoldingsPickGrid
+                      rows={pnl.rows}
+                      onSelect={setSelectedHolding}
+                    />
+                  </>
+                )}
+              </View>
+            ) : null}
 
-              {detailPanel === 'issues' ? (
-                <View style={styles.section}>
-                  {filteredIssues.length === 0 ? (
-                    <View style={[styles.cleanCard, { backgroundColor: colors.greenLight }]}>
-                      <Ionicons name="checkmark-circle" size={18} color={colors.green} />
-                      <Text style={[styles.cleanText, { color: colors.green }]}>目前買賣備註都可解析</Text>
-                    </View>
-                  ) : (
-                    filteredIssues.map(issue => (
-                      <IssueCard key={issue.id} issue={issue} styles={styles} colors={colors} />
-                    ))
-                  )}
+            {detailPanel === 'realized' ? (
+              <View style={styles.drillSection}>
+                <CompactSummaryBar
+                  compact
+                  style={styles.inlineSummary}
+                  items={[
+                    {
+                      label: '區間合計',
+                      value: formatMoney(periodRealizedPnl, true),
+                      valueColor: pnlColor(periodRealizedPnl, colors),
+                    },
+                    { label: '交易筆數', value: `${rangeRealizedTrades.length} 筆` },
+                    {
+                      label: '全期合計',
+                      value: formatMoney(insights.realizedPnl, true),
+                      valueColor: pnlColor(insights.realizedPnl, colors),
+                    },
+                  ]}
+                />
+                <View style={styles.drillTablePanel}>
+                  <RealizedTradesTable trades={rangeRealizedTrades} />
                 </View>
-              ) : null}
+              </View>
+            ) : null}
 
-              {detailPanel === 'holdings' ? (
-                <View style={styles.section}>
-                  {portfolio.positions.length === 0 ? (
-                    <View style={[styles.cleanCard, { backgroundColor: colors.surfaceContainer }]}>
-                      <Text style={styles.cleanText}>沒有可計算持股；請先補齊待補備註。</Text>
-                    </View>
-                  ) : (
-                    <>
-                      <SortChips
-                        options={INVESTMENT_HOLDING_SORT_OPTIONS.map(option => ({
-                          key: option.id,
-                          label: option.label,
-                        }))}
-                        activeKey={holdingSort}
-                        direction={holdingSortDirection}
-                        onChange={handleHoldingSortChange}
-                      />
-                      {sortedHoldings.map(position => {
-                      const pnl = position.unrealizedPnl || 0;
-                      const weight = insights.totalMarketValue > 0 && position.marketValue !== undefined
-                        ? (position.marketValue / insights.totalMarketValue) * 100
-                        : undefined;
-                      const mover = resolveMoverForPosition(position);
-                      const dayChangeText = mover
-                        ? `${formatMoney(mover.change, true)} · ${formatPercent(mover.changePercent, true)}`
-                        : undefined;
-
-                      return (
-                        <AccentListCard
-                          key={position.id}
-                          title={`${position.name}${position.symbol ? ` ${position.symbol}` : ' · 待補股號'}`}
-                          amount={position.marketValue === undefined ? '無價格' : formatMoney(position.marketValue)}
-                          amountColor={pnlColor(pnl, colors)}
-                          onPress={() => openPositionSheet(position)}
-                          meta={[
-                            { icon: 'cube-outline', text: `${position.shares.toLocaleString()} 股` },
-                            { icon: 'wallet-outline', text: `成本 $${position.averageCost.toFixed(2)}` },
-                            weight !== undefined
-                              ? { icon: 'pie-chart-outline', text: `${weight.toFixed(1)}%` }
-                              : { icon: 'pie-chart-outline', text: '—' },
-                            {
-                              icon: 'calendar-outline',
-                              text: position.latestPriceDate
-                                ? `收盤 $${position.latestPrice?.toFixed(2)} · ${formatDate(position.latestPriceDate)}`
-                                : '缺收盤價',
-                            },
-                          ]}
-                        >
-                          <View style={styles.positionFooter}>
-                            <Text
-                              style={[styles.positionPnl, { color: pnlColor(pnl, colors) }]}
-                              selectable
-                            >
-                              {formatMoney(pnl, true)}
-                              {position.unrealizedPnlPercent !== undefined
-                                ? ` · ${position.unrealizedPnlPercent >= 0 ? '+' : ''}${position.unrealizedPnlPercent.toFixed(2)}%`
-                                : ''}
-                            </Text>
-                            {dayChangeText ? (
-                              <Text style={[styles.positionDayChange, { color: pnlColor(mover!.change, colors) }]}>
-                                今日 {dayChangeText}
-                              </Text>
-                            ) : null}
-                            <Text style={styles.positionAccount}>{position.account}</Text>
-                          </View>
-                        </AccentListCard>
-                      );
-                    })}
-                    </>
-                  )}
+            {detailPanel === 'trades' ? (
+              <View style={styles.drillSection}>
+                <CompactSummaryBar
+                  compact
+                  style={styles.inlineSummary}
+                  items={[
+                    { label: '買入', value: `${rangeFilteredTrades.filter(trade => trade.side === 'buy').length} 筆 · ${formatMoney(rangeBuyAmount)}` },
+                    { label: '賣出', value: `${rangeFilteredTrades.filter(trade => trade.side === 'sell').length} 筆 · ${formatMoney(rangeSellAmount)}` },
+                  ]}
+                />
+                <View style={styles.drillTablePanel}>
+                  <StockTradesTable trades={rangeFilteredTrades} />
                 </View>
-              ) : null}
-            </ScrollView>
-          )}
-        </>
+              </View>
+            ) : null}
+
+            {detailPanel === 'issues' ? (
+              <View style={styles.drillSection}>
+                {filteredIssues.length === 0 ? (
+                  <View style={[styles.cleanCard, { backgroundColor: colors.greenLight }]}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.green} />
+                    <Text style={[styles.cleanText, { color: colors.green }]}>目前買賣備註都可解析</Text>
+                  </View>
+                ) : (
+                  filteredIssues.map(issue => (
+                    <IssueCard key={issue.id} issue={issue} styles={styles} colors={colors} />
+                  ))
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle}>
           {summaryCard}
@@ -831,7 +705,6 @@ export default function InvestmentScreen() {
 
           <InvestmentPnlSection
             data={pnl}
-            onSelectRow={openPnlRow}
             onOpenMissingPrices={() => openSheet({
               kind: 'missingPrices',
               title: '缺收盤價持股',
@@ -952,6 +825,16 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   accountFilterText: { flex: 1, color: colors.onPrimaryContainer, fontSize: 12, fontWeight: '700' },
   accountFilterClear: { minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { paddingTop: 8, paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
+  drillScrollContent: { paddingHorizontal: 16, gap: 10, flexGrow: 1 },
+  drillPanel: { flex: 1 },
+  drillList: { flex: 1 },
+  drillTablePanel: {
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+    ...withContinuousRadius(RADIUS.sm),
+    overflow: 'hidden',
+  },
   listContent: { paddingHorizontal: 16, paddingBottom: 28 },
   linkTrailing: { fontSize: 12, fontWeight: '700', color: colors.primary },
   linkTrailingButton: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
@@ -1027,7 +910,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   metricDividerV: { width: 1, height: 32, backgroundColor: colors.divider },
-  inlineSummary: { marginHorizontal: 0 },
+  inlineSummary: { marginHorizontal: 0, marginTop: 0 },
   summaryTilePressed: { opacity: 0.88 },
   donutWrapper: { alignItems: 'center', paddingVertical: 2 },
   donutCenter: { alignItems: 'center' },
@@ -1121,6 +1004,14 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     color: colors.textMuted,
   },
   section: { marginTop: 14 },
+  drillSection: { gap: 8 },
+  holdingGridHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    paddingHorizontal: 2,
+    marginBottom: 2,
+  },
   sectionTrailing: { fontSize: 12, fontWeight: '700', color: colors.onSurfaceVariant },
   issueCard: {
     backgroundColor: colors.surfaceContainer,
@@ -1174,15 +1065,6 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     ...withContinuousRadius(RADIUS.sm),
   },
   cleanText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.onSurfaceVariant },
-  positionFooter: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    marginTop: 8,
-    gap: 4,
-  },
-  positionPnl: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  positionDayChange: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  positionAccount: { fontSize: 11, color: colors.textMuted },
   errorBox: {
     marginTop: 18,
     padding: 12,

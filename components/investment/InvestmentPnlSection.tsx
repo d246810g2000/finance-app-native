@@ -12,7 +12,13 @@ import {
 } from '../../viewModels/investmentPnlViewModel';
 
 const TOP_ROW_COUNT = 5;
-type SortKey = 'name' | 'dayChange' | 'latestPrice' | 'unrealizedPnl' | 'shares' | 'averageCost' | 'marketValue' | 'return5d' | 'return20d' | 'returnYtd' | 'dividendIncome';
+const TABLE_HEADER_HEIGHT = 48;
+const TABLE_ROW_HEIGHT = 64;
+const FROZEN_COLUMN_WIDTH = 84;
+const FROZEN_COLUMN_PADDING = 6;
+const FROZEN_TEXT_WIDTH = FROZEN_COLUMN_WIDTH - FROZEN_COLUMN_PADDING * 2;
+const TABLE_CELL_WIDTH = 72;
+type SortKey = 'symbol' | 'dayChange' | 'latestPrice' | 'unrealizedPnl' | 'shares' | 'averageCost' | 'marketValue' | 'return5d' | 'return20d' | 'returnYtd' | 'dividendIncome';
 type SortDirection = 'asc' | 'desc';
 
 function formatMoney(value: number, signed = false): string {
@@ -26,7 +32,11 @@ function formatPercent(value: number, signed = false): string {
 }
 
 function sortValue(row: InvestmentPnlRow, key: SortKey): number | string {
-  if (key === 'name') return row.name;
+  if (key === 'symbol') {
+    if (!row.symbol) return `\uffff${row.name}`;
+    const numericSymbol = Number(row.symbol);
+    return Number.isFinite(numericSymbol) ? numericSymbol : row.symbol;
+  }
   if (key === 'dayChange') return row.dayChange ?? Number.NEGATIVE_INFINITY;
   if (key === 'latestPrice') return row.latestPrice ?? Number.NEGATIVE_INFINITY;
   if (key === 'unrealizedPnl') return row.unrealizedPnl ?? Number.NEGATIVE_INFINITY;
@@ -63,7 +73,7 @@ function SortableHeader({
   direction,
   onSort,
   styles,
-  wide = false,
+  frozen = false,
 }: {
   label: string;
   sortKey: SortKey;
@@ -71,56 +81,51 @@ function SortableHeader({
   direction: SortDirection;
   onSort: (key: SortKey) => void;
   styles: ReturnType<typeof createStyles>;
-  wide?: boolean;
+  frozen?: boolean;
 }) {
   const active = activeKey === sortKey;
   return (
     <Pressable
       onPress={() => onSort(sortKey)}
-      style={[styles.tableHeaderCell, wide && styles.frozenHeaderSortButton]}
+      style={frozen ? styles.frozenHeaderCell : styles.tableHeaderCell}
       accessibilityRole="button"
       accessibilityLabel={`${label}，${active ? direction === 'asc' ? '升冪' : '降冪' : '未排序'}`}
     >
-      <Text style={styles.tableHeaderLabel}>{label}</Text>
-      <Ionicons
-        name={active ? direction === 'asc' ? 'caret-up' : 'caret-down' : 'swap-vertical-outline'}
-        size={11}
-        color={active ? styles.tableHeaderActive.color : styles.tableHeaderLabel.color}
-      />
+      <View style={[styles.tableHeaderInner, frozen && styles.frozenTableHeaderInner]}>
+        <Text
+          style={[styles.tableHeaderLabel, frozen && styles.frozenTableHeaderLabel]}
+          numberOfLines={2}
+        >
+          {label}
+        </Text>
+        <Ionicons
+          name={active ? direction === 'asc' ? 'caret-up' : 'caret-down' : 'swap-vertical-outline'}
+          size={11}
+          color={active ? styles.tableHeaderActive.color : styles.tableHeaderLabel.color}
+        />
+      </View>
     </Pressable>
   );
 }
 
 const PnlFrozenCell = React.memo(function PnlFrozenCell({
   row,
-  onPress,
-  colors,
   styles,
 }: {
   row: InvestmentPnlRow;
-  onPress: (row: InvestmentPnlRow) => void;
-  colors: AppColors;
   styles: ReturnType<typeof createStyles>;
 }) {
-  const pnl = row.unrealizedPnl || 0;
-  const marketValue = row.marketValue;
-  const hasPrice = marketValue !== undefined;
-
   return (
-    <Pressable
-      onPress={() => onPress(row)}
-      style={({ pressed }) => [styles.frozenCell, pressed && styles.rowPressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`${row.name} ${row.symbol || ''}，${hasPrice ? `市值 ${formatMoney(marketValue)}` : '缺收盤價'}，損益 ${formatMoney(pnl, true)}`}
-    >
-      <View style={styles.frozenIdentity}>
-        <Text style={styles.rowStatus}>現股</Text>
-        <Text style={styles.rowName} numberOfLines={1}>
+    <View style={styles.frozenRow}>
+      <View style={styles.frozenCellContent}>
+        <Text style={styles.rowName} numberOfLines={1} ellipsizeMode="tail">
           {row.name}
         </Text>
-        <Text style={styles.rowSymbol} numberOfLines={1}>{row.symbol || '待補股號'}</Text>
+        <Text style={styles.rowSymbol} numberOfLines={1} ellipsizeMode="tail">
+          {row.symbol || '待補股號'}
+        </Text>
       </View>
-    </Pressable>
+    </View>
   );
 });
 
@@ -142,44 +147,60 @@ const PnlTableRow = React.memo(function PnlTableRow({
   return (
     <View style={styles.tableRow}>
       <View style={styles.tableCell}>
-        <Text style={[styles.tableValue, { color: row.dayChange === undefined ? colors.textMuted : pnlColor(row.dayChange, colors) }]} numberOfLines={1}>
-          {row.dayChange === undefined ? '—' : formatMoney(row.dayChange, true)}
-        </Text>
-        <Text style={[styles.tableSubValue, { color: row.dayChangePercent === undefined ? colors.textMuted : pnlColor(row.dayChangePercent, colors) }]} numberOfLines={1}>
-          {row.dayChangePercent === undefined ? '今日' : formatPercent(row.dayChangePercent, true)}
-        </Text>
+        <View style={styles.tableCellInner}>
+          <Text style={[styles.tableValue, { color: row.dayChange === undefined ? colors.textMuted : pnlColor(row.dayChange, colors) }]} numberOfLines={1}>
+            {row.dayChange === undefined ? '—' : formatMoney(row.dayChange, true)}
+          </Text>
+          <Text style={[styles.tableSubValue, { color: row.dayChangePercent === undefined ? colors.textMuted : pnlColor(row.dayChangePercent, colors) }]} numberOfLines={1}>
+            {row.dayChangePercent === undefined ? '今日' : formatPercent(row.dayChangePercent, true)}
+          </Text>
+        </View>
       </View>
       <View style={styles.tableCell}>
-        <Text style={styles.tableValue} numberOfLines={1}>{formatQuotePrice(row.latestPrice)}</Text>
+        <View style={styles.tableCellInner}>
+          <Text style={styles.tableValue} numberOfLines={1}>{formatQuotePrice(row.latestPrice)}</Text>
+        </View>
       </View>
       <View style={styles.tableCell}>
-        <Text style={[styles.tableValue, { color: valueColor }]} numberOfLines={1}>{hasPrice ? formatMoney(pnl, true) : '—'}</Text>
-        <Text style={[styles.tableSubValue, { color: row.unrealizedPnlPercent === undefined ? colors.textMuted : pnlColor(row.unrealizedPnlPercent, colors) }]} numberOfLines={1}>
-          {row.unrealizedPnlPercent === undefined ? '無法評價' : formatPercent(row.unrealizedPnlPercent, true)}
-        </Text>
+        <View style={styles.tableCellInner}>
+          <Text style={[styles.tableValue, { color: valueColor }]} numberOfLines={1}>{hasPrice ? formatMoney(pnl, true) : '—'}</Text>
+          <Text style={[styles.tableSubValue, { color: row.unrealizedPnlPercent === undefined ? colors.textMuted : pnlColor(row.unrealizedPnlPercent, colors) }]} numberOfLines={1}>
+            {row.unrealizedPnlPercent === undefined ? '無法評價' : formatPercent(row.unrealizedPnlPercent, true)}
+          </Text>
+        </View>
       </View>
       <View style={styles.tableCell}>
-        <Text style={styles.tableValue} numberOfLines={1}>{row.shares.toLocaleString()}</Text>
+        <View style={styles.tableCellInner}>
+          <Text style={styles.tableValue} numberOfLines={1}>{row.shares.toLocaleString()}</Text>
+        </View>
       </View>
       <View style={styles.tableCell}>
-        <Text style={styles.tableValue} numberOfLines={1}>{formatMoney(row.averageCost)}</Text>
-        <Text style={styles.tableSubValue} numberOfLines={1}>{formatMoney(row.totalCost)}</Text>
+        <View style={styles.tableCellInner}>
+          <Text style={styles.tableValue} numberOfLines={1}>{formatMoney(row.averageCost)}</Text>
+          <Text style={styles.tableSubValue} numberOfLines={1}>{formatMoney(row.totalCost)}</Text>
+        </View>
       </View>
       <View style={styles.tableCell}>
-        <Text style={styles.tableValue} numberOfLines={1}>{hasPrice ? formatMoney(row.marketValue ?? 0) : '—'}</Text>
-        <Text style={styles.tableSubValue}>{hasPrice && totalMarketValue > 0 ? formatPercent(((row.marketValue || 0) / totalMarketValue) * 100) : '—'}</Text>
+        <View style={styles.tableCellInner}>
+          <Text style={styles.tableValue} numberOfLines={1}>{hasPrice ? formatMoney(row.marketValue ?? 0) : '—'}</Text>
+          <Text style={styles.tableSubValue}>{hasPrice && totalMarketValue > 0 ? formatPercent(((row.marketValue || 0) / totalMarketValue) * 100) : '—'}</Text>
+        </View>
       </View>
       {(['return5d', 'return20d', 'returnYtd'] as const).map(key => (
         <View key={key} style={styles.tableCell}>
-          <Text style={[styles.tableValue, { color: row[key] === undefined ? colors.textMuted : pnlColor(row[key] || 0, colors) }]} numberOfLines={1}>
-            {row[key] === undefined ? '—' : formatPercent(row[key], true)}
-          </Text>
+          <View style={styles.tableCellInner}>
+            <Text style={[styles.tableValue, { color: row[key] === undefined ? colors.textMuted : pnlColor(row[key] || 0, colors) }]} numberOfLines={1}>
+              {row[key] === undefined ? '—' : formatPercent(row[key], true)}
+            </Text>
+          </View>
         </View>
       ))}
       <View style={styles.tableCell}>
-        <Text style={[styles.tableValue, { color: row.dividendIncome ? colors.red : colors.textMuted }]} numberOfLines={1}>
-          {formatMoney(row.dividendIncome || 0, true)}
-        </Text>
+        <View style={styles.tableCellInner}>
+          <Text style={[styles.tableValue, { color: row.dividendIncome ? colors.red : colors.textMuted }]} numberOfLines={1}>
+            {formatMoney(row.dividendIncome || 0, true)}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -187,13 +208,11 @@ const PnlTableRow = React.memo(function PnlTableRow({
 
 interface InvestmentPnlSectionProps {
   data: InvestmentPnlViewModel;
-  onSelectRow: (row: InvestmentPnlRow) => void;
   onOpenMissingPrices: () => void;
 }
 
 export default function InvestmentPnlSection({
   data,
-  onSelectRow,
   onOpenMissingPrices,
 }: InvestmentPnlSectionProps) {
   const { colors } = useAppTheme();
@@ -232,21 +251,24 @@ export default function InvestmentPnlSection({
       setSortDirection(direction => direction === 'asc' ? 'desc' : 'asc');
     } else {
       setSortKey(key);
-      setSortDirection(key === 'name' ? 'asc' : 'desc');
+      setSortDirection(key === 'symbol' ? 'asc' : 'desc');
     }
   };
 
   return (
     <View style={styles.section}>
       <SectionHeader
-        title="庫存"
+        title="庫存股"
         accent={colors.red}
       />
 
       <View style={[styles.panel, { borderColor: colors.outlineVariant }]}>
         <View style={styles.summaryMetrics}>
           <View style={styles.summaryMetric}>
-            <Text style={styles.metricLabel}>今日損益</Text>
+            <View style={styles.metricTitleRow}>
+              <Text style={styles.metricLabel}>今日損益</Text>
+              <View style={styles.metricToggleSpacer} />
+            </View>
             <Text style={[styles.metricValue, { color: pnlColor(todayPnl, colors) }]} numberOfLines={1}>
               {formatMoney(todayPnl, true)}
             </Text>
@@ -376,23 +398,19 @@ export default function InvestmentPnlSection({
         ) : (
           <View style={styles.tableShell}>
             <View style={styles.frozenColumn}>
-              <View style={styles.frozenHeader}>
-                <SortableHeader
-                  label="庫存"
-                  sortKey="name"
-                  activeKey={sortKey}
-                  direction={sortDirection}
-                  onSort={handleSort}
-                  styles={styles}
-                  wide
-                />
-              </View>
+              <SortableHeader
+                label="庫存股"
+                sortKey="symbol"
+                activeKey={sortKey}
+                direction={sortDirection}
+                onSort={handleSort}
+                styles={styles}
+                frozen
+              />
               {tableRows.map(row => (
                 <PnlFrozenCell
                   key={row.id}
                   row={row}
-                  onPress={onSelectRow}
-                  colors={colors}
                   styles={styles}
                 />
               ))}
@@ -467,7 +485,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   },
   summaryMetrics: {
     flexDirection: 'row',
-    minHeight: 76,
+    minHeight: 62,
     paddingVertical: 2,
   },
   summaryMetric: {
@@ -482,7 +500,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.outlineVariant,
   },
   metricTitleRow: {
-    minHeight: 26,
+    minHeight: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -493,23 +511,27 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  metricToggleSpacer: {
+    width: 28,
+    height: 28,
+  },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: colors.onSurfaceVariant,
     fontWeight: '600',
   },
   metricValue: {
     marginTop: 1,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 18,
     color: colors.onSurface,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   metricPercent: {
     marginTop: 1,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 9,
+    lineHeight: 12,
     color: colors.textMuted,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
@@ -726,6 +748,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
   },
   tableShell: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     minHeight: 44,
     overflow: 'hidden',
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -734,68 +757,127 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   frozenColumn: {
-    width: 116,
+    width: FROZEN_COLUMN_WIDTH,
     zIndex: 2,
     backgroundColor: colors.surfaceContainer,
-    borderRightWidth: 2,
+    borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: colors.outlineVariant,
   },
-  frozenHeader: {
-    minHeight: 44,
+  frozenHeaderCell: {
+    width: FROZEN_COLUMN_WIDTH,
+    height: TABLE_HEADER_HEIGHT,
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    alignItems: 'center',
     backgroundColor: colors.surfaceVariant,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.divider,
   },
-  frozenHeaderSortButton: { width: '100%' },
-  frozenCell: {
-    minHeight: 64,
+  frozenTableHeaderInner: {
+    width: FROZEN_TEXT_WIDTH,
+  },
+  frozenTableHeaderLabel: {
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  frozenRow: {
+    width: FROZEN_COLUMN_WIDTH,
+    height: TABLE_ROW_HEIGHT,
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.divider,
   },
-  frozenIdentity: { minWidth: 0, gap: 1 },
-  rowStatus: { fontSize: 10, color: colors.textMuted, fontWeight: '600' },
-  rowSymbol: { fontSize: 11, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  frozenCellContent: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  rowSymbol: {
+    width: FROZEN_TEXT_WIDTH,
+    fontSize: 11,
+    lineHeight: 14,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   tableHeaderText: { fontSize: 11, color: colors.textMuted, fontWeight: '700' },
   tableHeaderActive: { color: colors.primary },
   scrollTable: { flex: 1 },
-  scrollTableContent: { minWidth: 860 },
-  scrollTableInner: { width: 860 },
+  scrollTableContent: { minWidth: TABLE_CELL_WIDTH * 10 },
+  scrollTableInner: { width: TABLE_CELL_WIDTH * 10 },
   tableHeaderCell: {
-    width: 86,
-    minHeight: 44,
-    paddingHorizontal: 4,
-    alignItems: 'flex-end',
+    width: TABLE_CELL_WIDTH,
+    alignSelf: 'stretch',
     justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  tableHeaderInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    width: '100%',
   },
   tableHeaderLabel: {
-    textAlign: 'right',
+    textAlign: 'center',
     color: colors.textMuted,
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '700',
+    includeFontPadding: false,
+    flexShrink: 1,
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    minHeight: 44,
+    height: TABLE_HEADER_HEIGHT,
+    alignItems: 'center',
+    backgroundColor: colors.surfaceVariant,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.divider,
   },
-  tableRow: { flexDirection: 'row', minHeight: 64 },
+  tableRow: {
+    flexDirection: 'row',
+    height: TABLE_ROW_HEIGHT,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
   tableCell: {
-    width: 86,
-    minHeight: 64,
-    alignItems: 'flex-end',
+    width: TABLE_CELL_WIDTH,
+    height: TABLE_ROW_HEIGHT,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
   },
-  tableValue: { fontSize: 13, lineHeight: 17, fontWeight: '800', color: colors.onSurface, fontVariant: ['tabular-nums'] },
-  tableSubValue: { marginTop: 1, fontSize: 10, lineHeight: 13, color: colors.textMuted, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  tableCellInner: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableValue: {
+    width: '100%',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+    color: colors.onSurface,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  tableSubValue: {
+    width: '100%',
+    marginTop: 1,
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.textMuted,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   rowList: { gap: 0 },
   row: {
     flexDirection: 'row',
@@ -813,10 +895,14 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
     gap: 2,
   },
   rowName: {
+    width: FROZEN_TEXT_WIDTH,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '700',
     color: colors.onSurface,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   rowMeta: {
     fontSize: 11,

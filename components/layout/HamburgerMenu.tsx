@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, Dimensions, type ColorValue } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, Dimensions, Alert, ActivityIndicator, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -7,6 +7,9 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } fro
 import { RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
+import { useFinance } from '../../context/FinanceContext';
+import { shareAndroMoneyCsv } from '../../services/financeService';
+import { hapticSuccess } from '../../utils/haptics';
 import SettingsModal from '../settings/SettingsModal';
 import CreditCardManagementModal from '../reconciliation/CreditCardManagementModal';
 import { MOTION_DURATION } from '../ui/motion';
@@ -66,6 +69,8 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const { colors } = useAppTheme();
     const insets = useSafeAreaInsets();
     const { setSearchModalVisible, menuVisible: propVisible, setMenuVisible } = useFinanceUI();
+    const { records } = useFinance();
+    const [exporting, setExporting] = useState(false);
 
     const actualVisible = visible !== undefined ? visible : propVisible;
     const actualOnClose = onClose || (() => setMenuVisible(false));
@@ -154,6 +159,24 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
         });
     };
 
+    const handleExportAndroMoney = async () => {
+        if (records.length === 0) {
+            Alert.alert('無法匯出', '尚無資料可匯出，請先到「資料匯入」載入 CSV。');
+            return;
+        }
+        setExporting(true);
+        try {
+            actualOnClose();
+            await shareAndroMoneyCsv(records);
+            hapticSuccess();
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : '未知錯誤';
+            Alert.alert('匯出失敗', message);
+        } finally {
+            setExporting(false);
+        }
+    };
+
     return (
         <>
             <Modal
@@ -236,6 +259,34 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                     styles={styles}
                                     showDivider
                                 />
+                                <Pressable
+                                    onPress={handleExportAndroMoney}
+                                    disabled={exporting}
+                                    android_ripple={{ color: colors.statePressed }}
+                                    style={({ pressed }) => [styles.menuItemPressable, pressed && styles.menuItemPressed]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="匯出 AndroMoney CSV"
+                                >
+                                    <View style={styles.menuItemRow}>
+                                        <View style={[styles.menuIconCircle, { backgroundColor: colors.primaryContainer }]}>
+                                            {exporting ? (
+                                                <ActivityIndicator size="small" color={colors.primary} />
+                                            ) : (
+                                                <Ionicons name="download-outline" size={20} color={colors.primary} />
+                                            )}
+                                        </View>
+                                        <View style={styles.menuLabelWrap}>
+                                            <Text style={styles.menuText} numberOfLines={1}>匯出 AndroMoney CSV</Text>
+                                            <Text style={styles.menuSubtext} numberOfLines={1}>
+                                                {records.length > 0
+                                                    ? `官方格式 · ${records.length.toLocaleString()} 筆`
+                                                    : '需先匯入資料'}
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} style={styles.menuChevron} />
+                                    </View>
+                                </Pressable>
+                                <View style={styles.itemDivider} />
                                 <MenuRow
                                     icon="storefront-outline"
                                     label="商家分析"
