@@ -15,7 +15,8 @@
     "analyze:health": "jest __tests__/projectHealth.fixture.test.ts --no-coverage",
     "analyze:report": "jest __tests__/financialHealthReport.fixture.test.ts --no-coverage",
     "audit:records": "node scripts/readOnlyAudit.mjs",
-    "audit:records:jest": "jest __tests__/recordAudit.fixture.test.ts --no-coverage"
+    "audit:records:jest": "jest __tests__/recordAudit.fixture.test.ts --no-coverage",
+    "benchmark:data": "node scripts/benchmark-data-pipeline.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -35,6 +36,7 @@
     "expo-router": "~57.0.20",
     "expo-sharing": "~57.0.18",
     "expo-splash-screen": "~57.0.8",
+    "expo-sqlite": "~57.0.2",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",

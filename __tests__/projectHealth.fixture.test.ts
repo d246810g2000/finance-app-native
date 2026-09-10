@@ -433,6 +433,8 @@ describe('專案支出健檢', () => {
           .join('\n')
     );
 
-    expect(projectStats.length).toBe(6);
+    // Keep the fixture coupled to the single source of truth instead of a
+    // stale literal when a new project definition is added.
+    expect(projectStats.length).toBe(FOCUS_PROJECTS.length);
   });
 });

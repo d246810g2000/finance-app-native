@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { BudgetRule, BudgetGlobalConfig, RawRecord } from '../types';
-import { calculateBudgetStatus } from './budgetService';
+import { buildCurrentMonthSummary } from './WidgetService';
 import { Platform } from 'react-native';
 
 const NOTIFICATION_CHANNEL_ID = 'budget-ongoing';
@@ -86,7 +86,7 @@ class NotificationService {
 
             // 計算當月預算狀態
             const now = new Date();
-            const { totalSpent } = calculateBudgetStatus(records, budgets, now, config);
+            const { totalSpent } = buildCurrentMonthSummary(records, budgets, config, now);
 
             const totalBudget = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
             if (totalBudget <= 0) return; // 沒有設定預算則不顯示

@@ -7,7 +7,7 @@
 | **顯示名稱** | 財務管家 |
 | **版本** | 1.0.0 |
 | **平台** | iOS · Android（主打原生；Web 非主要目標） |
-| **架構** | Expo 54 · React Native 0.81 · New Architecture |
+| **架構** | Expo 57 · React Native 0.86 · New Architecture |
 
 ---
 
@@ -69,7 +69,9 @@ finance-app-native/
 │   ├── budget/ · settings/ · ui/
 │   └── …
 ├── services/
-│   ├── financeService.ts       # CSV 讀寫、聚合、趨勢、異常支出
+│   ├── core/recordIndex.ts     # 正規化資料與可重用索引
+│   ├── persistence/             # SQLite repository 與 JSON migration
+│   ├── financeService.ts       # 相容 facade；新功能使用 domain selector
 │   ├── budgetService.ts        # 預算規則／狀態
 │   ├── accountConfigService.ts # 帳戶對照／排除
 │   ├── shared.ts               # 旅遊／專案聚合
@@ -79,7 +81,7 @@ finance-app-native/
 │   ├── FinanceContext.tsx      # 紀錄與預算等全域狀態
 │   └── ThemeContext.tsx        # light／dark／system
 ├── plugins/
-│   └── withBudgetWidget.js     # Android Widget + SharedPreferences
+│   └── withBudgetWidget.js     # Android Widget + 批次 SharedPreferences bridge
 ├── scripts/
 │   └── build-apk.sh            # 一鍵 Release APK
 ├── theme.ts · types.ts · constants.ts
@@ -90,7 +92,7 @@ finance-app-native/
 
 | 類別 | 技術 |
 |------|------|
-| Framework | React 19 · React Native 0.81 · Expo ~54（New Architecture） |
+| Framework | React 19 · React Native 0.86 · Expo ~57（New Architecture） |
 | Routing | Expo Router 6（file-based） |
 | Lists | @shopify/flash-list |
 | Charts | react-native-gifted-charts |

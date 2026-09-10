@@ -3,6 +3,11 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { RawRecord, BudgetRule, BudgetStatus, BudgetCalculationResult, BudgetGlobalConfig, FixedProjectStatus } from '../types';
 import { isSharedAccountName } from './core/attribution';
 import { convertAmountToTwd } from './core/parsing';
+import {
+  buildRecordIndex,
+  selectMonthRecords,
+  type RecordIndex,
+} from './core/recordIndex';
 
 const BUDGET_FILE_NAME = 'budget_rules.json';
 const CONFIG_FILE_NAME = 'budget_config.json';
@@ -111,7 +116,8 @@ export const calculateBudgetStatus = (
   records: RawRecord[],
   budgets: BudgetRule[],
   targetMonth: Date,
-  config: BudgetGlobalConfig
+  config: BudgetGlobalConfig,
+  recordIndex?: RecordIndex,
 ): BudgetCalculationResult => {
   const targetYear = targetMonth.getFullYear();
   const targetMonthIndex = targetMonth.getMonth();
@@ -120,7 +126,9 @@ export const calculateBudgetStatus = (
   const isCurrentMonth = now.getFullYear() === targetYear && now.getMonth() === targetMonthIndex;
 
   // 1. Filter records for the target month
-  const monthRecords = records.filter(record => {
+  const monthRecords = recordIndex
+    ? selectMonthRecords(recordIndex, targetMonth).map(record => record.raw)
+    : records.filter(record => {
     let year, month;
     if (record.parsedDate) {
       year = record.parsedDate.getFullYear();
@@ -145,7 +153,7 @@ export const calculateBudgetStatus = (
       return false;
     }
     return year === targetYear && month === targetMonthIndex;
-  });
+      });
 
   // 2. Aggregate expenses by category AND project group
   const dailyCategorySpent: { [category: string]: number } = {};
@@ -197,13 +205,21 @@ export const calculateBudgetStatus = (
   let totalFixedBudget = 0;
   const fixedCategories = new Set<string>();
 
+  const fixedCategoriesFromIndex = recordIndex
+    ? new Set(recordIndex.normalized
+      .filter(record => getProjectGroup(record.project, config) === 'fixed')
+      .map(record => record.category))
+    : null;
+
   const dailyStatuses: BudgetStatus[] = budgets.map(rule => {
     const dailySpent = Math.round(dailyCategorySpent[rule.category] || 0);
     const fixedSpent = Math.round(fixedCategorySpent[rule.category] || 0);
     
     // 如果該類別下有任何一個專案是固定支出，則整個類別的預算計入固定預算
     // 這裡我們預設使用者會把固定支出類別分開
-    const hasFixedProjectInThisCategory = records.some(r => r['分類'] === rule.category && getProjectGroup(r['專案'] || '', config) === 'fixed');
+    const hasFixedProjectInThisCategory = fixedCategoriesFromIndex
+      ? fixedCategoriesFromIndex.has(rule.category)
+      : records.some(r => r['分類'] === rule.category && getProjectGroup(r['專案'] || '', config) === 'fixed');
     if (hasFixedProjectInThisCategory) {
       totalFixedBudget += rule.monthlyLimit;
       fixedCategories.add(rule.category);
@@ -257,15 +273,20 @@ export const calculateBudgetStatus = (
   fixedProjectsInConfig.forEach(project => {
     if (paidFixedProjects.has(project)) return;
 
-    const projectRecords = records.filter(r => r['專案'] === project).sort((a, b) => {
-      const dateA = a.parsedDate || new Date(0);
-      const dateB = b.parsedDate || new Date(0);
-      return dateB.getTime() - dateA.getTime();
-    });
+    const projectRecords = recordIndex?.byProject.get(project);
+    const lastRecord = projectRecords
+      ? projectRecords.reduce((latest, candidate) => (
+        (candidate.dateTs || 0) > (latest?.dateTs || 0) ? candidate : latest
+      ), projectRecords[0])?.raw
+      : records
+        .filter(r => r['專案'] === project)
+        .sort((a, b) => {
+          const dateA = a.parsedDate || new Date(0);
+          const dateB = b.parsedDate || new Date(0);
+          return dateB.getTime() - dateA.getTime();
+        })[0];
 
-    if (projectRecords.length === 0) return;
-
-    const lastRecord = projectRecords[0];
+    if (!lastRecord) return;
     const dueDay = getDueDayFromRecord(lastRecord);
     if (dueDay === null) return;
 
@@ -324,3 +345,14 @@ export const calculateBudgetStatus = (
     totalSpent: Math.round(totalSpent),
   };
 };
+
+/** Calculate several months from one normalized index (used by Android Widget). */
+export const calculateBudgetStatusForMonths = (
+  records: RawRecord[],
+  budgets: BudgetRule[],
+  targetMonths: Date[],
+  config: BudgetGlobalConfig,
+  recordIndex: RecordIndex = buildRecordIndex(records),
+): BudgetCalculationResult[] => targetMonths.map(targetMonth => (
+  calculateBudgetStatus(records, budgets, targetMonth, config, recordIndex)
+));

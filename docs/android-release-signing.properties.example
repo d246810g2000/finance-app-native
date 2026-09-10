@@ -1,0 +1,5 @@
+# Copy these values to ~/.gradle/gradle.properties or your CI secret store.
+RELEASE_STORE_FILE=/absolute/path/to/finance-release.keystore
+RELEASE_STORE_PASSWORD=replace-me
+RELEASE_KEY_ALIAS=finance-release
+RELEASE_KEY_PASSWORD=replace-me

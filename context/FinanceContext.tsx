@@ -37,8 +37,10 @@ import {
 import { upsertRecordsById, transformRecordsForExport, UpsertResult } from '../services/financeService';
 import { createPersistenceQueue } from '../services/persistence/persistenceQueue';
 import { createFileSystemRecordsRepository } from '../services/persistence/recordsRepository';
+import { createSQLiteRecordsRepository } from '../services/persistence/sqliteRecordsRepository';
 import { showPersistenceIssueAlert } from '../services/persistence/persistenceFeedback';
 import { createRecordSynchronizer } from '../services/recordSyncService';
+import { buildRecordIndex, type RecordIndex } from '../services/core/recordIndex';
 import { parseFormattedDate } from '../utils/dateUtils';
 import { FinanceUIProvider, useFinanceUI } from './FinanceUIContext';
 import type { SearchFilters } from './FinanceUIContext';
@@ -49,6 +51,7 @@ export { useFinanceUI };
 /** 記錄本體與 CRUD — 變更時不應拖垮只訂閱設定的畫面 */
 export interface FinanceRecordsContextType {
   records: RawRecord[];
+  recordIndex: RecordIndex;
   /** 全量轉換結果（轉帳拆成轉入／轉出）；隨 records 變更一次計算 */
   transformedRecords: TransformedRecord[];
   isLoading: boolean;
@@ -157,30 +160,41 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
   const recordsRef = useRef<RawRecord[]>([]);
   recordsRef.current = records;
 
-  const recordsRepositoryRef = useRef(createFileSystemRecordsRepository());
-  const recordSynchronizerRef = useRef(createRecordSynchronizer());
-  const persistenceQueueRef = useRef(
-    createPersistenceQueue<RawRecord[]>({
-      save: async (newRecords) => {
-        setPersistenceError(null);
-        await recordsRepositoryRef.current.save(newRecords);
-        await recordSynchronizerRef.current.sync(newRecords);
-      },
-      clear: () => recordsRepositoryRef.current.clear(),
-      onError: (error) => {
-        console.error('Failed to persist finance records', error);
-        showPersistenceIssueAlert('無法儲存記錄。');
-        setPersistenceError('無法儲存記錄。');
-      },
-    }),
-  );
+  const [recordsRepository] = useState(() => createSQLiteRecordsRepository({
+    legacyRepository: createFileSystemRecordsRepository(),
+  }));
+  const [recordSynchronizer] = useState(() => createRecordSynchronizer());
+  const [persistenceQueue] = useState(() => createPersistenceQueue<RawRecord[]>({
+    save: async (newRecords) => {
+      setPersistenceError(null);
+      await recordsRepository.save(newRecords);
+      await recordSynchronizer.sync(newRecords);
+      if (pendingSaveRef.current === newRecords) {
+        pendingSaveRef.current = null;
+      }
+    },
+    clear: () => recordsRepository.clear(),
+    onError: (error) => {
+      console.error('Failed to persist finance records', error);
+      showPersistenceIssueAlert('無法儲存記錄。');
+      setPersistenceError('無法儲存記錄。');
+    },
+  }));
 
   useEffect(() => {
-    loadCustomAccountMappings().then(setCustomMappings);
-    loadExcludedAccounts().then(setExcludedAccounts);
-    loadBudgetConfig().then(setBudgetConfig);
-    loadBudgets().then(setBudgets);
-    loadCreditCardSettings().then(setCreditCardSettings);
+    Promise.all([
+      loadCustomAccountMappings(),
+      loadExcludedAccounts(),
+      loadBudgetConfig(),
+      loadBudgets(),
+      loadCreditCardSettings(),
+    ]).then(([mappings, exclusions, config, rules, cards]) => {
+      setCustomMappings(mappings);
+      setExcludedAccounts(exclusions);
+      setBudgetConfig(config);
+      setBudgets(rules);
+      setCreditCardSettings(cards);
+    });
   }, []);
 
   const saveCustomMappings = useCallback(async (newMappings: CustomAccountMappings) => {
@@ -239,22 +253,23 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
   }, [customMappings]);
 
   const transformedRecords = useMemo(() => transformRecordsForExport(records), [records]);
+  const recordIndex = useMemo(() => buildRecordIndex(records), [records]);
 
   const enqueueSave = useCallback((recordsToSave: RawRecord[], immediate = false) => {
     pendingSaveRef.current = recordsToSave;
-    persistenceQueueRef.current.enqueue(recordsToSave, immediate);
+    persistenceQueue.enqueue(recordsToSave, immediate);
   }, []);
 
   const refreshRecords = useCallback(async () => {
     setIsLoading(true);
     try {
-      const storedRecords = await recordsRepositoryRef.current.load();
+      const storedRecords = await recordsRepository.load();
       const withIds = storedRecords.map((r) => ({
         ...r,
         id: r.id || Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
       }));
       setRecords(withIds);
-      recordSynchronizerRef.current.sync(withIds).catch((error: unknown) => {
+      recordSynchronizer.sync(withIds).catch((error: unknown) => {
         console.error('Failed to synchronize notifications', error);
       });
     } catch (error) {
@@ -274,7 +289,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        recordSynchronizerRef.current.sync(recordsRef.current);
+        recordSynchronizer.sync(recordsRef.current);
       }
       if (nextState.match(/inactive|background/) && pendingSaveRef.current) {
         enqueueSave(pendingSaveRef.current, true);
@@ -289,7 +304,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
       if (pendingSaveRef.current) {
         enqueueSave(pendingSaveRef.current, true);
       }
-      persistenceQueueRef.current.dispose();
+      persistenceQueue.dispose();
     },
     [enqueueSave],
   );
@@ -322,7 +337,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
   const clearRecords = useCallback(() => {
     setRecords([]);
     pendingSaveRef.current = null;
-    persistenceQueueRef.current.clear();
+    persistenceQueue.clear();
   }, []);
 
   const deleteRecord = useCallback(
@@ -365,6 +380,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
   const recordsValue = useMemo<FinanceRecordsContextType>(
     () => ({
       records,
+      recordIndex,
       transformedRecords,
       isLoading,
       persistenceError,
@@ -377,6 +393,7 @@ function FinanceDataProvider({ children }: { children: ReactNode }) {
     }),
     [
       records,
+      recordIndex,
       transformedRecords,
       isLoading,
       persistenceError,

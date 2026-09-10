@@ -1,116 +1,128 @@
 import { NativeModules, Platform } from 'react-native';
-import { loadBudgets, loadBudgetConfig, calculateBudgetStatus } from './budgetService';
-import { RawRecord, BudgetRule, BudgetGlobalConfig } from '../types';
+import { loadBudgets, loadBudgetConfig, calculateBudgetStatus, calculateBudgetStatusForMonths } from './budgetService';
+import type { BudgetCalculationResult, BudgetGlobalConfig, BudgetRule, RawRecord } from '../types';
+import { buildRecordIndex } from './core/recordIndex';
 
-const SharedPrefs = NativeModules.SharedPreferencesModule;
+interface WidgetNativeModule {
+    syncWidget: (payloadJson: string) => Promise<boolean>;
+}
+
+export interface WidgetMonthPayload {
+    monthLabel: string;
+    dailyBudget: number;
+    dailySpent: number;
+    dailyRemaining: number;
+    dailyAllowance: number;
+    dailyPercent: number;
+    isDailyOver: boolean;
+    fixedSpent: number;
+    fixedBudget: number;
+    totalSpent: number;
+    totalBudget: number;
+    remainingDays: number;
+    nextFixedName: string;
+    nextFixedDate: string;
+    nextFixedAmount: number;
+}
+
+export interface WidgetPayload {
+    minMonthOffset: number;
+    maxMonthOffset: number;
+    months: Record<string, WidgetMonthPayload>;
+}
+
+/** Canonical current-month snapshot consumed by both Widget and notification sync. */
+export function buildCurrentMonthSummary(
+    records: RawRecord[],
+    budgets: BudgetRule[],
+    config: BudgetGlobalConfig,
+    now = new Date(),
+): BudgetCalculationResult {
+    return calculateBudgetStatus(records, budgets, now, config, buildRecordIndex(records));
+}
+
+const SharedPrefs = NativeModules.SharedPreferencesModule as WidgetNativeModule | undefined;
+
+function monthPayload(
+    summary: BudgetCalculationResult,
+    targetMonth: Date,
+    now: Date,
+): WidgetMonthPayload {
+    const totalBudget = summary.totalDailyBudget;
+    const disposableDailyBudget = totalBudget - summary.totalFixedSpent;
+    const lastDayOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+    const isCurrentMonth = now.getFullYear() === targetMonth.getFullYear()
+        && now.getMonth() === targetMonth.getMonth();
+    const remainingDays = isCurrentMonth
+        ? Math.max(1, lastDayOfMonth - now.getDate() + 1)
+        : targetMonth.getTime() < now.getTime() ? 1 : lastDayOfMonth;
+    const dailyRemaining = disposableDailyBudget - summary.totalDailySpent;
+
+    return {
+        monthLabel: `${targetMonth.getFullYear()}/${String(targetMonth.getMonth() + 1).padStart(2, '0')}`,
+        dailyBudget: Math.round(disposableDailyBudget),
+        dailySpent: Math.round(summary.totalDailySpent),
+        dailyRemaining: Math.round(dailyRemaining),
+        dailyAllowance: dailyRemaining < 0 ? 0 : Math.floor(dailyRemaining / remainingDays),
+        dailyPercent: Math.min(100, Math.max(0, Math.round(
+            (summary.totalDailySpent / Math.max(1, disposableDailyBudget)) * 100,
+        ))),
+        isDailyOver: dailyRemaining < 0,
+        fixedSpent: Math.round(summary.totalFixedSpent),
+        fixedBudget: Math.round(summary.totalFixedBudget),
+        totalSpent: Math.round(summary.totalSpent),
+        totalBudget: Math.round(totalBudget),
+        remainingDays,
+        nextFixedName: summary.nextFixedExpense?.name || '',
+        nextFixedDate: summary.nextFixedExpense?.date || '',
+        nextFixedAmount: summary.nextFixedExpense?.amount || 0,
+    };
+}
+
+export function buildWidgetPayload(
+    records: RawRecord[],
+    budgets: BudgetRule[],
+    config: BudgetGlobalConfig,
+    now = new Date(),
+    monthRange = 12,
+): WidgetPayload {
+    const targetMonths = Array.from({ length: monthRange * 2 + 1 }, (_, index) => (
+        new Date(now.getFullYear(), now.getMonth() + index - monthRange, 1)
+    ));
+    const index = buildRecordIndex(records);
+    const summaries = calculateBudgetStatusForMonths(records, budgets, targetMonths, config, index);
+    const months: Record<string, WidgetMonthPayload> = {};
+
+    summaries.forEach((summary, indexInRange) => {
+        if (summary.totalDailyBudget <= 0) return;
+        const offset = indexInRange - monthRange;
+        months[`m${offset}_`] = monthPayload(summary, targetMonths[indexInRange], now);
+    });
+
+    return {
+        minMonthOffset: -monthRange,
+        maxMonthOffset: monthRange,
+        months,
+    };
+}
 
 class WidgetService {
     isSupported(): boolean {
         return Platform.OS === 'android' && !!SharedPrefs;
     }
 
-    /**
-     * 計算預算數據並寫入 SharedPreferences，觸發 Widget 更新
-     */
     async syncWidgetData(records: RawRecord[]): Promise<void> {
-        if (!this.isSupported()) return;
+        if (!this.isSupported() || !SharedPrefs) return;
 
         try {
             const budgets = await loadBudgets();
-            const config = await loadBudgetConfig();
-
             if (budgets.length === 0) return;
-
-            const now = new Date();
-            const syncOps: Promise<void>[] = [];
-
-            // 同步前後各 12 個月，讓桌面小工具可連續切換
-            const MONTH_RANGE = 12;
-            for (let offset = -MONTH_RANGE; offset <= MONTH_RANGE; offset++) {
-                const targetMonth = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-                const prefix = `m${offset}_`;
-                syncOps.push(...await this._syncMonthData(records, budgets, config, targetMonth, prefix));
-            }
-
-            syncOps.push(SharedPrefs.setInt('minMonthOffset', -MONTH_RANGE));
-            syncOps.push(SharedPrefs.setInt('maxMonthOffset', MONTH_RANGE));
-
-            await Promise.all(syncOps);
-
-            // 觸發 Widget 刷新（保留使用者目前檢視的月份）
-            await SharedPrefs.updateWidget();
-        } catch (e) {
-            console.warn('Failed to sync widget data', e);
+            const config = await loadBudgetConfig();
+            const payload = buildWidgetPayload(records, budgets, config);
+            await SharedPrefs.syncWidget(JSON.stringify(payload));
+        } catch (error) {
+            console.warn('Failed to sync widget data', error);
         }
-    }
-
-    private async _syncMonthData(
-        records: RawRecord[],
-        budgets: BudgetRule[],
-        config: BudgetGlobalConfig,
-        targetMonth: Date,
-        prefix: string
-    ): Promise<Promise<void>[]> {
-        const {
-            totalDailyBudget,
-            totalDailySpent,
-            totalFixedSpent,
-            totalFixedBudget,
-            nextFixedExpense,
-            totalSpent
-        } = calculateBudgetStatus(records, budgets, targetMonth, config);
-
-        const now = new Date();
-        const isCurrentMonth = now.getFullYear() === targetMonth.getFullYear() && now.getMonth() === targetMonth.getMonth();
-
-        const totalBudget = totalDailyBudget;
-        const disposableDailyBudget = totalBudget - totalFixedSpent;
-        
-        if (totalBudget <= 0) return [];
-
-        const dailyRemaining = disposableDailyBudget - totalDailySpent;
-        const isDailyOver = dailyRemaining < 0;
-        const dailyPercent = Math.round((totalDailySpent / Math.max(1, disposableDailyBudget)) * 100);
-
-        const lastDayOfMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
-        
-        let remainingDays: number;
-        if (isCurrentMonth) {
-            remainingDays = Math.max(1, lastDayOfMonth - now.getDate() + 1);
-        } else {
-            // 對於非當前月，如果是在過去，剩餘天數為 0 (或 1)；如果是在未來，剩餘天數為整月天數
-            remainingDays = targetMonth.getTime() < now.getTime() ? 1 : lastDayOfMonth;
-        }
-
-        const dailyAllowance = isDailyOver ? 0 : Math.floor(dailyRemaining / remainingDays);
-        const monthLabel = `${targetMonth.getFullYear()}/${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
-
-        const ops = [
-            SharedPrefs.setString(prefix + 'monthLabel', monthLabel),
-            SharedPrefs.setInt(prefix + 'dailyBudget', Math.round(disposableDailyBudget)),
-            SharedPrefs.setInt(prefix + 'dailySpent', Math.round(totalDailySpent)),
-            SharedPrefs.setInt(prefix + 'dailyRemaining', Math.round(dailyRemaining)),
-            SharedPrefs.setInt(prefix + 'dailyAllowance', dailyAllowance),
-            SharedPrefs.setInt(prefix + 'dailyPercent', Math.min(100, Math.max(0, dailyPercent))),
-            SharedPrefs.setBoolean(prefix + 'isDailyOver', isDailyOver),
-            SharedPrefs.setInt(prefix + 'fixedSpent', Math.round(totalFixedSpent)),
-            SharedPrefs.setInt(prefix + 'fixedBudget', Math.round(totalFixedBudget)),
-            SharedPrefs.setInt(prefix + 'totalSpent', Math.round(totalSpent)),
-            SharedPrefs.setInt(prefix + 'totalBudget', Math.round(totalBudget)),
-            SharedPrefs.setInt(prefix + 'remainingDays', remainingDays),
-        ];
-
-        if (nextFixedExpense) {
-            ops.push(SharedPrefs.setString(prefix + 'nextFixedName', nextFixedExpense.name));
-            ops.push(SharedPrefs.setString(prefix + 'nextFixedDate', nextFixedExpense.date));
-            ops.push(SharedPrefs.setInt(prefix + 'nextFixedAmount', nextFixedExpense.amount));
-        } else {
-            ops.push(SharedPrefs.setString(prefix + 'nextFixedName', ''));
-            ops.push(SharedPrefs.setString(prefix + 'nextFixedDate', ''));
-            ops.push(SharedPrefs.setInt(prefix + 'nextFixedAmount', 0));
-        }
-
-        return ops;
     }
 }
 

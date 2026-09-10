@@ -20,6 +20,7 @@ export interface StockPriceSyncResult {
 
 const CACHE_FILE_NAME = 'stock_daily_prices.json';
 const API_BASE = 'https://api.finmindtrade.com/api/v4/data';
+const dateIndexCache = new WeakMap<StockPriceCache, Map<string, string[]>>();
 
 export function createEmptyStockPriceCache(): StockPriceCache {
   return { version: 2, syncedAt: null, prices: {} };
@@ -68,6 +69,23 @@ export function mergeStockPriceCache(
   };
 }
 
+function getDateIndex(cache: StockPriceCache, symbol: string): string[] {
+  let index = dateIndexCache.get(cache);
+  if (!index) {
+    index = new Map<string, string[]>();
+    dateIndexCache.set(cache, index);
+  }
+  const cachedDates = index.get(symbol);
+  if (cachedDates) return cachedDates;
+  const dates = Object.keys(cache.prices[symbol] || {}).sort();
+  index.set(symbol, dates);
+  return dates;
+}
+
+function datesOnOrBefore(cache: StockPriceCache, symbol: string, maxDate: string): string[] {
+  return getDateIndex(cache, symbol).filter(date => date <= maxDate);
+}
+
 export async function loadStockPriceCache(): Promise<StockPriceCache> {
   try {
     const fileInfo = await FileSystem.getInfoAsync(cacheUri());
@@ -99,9 +117,7 @@ export function getLatestQuotes(
   const result: Record<string, StockPriceQuote> = {};
 
   symbols.forEach(symbol => {
-    const dates = Object.keys(cache.prices[symbol] || {})
-      .filter(date => date <= maxDate)
-      .sort();
+    const dates = datesOnOrBefore(cache, symbol, maxDate);
     const latest = dates[dates.length - 1];
     if (!latest) return;
 
@@ -124,9 +140,7 @@ export function getPreviousQuotes(
   const result: Record<string, StockPriceQuote> = {};
 
   symbols.forEach(symbol => {
-    const dates = Object.keys(cache.prices[symbol] || {})
-      .filter(date => date <= maxDate)
-      .sort();
+    const dates = datesOnOrBefore(cache, symbol, maxDate);
     const previous = dates[dates.length - 2];
     if (!previous) return;
 
@@ -140,25 +154,46 @@ export function getPreviousQuotes(
   return result;
 }
 
-async function fetchSymbolPrices(symbol: string, startDate: Date): Promise<StockPriceQuote[]> {
+async function fetchSymbolPrices(
+  symbol: string,
+  startDate: Date,
+  options: { timeoutMs: number; retries: number },
+): Promise<StockPriceQuote[]> {
   const url = `${API_BASE}?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(symbol)}&start_date=${toApiDate(startDate)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= options.retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-  const payload = await response.json();
-  if (payload?.status !== 200 || payload?.msg !== 'success' || !Array.isArray(payload.data)) {
-    throw new Error(payload?.msg || 'FinMind 回應失敗');
+      const payload = await response.json();
+      if (payload?.status !== 200 || payload?.msg !== 'success' || !Array.isArray(payload.data)) {
+        throw new Error(payload?.msg || 'FinMind 回應失敗');
+      }
+
+      return payload.data
+        .map((row: any) => ({
+          symbol: String(row.stock_id || symbol),
+          date: String(row.date || '').replace(/-/g, ''),
+          close: Number(row.close),
+        }))
+        .filter((quote: StockPriceQuote) => (
+          /^\d{8}$/.test(quote.date) && Number.isFinite(quote.close) && quote.close > 0
+        ));
+    } catch (error) {
+      lastError = error instanceof Error && error.name === 'AbortError'
+        ? new Error(`請求逾時（${options.timeoutMs}ms）`)
+        : error;
+      if (attempt < options.retries) {
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
-
-  return payload.data
-    .map((row: any) => ({
-      symbol: String(row.stock_id || symbol),
-      date: String(row.date || '').replace(/-/g, ''),
-      close: Number(row.close),
-    }))
-    .filter((quote: StockPriceQuote) => (
-      /^\d{8}$/.test(quote.date) && Number.isFinite(quote.close) && quote.close > 0
-    ));
+  throw lastError instanceof Error ? lastError : new Error('同步失敗');
 }
 
 /** Get the latest quote, or the quote `pointsAgo` trading observations earlier. */
@@ -169,9 +204,7 @@ export function getTradingPointQuote(
   today = new Date(),
 ): StockPriceQuote | undefined {
   const maxDate = toCacheDate(today);
-  const dates = Object.keys(cache.prices[symbol] || {})
-    .filter(date => date <= maxDate)
-    .sort();
+  const dates = datesOnOrBefore(cache, symbol, maxDate);
   const date = dates[dates.length - 1 - Math.max(0, pointsAgo)];
   if (!date) return undefined;
 
@@ -186,9 +219,7 @@ export function getYearStartQuote(
 ): StockPriceQuote | undefined {
   const year = today.getFullYear();
   const maxDate = `${year - 1}1231`;
-  const dates = Object.keys(cache.prices[symbol] || {})
-    .filter(date => date <= maxDate)
-    .sort();
+  const dates = datesOnOrBefore(cache, symbol, maxDate);
   const date = dates[dates.length - 1];
   if (!date) return undefined;
 
@@ -204,9 +235,8 @@ export function getFirstTradingYearQuote(
   const year = today.getFullYear();
   const minDate = `${year}0101`;
   const maxDate = toCacheDate(today);
-  const dates = Object.keys(cache.prices[symbol] || {})
-    .filter(date => date >= minDate && date <= maxDate)
-    .sort();
+  const dates = getDateIndex(cache, symbol)
+    .filter(date => date >= minDate && date <= maxDate);
   const date = dates[0];
   if (!date) return undefined;
 
@@ -215,7 +245,14 @@ export function getFirstTradingYearQuote(
 
 export async function syncStockPrices(
   symbols: string[],
-  options: { days?: number; today?: Date; force?: boolean } = {},
+  options: {
+    days?: number;
+    today?: Date;
+    force?: boolean;
+    concurrency?: number;
+    timeoutMs?: number;
+    retries?: number;
+  } = {},
 ): Promise<StockPriceSyncResult> {
   const today = options.today || new Date();
   const uniqueSymbols = Array.from(new Set(symbols.filter(Boolean)));
@@ -240,15 +277,25 @@ export async function syncStockPrices(
   const updatedSymbols: string[] = [];
   const quotes: StockPriceQuote[] = [];
 
-  for (const symbol of uniqueSymbols) {
-    try {
-      const symbolQuotes = await fetchSymbolPrices(symbol, startDate);
-      quotes.push(...symbolQuotes);
-      if (symbolQuotes.length > 0) updatedSymbols.push(symbol);
-    } catch (error: any) {
-      errors.push(`${symbol}: ${error?.message || '同步失敗'}`);
+  const workerCount = Math.max(1, Math.min(options.concurrency || 4, uniqueSymbols.length || 1));
+  let cursor = 0;
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < uniqueSymbols.length) {
+      const symbol = uniqueSymbols[cursor];
+      cursor += 1;
+      try {
+        const symbolQuotes = await fetchSymbolPrices(symbol, startDate, {
+          timeoutMs: Math.max(1000, options.timeoutMs || 15000),
+          retries: Math.max(0, options.retries ?? 1),
+        });
+        quotes.push(...symbolQuotes);
+        if (symbolQuotes.length > 0) updatedSymbols.push(symbol);
+      } catch (error: any) {
+        errors.push(`${symbol}: ${error?.message || '同步失敗'}`);
+      }
     }
-  }
+  });
+  await Promise.all(workers);
 
   cache = mergeStockPriceCache(cache, quotes, today);
   try {

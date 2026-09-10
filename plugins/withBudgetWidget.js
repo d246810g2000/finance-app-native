@@ -667,78 +667,9 @@ class BudgetSmallWidgetProvider : BaseBudgetWidgetProvider(R.layout.widget_budge
 class BudgetLargeWidgetProvider : BaseBudgetWidgetProvider(R.layout.widget_budget_large)
 `;
 
-const SHARED_PREFS_MODULE_KT = `package ${PACKAGE_NAME}
-
-import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactContextBaseJavaModule
-import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.Promise
-
-class SharedPreferencesModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
-    override fun getName(): String = "SharedPreferencesModule"
-
-    @ReactMethod
-    fun setInt(key: String, value: Int, promise: Promise) {
-        try {
-            val prefs = reactApplicationContext.getSharedPreferences("budget_widget_data", 0)
-            prefs.edit().putInt(key, value).apply()
-            promise.resolve(true)
-        } catch (e: Exception) {
-            promise.reject("ERROR", e.message)
-        }
-    }
-
-    @ReactMethod
-    fun setString(key: String, value: String, promise: Promise) {
-        try {
-            val prefs = reactApplicationContext.getSharedPreferences("budget_widget_data", 0)
-            prefs.edit().putString(key, value).apply()
-            promise.resolve(true)
-        } catch (e: Exception) {
-            promise.reject("ERROR", e.message)
-        }
-    }
-
-    @ReactMethod
-    fun setBoolean(key: String, value: Boolean, promise: Promise) {
-        try {
-            val prefs = reactApplicationContext.getSharedPreferences("budget_widget_data", 0)
-            prefs.edit().putBoolean(key, value).apply()
-            promise.resolve(true)
-        } catch (e: Exception) {
-            promise.reject("ERROR", e.message)
-        }
-    }
-
-    @ReactMethod
-    fun updateWidget(promise: Promise) {
-        try {
-            BaseBudgetWidgetProvider.updateAllWidgets(reactApplicationContext)
-            promise.resolve(true)
-        } catch (e: Exception) {
-            promise.reject("ERROR", e.message)
-        }
-    }
-}
-`;
-
-const SHARED_PREFS_PACKAGE_KT = `package ${PACKAGE_NAME}
-
-import com.facebook.react.ReactPackage
-import com.facebook.react.bridge.NativeModule
-import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.uimanager.ViewManager
-
-class SharedPreferencesPackage : ReactPackage {
-    override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(SharedPreferencesModule(reactContext))
-    }
-
-    override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
-        return emptyList()
-    }
-}
-`;
+const template = name => fs.readFileSync(path.join(__dirname, 'templates', name), 'utf8');
+const SHARED_PREFS_MODULE_KT = template('SharedPreferencesModule.kt');
+const SHARED_PREFS_PACKAGE_KT = template('SharedPreferencesPackage.kt');
 
 function withBudgetWidget(config) {
     config = withDangerousMod(config, [

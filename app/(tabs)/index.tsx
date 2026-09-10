@@ -443,7 +443,7 @@ const AccountGroupCard = memo(function AccountGroupCard({
 });
 
 export default function DashboardScreen() {
-    const { records } = useFinanceRecords();
+    const { records, recordIndex } = useFinanceRecords();
     const { budgetConfig } = useFinanceSettings();
     const { colors, typography, assetClassColors } = useAppTheme();
     const isFocused = useIsFocused();
@@ -587,6 +587,7 @@ export default function DashboardScreen() {
         if (!savingsModalVisible && !balanceModalVisible) return [];
         return buildHistoricalPeriods({
             records,
+            recordIndex,
             startDate,
             endDate,
             durationInDays,
@@ -597,7 +598,7 @@ export default function DashboardScreen() {
         });
 
 
-    }, [savingsModalVisible, balanceModalVisible, records, startDate, endDate, durationInDays, accountFilter, periodSummary.totalBalance]);
+    }, [savingsModalVisible, balanceModalVisible, records, recordIndex, startDate, endDate, durationInDays, accountFilter, periodSummary.totalBalance]);
 
     const accountTableData = useMemo(
         () => buildAccountTableData(aggregatedSummary, collapsedGroups),

@@ -1,7 +1,7 @@
 import type { RawRecord } from '../types';
-import { filterAndSortRecords } from '../services/financeService';
 import { convertAmountToTwd } from '../services/core/parsing';
 import { classifyStatsKind, normalizeTransaction } from '../services/core/transactionNormalization';
+import { buildRecordIndex, selectRecordsByPeriod, type RecordIndex } from '../services/core/recordIndex';
 
 export interface AssetPeriodHistory {
   monthLabel: string;
@@ -16,6 +16,7 @@ export interface AssetPeriodHistory {
 
 export interface HistoricalPeriodsInput {
   records: RawRecord[];
+  recordIndex?: RecordIndex;
   startDate: Date;
   endDate: Date;
   durationInDays: number;
@@ -32,6 +33,7 @@ export function buildHistoricalPeriods(input: HistoricalPeriodsInput): AssetPeri
   const oneDayMs = 24 * 60 * 60 * 1000;
   const durationMs = Math.max(1, input.durationInDays) * oneDayMs;
   let runningBalance = input.endBalance ?? 0;
+  const recordIndex = input.recordIndex || buildRecordIndex(input.records);
 
   for (let index = 0; index < 12; index += 1) {
     const periodStart = new Date(input.startDate.getTime() - index * durationMs);
@@ -39,7 +41,8 @@ export function buildHistoricalPeriods(input: HistoricalPeriodsInput): AssetPeri
     let income = 0;
     let expense = 0;
 
-    const periodRecords = filterAndSortRecords(input.records, periodStart, periodEnd);
+    const periodRecords = selectRecordsByPeriod(recordIndex, periodStart, periodEnd)
+      .map(record => record.raw);
     for (const record of periodRecords) {
       const transaction = normalizeTransaction(record, {
         isSplitShared: input.isSplitShared,

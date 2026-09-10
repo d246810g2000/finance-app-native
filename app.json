@@ -24,6 +24,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withAndroidSecurity",
       "./plugins/withBudgetWidget",
       "expo-sharing",
       "expo-status-bar",
@@ -41,16 +42,18 @@
         "expo-build-properties",
         {
           "android": {
-            "buildArchs": ["arm64-v8a"],
+            "buildArchs": [
+              "arm64-v8a"
+            ],
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableBundleCompression": true,
             "useLegacyPackaging": true,
-            "enablePngCrunchInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.facebook.hermes.** { *; }\n-keep class com.facebook.react.** { *; }\n-dontwarn com.facebook.react.**\n"
+            "enablePngCrunchInReleaseBuilds": true
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ]
   }
 }
