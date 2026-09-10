@@ -38,6 +38,7 @@ export function buildHealthScreenData(input: HealthScreenInput) {
     accountFilter,
     isSplitShared: input.isSplitShared,
     sharedAccounts: input.sharedAccounts,
+    personalAccounts: input.personalAccounts,
     excludedProjects: input.dailyOnly ? input.excludedDailyProjects : [],
     excludeTravelProjects: input.dailyOnly,
     preparedRows,

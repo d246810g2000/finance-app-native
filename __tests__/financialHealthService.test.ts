@@ -2,6 +2,8 @@ import {
   computeHealthScore,
   computeCashflowMonth,
   computeCashFlowSplitMonth,
+  computeCashflowSankey,
+  computeCashflowSankeyLanes,
   computeExpenseStructure,
   computeSavingsAnalysis,
   evaluateHealthRules,
@@ -136,6 +138,110 @@ describe('financialHealthService', () => {
     expect(split.investmentExpense).toBe(100);
     expect(split.livingNet).toBe(70000);
     expect(split.investmentNet).toBe(400);
+  });
+
+  it('computeCashflowSankey builds income-to-destination flows', () => {
+    const records = [
+      income('2026/07/01', '80000'),
+      {
+        ...income('2026/07/02', '5000'),
+        '分類': '一般收入',
+        '子分類': '資產轉入',
+      },
+      expense('2026/07/05', '居家', '20000', { '專案': '住家支出' }),
+      expense('2026/07/06', '餐飲', '30000', { '專案': '正常開銷' }),
+      expense('2026/07/07', '理財投資', '15000', { '專案': '正常開銷' }),
+    ];
+    const sankey = computeCashflowSankey(records, july, config);
+    expect(sankey.income).toBe(85000);
+    expect(sankey.expense).toBe(65000);
+    expect(sankey.expenseRatio).toBeCloseTo((65000 / 85000) * 100, 5);
+    expect(sankey.sources.map((s) => s.label).sort()).toEqual(['薪資', '資產轉入'].sort());
+    expect(sankey.destinations.find((d) => d.id === 'dst-fixed')?.amount).toBe(20000);
+    expect(sankey.destinations.find((d) => d.id === 'dst-variable')?.amount).toBe(30000);
+    expect(sankey.destinations.find((d) => d.id === 'dst-invest')?.amount).toBe(15000);
+    expect(sankey.destinations.find((d) => d.id === 'dst-surplus')?.amount).toBe(20000);
+    expect(sankey.links.some((l) => l.sourceId === 'hub-income' && l.targetId === 'dst-variable')).toBe(true);
+  });
+
+  it('computeCashflowSankey splits shared-account salary in all-accounts view', () => {
+    const records = [
+      {
+        ...income('2026/05/05', '1363'),
+        '分類': '一般收入',
+        '子分類': '公司薪資',
+        '收款(轉入)': '富邦銀行',
+        '專案': '正常開銷',
+      },
+      {
+        ...income('2026/05/05', '80000'),
+        '分類': '一般收入',
+        '子分類': '公司薪資',
+        '收款(轉入)': '共享樂天帳戶',
+        '專案': '共同開銷',
+      },
+      expense('2026/05/06', '餐飲', '10000'),
+    ];
+    const may = new Date(2026, 4, 1);
+    const sankey = computeCashflowSankey(records, may, config, {
+      accountFilter: null,
+      isSplitShared: true,
+      sharedAccounts: ['共享樂天帳戶'],
+    });
+    // 共享薪資以 50% 計入：80000 * 0.5 = 40000；個人 1363
+    expect(sankey.income).toBe(41363);
+    expect(sankey.sources.map((s) => s.label).sort()).toEqual(['公司薪資', '共享薪資'].sort());
+    expect(sankey.sources.find((s) => s.label === '公司薪資')?.amount).toBe(1363);
+    expect(sankey.sources.find((s) => s.label === '共享薪資')?.amount).toBe(40000);
+
+    const sharedOnly = computeCashflowSankey(records, may, config, {
+      accountFilter: ['共享樂天帳戶'],
+      isSplitShared: true,
+      sharedAccounts: ['共享樂天帳戶'],
+    });
+    // 已篩共享範圍，不必再加「共享」後綴
+    expect(sharedOnly.sources.map((s) => s.label)).toEqual(['公司薪資']);
+    expect(sharedOnly.sources[0]?.amount).toBe(40000);
+  });
+
+  it('computeCashflowSankeyLanes separates personal and shared flows', () => {
+    const records = [
+      {
+        ...income('2026/05/05', '1363'),
+        '分類': '一般收入',
+        '子分類': '公司薪資',
+        '收款(轉入)': '富邦銀行',
+        '專案': '正常開銷',
+      },
+      {
+        ...income('2026/05/05', '80000'),
+        '分類': '一般收入',
+        '子分類': '公司薪資',
+        '收款(轉入)': '共享樂天帳戶',
+        '專案': '共同開銷',
+      },
+      expense('2026/05/06', '餐飲', '5000', { '付款(轉出)': '富邦銀行' }),
+      {
+        ...expense('2026/05/07', '餐飲', '20000'),
+        '付款(轉出)': '共享樂天帳戶',
+        '專案': '共同開銷',
+      },
+    ];
+    const may = new Date(2026, 4, 1);
+    const lanes = computeCashflowSankeyLanes(records, may, config, {
+      isSplitShared: true,
+      personalAccounts: ['富邦銀行', '現金'],
+      sharedAccounts: ['共享樂天帳戶'],
+    });
+
+    expect(lanes.personal.income).toBe(1363);
+    expect(lanes.personal.expense).toBe(5000);
+    expect(lanes.personal.sources.map((s) => s.label)).toEqual(['公司薪資']);
+
+    // 共享收入／支出均以 50% 計入
+    expect(lanes.shared.income).toBe(40000);
+    expect(lanes.shared.expense).toBe(10000);
+    expect(lanes.shared.sources.map((s) => s.label)).toEqual(['公司薪資']);
   });
 
   it('computeExpenseStructure includes vs previous month', () => {

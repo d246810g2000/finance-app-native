@@ -159,6 +159,8 @@ export type HealthScopeOptions = {
   isSplitShared?: boolean;
   /** 用於判斷哪些帳戶要套用分帳；未提供則不做分帳縮放 */
   sharedAccounts?: string[];
+  /** 個人帳戶清單（流向拆分用） */
+  personalAccounts?: string[];
   /** 日常健檢時排除的資本／事件專案 */
   excludedProjects?: string[];
   /** 排除 YYMMDD-名稱 格式的旅遊專案 */
@@ -177,9 +179,58 @@ export type MonthlyAggregate = {
   fixedExpense: number;
   variableExpense: number;
   categoryTotals: Record<string, number>;
+  /** 收入來源（顯示用標籤 → 金額） */
+  incomeCategoryTotals: Record<string, number>;
   expenseCount: number;
   /** 依分類區分（不看專案）：生活 vs 投資現金流 */
   cashFlowSplit: CashFlowSplit;
+};
+
+export type CashflowSankeyColorKey =
+  | 'income'
+  | 'expense'
+  | 'variable'
+  | 'fixed'
+  | 'invest'
+  | 'surplus'
+  | 'deficit';
+
+export type CashflowSankeyNode = {
+  id: string;
+  label: string;
+  amount: number;
+  kind: 'source' | 'hub' | 'destination';
+  colorKey: CashflowSankeyColorKey;
+};
+
+export type CashflowSankeyLink = {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  amount: number;
+  colorKey: CashflowSankeyColorKey;
+};
+
+export type CashflowSankeySlice = {
+  id: string;
+  label: string;
+  amount: number;
+  pctOfIncome: number | null;
+  colorKey: CashflowSankeyColorKey;
+};
+
+export type CashflowSankey = {
+  monthKey: string;
+  income: number;
+  expense: number;
+  livingExpense: number;
+  investmentExpense: number;
+  remainder: number;
+  expenseRatio: number | null;
+  nodes: CashflowSankeyNode[];
+  links: CashflowSankeyLink[];
+  sources: CashflowSankeySlice[];
+  destinations: CashflowSankeySlice[];
 };
 
 // ─── Date helpers ───
@@ -277,6 +328,46 @@ function isFixedExpense(r: TransformedRecord, config: BudgetGlobalConfig): boole
   return getProjectGroup(r['專案'] || '', config) === 'fixed';
 }
 
+/** 收入流向左側標籤：寬類別優先用子類別（薪資／利息等） */
+function incomeSourceLabel(mainCategory: string, subCategory: string): string {
+  const main = (mainCategory || '').trim();
+  const sub = (subCategory || '').trim();
+  if ((main === '一般收入' || main === '投資收入') && sub) return sub;
+  if (main) return main;
+  return sub || '其他';
+}
+
+/**
+ * 「全部帳戶」視圖下，把進共享帳戶的收入拆成獨立來源。
+ * 例如公司薪資同時入富邦＋共享樂天 →「公司薪資」與「共享薪資」。
+ */
+function sankeyIncomeSourceLabel(
+  mainCategory: string,
+  subCategory: string,
+  account: string,
+  sharedAccounts: Set<string> | null,
+): string {
+  const base = incomeSourceLabel(mainCategory, subCategory);
+  if (!sharedAccounts || sharedAccounts.size === 0) return base;
+  if (!sharedAccounts.has(account)) return base;
+  if (base.includes('共享')) return base;
+  if (base.includes('薪資')) return '共享薪資';
+  return `${base}·共享`;
+}
+
+function emptyMonthlyAggregate(): MonthlyAggregate {
+  return {
+    income: 0,
+    expense: 0,
+    fixedExpense: 0,
+    variableExpense: 0,
+    categoryTotals: {},
+    incomeCategoryTotals: {},
+    expenseCount: 0,
+    cashFlowSplit: emptyCashFlowSplit(),
+  };
+}
+
 export function aggregateMonth(
   rows: TransformedRecord[],
   target: Date,
@@ -291,6 +382,7 @@ export function aggregateMonth(
   let variableExpense = 0;
   let expenseCount = 0;
   const categoryTotals: Record<string, number> = {};
+  const incomeCategoryTotals: Record<string, number> = {};
   const cashFlowSplit = emptyCashFlowSplit();
 
   for (const r of rows) {
@@ -300,7 +392,11 @@ export function aggregateMonth(
     if (isIncome(r)) {
       const amt = expenseAbs(r);
       income += amt;
-      accumulateCashFlowSplit(cashFlowSplit, '收入', r['主類別'] || '其他', amt, r['子類別'] || '');
+      const main = r['主類別'] || '其他';
+      const sub = r['子類別'] || '';
+      const source = incomeSourceLabel(main, sub);
+      incomeCategoryTotals[source] = (incomeCategoryTotals[source] || 0) + amt;
+      accumulateCashFlowSplit(cashFlowSplit, '收入', main, amt, sub);
     } else if (isExpense(r)) {
       const amt = expenseAbs(r);
       expense += amt;
@@ -319,6 +415,9 @@ export function aggregateMonth(
     fixedExpense: roundMoney(fixedExpense),
     variableExpense: roundMoney(variableExpense),
     categoryTotals,
+    incomeCategoryTotals: Object.fromEntries(
+      Object.entries(incomeCategoryTotals).map(([k, v]) => [k, roundMoney(v)])
+    ),
     expenseCount,
     cashFlowSplit: {
       livingIncome: roundMoney(cashFlowSplit.livingIncome),
@@ -343,27 +442,23 @@ export function buildMonthlyAggregateCache(
     const key = toMonthKey(date);
     let month = cache.get(key);
     if (!month) {
-      month = {
-        income: 0,
-        expense: 0,
-        fixedExpense: 0,
-        variableExpense: 0,
-        categoryTotals: {},
-        expenseCount: 0,
-        cashFlowSplit: emptyCashFlowSplit(),
-      };
+      month = emptyMonthlyAggregate();
       cache.set(key, month);
     }
 
     if (isIncome(row)) {
       const amount = expenseAbs(row);
       month.income += amount;
+      const main = row['主類別'] || '其他';
+      const sub = row['子類別'] || '';
+      const source = incomeSourceLabel(main, sub);
+      month.incomeCategoryTotals[source] = (month.incomeCategoryTotals[source] || 0) + amount;
       accumulateCashFlowSplit(
         month.cashFlowSplit,
         '收入',
-        row['主類別'] || '其他',
+        main,
         amount,
-        row['子類別'] || '',
+        sub,
       );
     } else if (isExpense(row)) {
       const amount = expenseAbs(row);
@@ -382,6 +477,9 @@ export function buildMonthlyAggregateCache(
     month.expense = roundMoney(month.expense);
     month.fixedExpense = roundMoney(month.fixedExpense);
     month.variableExpense = roundMoney(month.variableExpense);
+    month.incomeCategoryTotals = Object.fromEntries(
+      Object.entries(month.incomeCategoryTotals).map(([k, v]) => [k, roundMoney(v)])
+    );
     month.cashFlowSplit = {
       livingIncome: roundMoney(month.cashFlowSplit.livingIncome),
       investmentIncome: roundMoney(month.cashFlowSplit.investmentIncome),
@@ -563,6 +661,237 @@ export function computeCashFlowSplitMonth(
     livingNet: split.livingNet,
     investmentNet: split.investmentNet,
   };
+}
+
+function pctOf(part: number, whole: number): number | null {
+  if (whole <= 0) return null;
+  return (part / whole) * 100;
+}
+
+/**
+ * 收入 → 支出／儲蓄／結餘 的 Sankey 資料。
+ * 支出側把投資支出獨立成「儲蓄·投資」，其餘生活支出拆固定／變動。
+ */
+export function computeCashflowSankey(
+  records: RawRecord[],
+  targetMonth: Date,
+  config: BudgetGlobalConfig = DEFAULT_CONFIG,
+  scope?: HealthScopeOptions
+): CashflowSankey {
+  const rows = getIncomeExpenseRows(records, scope);
+  const m = aggregateMonth(rows, targetMonth, config, scope?.monthlyCache);
+  const income = m.income;
+  const expense = m.expense;
+  const investmentExpense = Math.min(m.cashFlowSplit.investmentExpense, expense);
+  const livingExpense = Math.max(0, expense - investmentExpense);
+  const fixedExpense = Math.min(m.fixedExpense, livingExpense);
+  const variableExpense = Math.max(0, livingExpense - fixedExpense);
+  const remainder = income - expense;
+  const surplus = Math.max(0, remainder);
+  const deficit = Math.max(0, -remainder);
+
+  // 僅在「全部帳戶」時依入帳帳戶拆共享；個人／共享篩選下來源已同質，不必加後綴
+  const distinguishShared =
+    !scope?.accountFilter && Boolean(scope?.sharedAccounts?.length);
+  const sharedSet = distinguishShared
+    ? new Set(scope!.sharedAccounts)
+    : null;
+
+  const sourceTotals: Record<string, number> = {};
+  if (sharedSet) {
+    for (const r of rows) {
+      if (!isIncome(r)) continue;
+      const d = recordDate(r);
+      if (isNaN(d.getTime()) || !inMonth(d, targetMonth)) continue;
+      const label = sankeyIncomeSourceLabel(
+        r['主類別'] || '其他',
+        r['子類別'] || '',
+        r['帳戶'] || '',
+        sharedSet,
+      );
+      sourceTotals[label] = (sourceTotals[label] || 0) + expenseAbs(r);
+    }
+  } else {
+    for (const [label, amount] of Object.entries(m.incomeCategoryTotals)) {
+      sourceTotals[label] = amount;
+    }
+  }
+
+  const rankedSources = Object.entries(sourceTotals)
+    .map(([label, amount]) => ({ label, amount: roundMoney(amount) }))
+    .filter((item) => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const topSources = rankedSources.slice(0, 5);
+  const otherAmount = rankedSources.slice(5).reduce((sum, item) => sum + item.amount, 0);
+  const sourceSlices: CashflowSankeySlice[] = topSources.map((item, index) => ({
+    id: `src-${index}-${item.label}`,
+    label: item.label,
+    amount: item.amount,
+    pctOfIncome: pctOf(item.amount, income),
+    colorKey: 'income',
+  }));
+  if (otherAmount > 0) {
+    sourceSlices.push({
+      id: 'src-other',
+      label: '其他收入',
+      amount: roundMoney(otherAmount),
+      pctOfIncome: pctOf(otherAmount, income),
+      colorKey: 'income',
+    });
+  }
+  if (sourceSlices.length === 0 && income > 0) {
+    sourceSlices.push({
+      id: 'src-all',
+      label: '收入',
+      amount: income,
+      pctOfIncome: 100,
+      colorKey: 'income',
+    });
+  }
+
+  const destinationDefs: Array<{
+    id: string;
+    label: string;
+    amount: number;
+    colorKey: CashflowSankeyColorKey;
+  }> = [
+    { id: 'dst-variable', label: '變動支出', amount: variableExpense, colorKey: 'variable' },
+    { id: 'dst-fixed', label: '固定支出', amount: fixedExpense, colorKey: 'fixed' },
+    { id: 'dst-invest', label: '儲蓄·投資', amount: investmentExpense, colorKey: 'invest' },
+  ];
+  if (surplus > 0) {
+    destinationDefs.push({ id: 'dst-surplus', label: '結餘', amount: surplus, colorKey: 'surplus' });
+  }
+  if (deficit > 0) {
+    destinationDefs.push({ id: 'dst-deficit', label: '超支', amount: deficit, colorKey: 'deficit' });
+  }
+
+  const destinations: CashflowSankeySlice[] = destinationDefs
+    .filter((item) => item.amount > 0)
+    .map((item) => ({
+      ...item,
+      pctOfIncome: pctOf(item.amount, Math.max(income, expense)),
+    }));
+
+  const nodes: CashflowSankeyNode[] = [
+    ...sourceSlices.map((item) => ({
+      id: item.id,
+      label: item.label,
+      amount: item.amount,
+      kind: 'source' as const,
+      colorKey: item.colorKey,
+    })),
+  ];
+
+  if (income > 0) {
+    nodes.push({
+      id: 'hub-income',
+      label: '收入',
+      amount: income,
+      kind: 'hub',
+      colorKey: 'income',
+    });
+  }
+
+  nodes.push(
+    ...destinations.map((item) => ({
+      id: item.id,
+      label: item.label,
+      amount: item.amount,
+      kind: 'destination' as const,
+      colorKey: item.colorKey,
+    }))
+  );
+
+  const links: CashflowSankeyLink[] = [];
+  if (income > 0) {
+    for (const source of sourceSlices) {
+      links.push({
+        id: `link-${source.id}-hub`,
+        sourceId: source.id,
+        targetId: 'hub-income',
+        amount: source.amount,
+        colorKey: 'income',
+      });
+    }
+    for (const destination of destinations) {
+      // 超支無法從收入流出；改由視覺上從 hub 標示缺口，連結金額用 0 略過
+      if (destination.id === 'dst-deficit') continue;
+      const amount = Math.min(destination.amount, income);
+      if (amount <= 0) continue;
+      links.push({
+        id: `link-hub-${destination.id}`,
+        sourceId: 'hub-income',
+        targetId: destination.id,
+        amount,
+        colorKey: destination.colorKey,
+      });
+    }
+  }
+
+  return {
+    monthKey: toMonthKey(targetMonth),
+    income,
+    expense,
+    livingExpense: roundMoney(livingExpense),
+    investmentExpense: roundMoney(investmentExpense),
+    remainder: roundMoney(remainder),
+    expenseRatio: pctOf(expense, income),
+    nodes,
+    links,
+    sources: sourceSlices,
+    destinations,
+  };
+}
+
+/**
+ * 依帳戶歸屬拆出個人／共享兩條流向（不受當前 accountFilter 影響，仍套用專案排除與分帳）。
+ * 供結構分頁「個人流向／共享流向」切換。
+ */
+export function computeCashflowSankeyLanes(
+  records: RawRecord[],
+  targetMonth: Date,
+  config: BudgetGlobalConfig = DEFAULT_CONFIG,
+  scope?: HealthScopeOptions
+): { personal: CashflowSankey; shared: CashflowSankey } {
+  const projectScope: HealthScopeOptions = {
+    excludedProjects: scope?.excludedProjects,
+    excludeTravelProjects: scope?.excludeTravelProjects,
+  };
+  // 僅套用專案排除，保留全部帳戶，再分別篩個人／共享
+  const unscopedRows = getIncomeExpenseRows(records, projectScope);
+  const sharedAccounts = scope?.sharedAccounts ?? [];
+  const sharedSet = new Set(sharedAccounts);
+  const personalAccounts = scope?.personalAccounts?.length
+    ? scope.personalAccounts
+    : [...new Set(
+        unscopedRows
+          .map((row) => row['帳戶'] || '')
+          .filter((name) => name && !sharedSet.has(name))
+      )];
+
+  const personal = computeCashflowSankey(records, targetMonth, config, {
+    ...projectScope,
+    personalAccounts,
+    sharedAccounts,
+    accountFilter: personalAccounts,
+    isSplitShared: false,
+    preparedRows: unscopedRows,
+    scopeApplied: false,
+  });
+
+  const shared = computeCashflowSankey(records, targetMonth, config, {
+    ...projectScope,
+    personalAccounts,
+    sharedAccounts,
+    accountFilter: sharedAccounts,
+    isSplitShared: Boolean(scope?.isSplitShared),
+    preparedRows: unscopedRows,
+    scopeApplied: false,
+  });
+
+  return { personal, shared };
 }
 
 export function computeCashflowYear(
@@ -1175,6 +1504,13 @@ export function buildHealthDashboard(
   const health = lazy(() => computeHealthScore(records, targetMonth, config, budgets, preparedScope));
   const cashflow = lazy(() => computeCashflowMonth(records, targetMonth, config, preparedScope));
   const cashFlowSplit = lazy(() => computeCashFlowSplitMonth(records, targetMonth, config, preparedScope));
+  const cashflowSankey = lazy(() => computeCashflowSankey(records, targetMonth, config, preparedScope));
+  const cashflowSankeyLanes = lazy(() => computeCashflowSankeyLanes(records, targetMonth, config, {
+    ...scope,
+    preparedRows: preparedRows,
+    scopeApplied: false,
+    monthlyCache: undefined,
+  }));
   const cashflowYear = lazy(() => computeCashflowYear(records, targetMonth, config, 12, preparedScope));
   const structure = lazy(() => computeExpenseStructure(records, targetMonth, preparedScope));
   const savings = lazy(() => computeSavingsAnalysis(records, targetMonth, 12, preparedScope));
@@ -1195,6 +1531,9 @@ export function buildHealthDashboard(
     get health() { return health(); },
     get cashflow() { return cashflow(); },
     get cashFlowSplit() { return cashFlowSplit(); },
+    get cashflowSankey() { return cashflowSankey(); },
+    get cashflowSankeyPersonal() { return cashflowSankeyLanes().personal; },
+    get cashflowSankeyShared() { return cashflowSankeyLanes().shared; },
     get cashflowYear() { return cashflowYear(); },
     get structure() { return structure(); },
     get savings() { return savings(); },
