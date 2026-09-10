@@ -1,9 +1,8 @@
-
+import { Platform } from 'react-native';
 import { RawRecord, TransformedRecord, AccountsSummaryMap, TrendDataPoint, BudgetGlobalConfig, CustomAccountMappings, ExpenseSpike } from '../types';
 import { ACCOUNT_CATEGORIES, EXCHANGE_RATES } from '../constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import iconv from 'iconv-lite';
 import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
 import {
   findUnmappedAccounts as findUnmappedAccountsCore,
@@ -25,6 +24,16 @@ import {
   classifyStatsKind,
   normalizeTransaction,
 } from './core/transactionNormalization';
+import {
+  extractMerchantName,
+  normalizeNoteLines,
+} from './merchantParse';
+import { filterAndSortRecords } from './aggregationService';
+
+export {
+  extractMerchantName,
+  normalizeNoteLines,
+} from './merchantParse';
 
 export {
   ANDRO_MONEY_CSV_HEADERS,
@@ -34,34 +43,91 @@ export {
 } from './androMoneyCsvExport';
 export type { AndroMoneyCsvHeader, SerializeAndroMoneyCsvOptions } from './androMoneyCsvExport';
 
+export {
+  initializeAccountData,
+  filterAndSortRecords,
+  updateAccountBalancesAndSnapshots,
+  generateTrendData,
+  processAndAggregateRecords,
+} from './aggregationService';
+
 export const getCategoryForAccount = getCategoryForAccountCore;
+
+function resolveNativeFileUri(fileObjOrUri: unknown): string {
+  if (typeof fileObjOrUri === 'string') return fileObjOrUri.trim();
+  if (!fileObjOrUri || typeof fileObjOrUri !== 'object') return '';
+  const maybeUri = (fileObjOrUri as { uri?: unknown }).uri;
+  if (typeof maybeUri === 'string') return maybeUri.trim();
+  if (maybeUri != null) return String(maybeUri).trim();
+  return '';
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function readNativeFileBytes(fileUri: string): Promise<Uint8Array> {
+  const errors: string[] = [];
+
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
+    if (base64) return base64ToBytes(base64);
+    errors.push('legacy base64 empty');
+  } catch (error) {
+    errors.push(`legacy: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    const response = await fetch(fileUri);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const ab = await response.arrayBuffer();
+    if (ab.byteLength > 0) return new Uint8Array(ab);
+    errors.push('fetch empty');
+  } catch (error) {
+    errors.push(`fetch: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  throw new Error(errors.join(' | ') || '無法讀取檔案內容');
+}
+
+function decodeCsvBuffer(buf: Uint8Array, encoding: string): string {
+  if (encoding === 'big5') {
+    return new TextDecoder('big5').decode(buf);
+  }
+  // 去掉 UTF-8 BOM，避免第一欄表頭異常
+  const hasBom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf;
+  const payload = hasBom ? buf.subarray(3) : buf;
+  return new TextDecoder('utf-8').decode(payload);
+}
 
 // 輔助函數：讀取檔案內容並解碼 (支援 Web 與 Native)
 export const readFileContent = async (fileObjOrUri: unknown, encoding: string): Promise<string> => {
   try {
-    // 判斷是否在 Web 環境 (直接傳入 File object)
-    const isWebFile = typeof File !== 'undefined' && fileObjOrUri instanceof File;
+    // 只在真正的 Web File 走 FileReader；RN 0.8x 也有全域 File，不可誤判
+    const isWebFile =
+      Platform.OS === 'web' &&
+      typeof File !== 'undefined' &&
+      fileObjOrUri instanceof File;
+
     if (isWebFile) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
           const result = e.target?.result;
-          if (encoding === 'big5') {
-            // Web 端的 FileReader 雖然可以 readAsText 指定編碼，但有時會失真，
-            // 這裡使用 ArrayBuffer 來用 iconv-lite 解碼會比較穩定
-            const buf = Buffer.from(result as ArrayBuffer);
-            resolve(iconv.decode(buf, 'big5'));
+          if (encoding === 'big5' && result instanceof ArrayBuffer) {
+            resolve(decodeCsvBuffer(new Uint8Array(result), 'big5'));
+          } else if (result instanceof ArrayBuffer) {
+            resolve(decodeCsvBuffer(new Uint8Array(result), 'utf-8'));
           } else {
-            // 若為 utf-8 或本身已經被 reader 解碼
-            if (result instanceof ArrayBuffer) {
-              const buf = Buffer.from(result);
-              resolve(buf.toString('utf-8'));
-            } else {
-              resolve(result as string);
-            }
+            resolve(String(result ?? '').replace(/^\uFEFF/, ''));
           }
         };
-        reader.onerror = (e) => reject(new Error('讀取檔案失敗'));
+        reader.onerror = () => reject(new Error('讀取檔案失敗'));
 
         if (encoding === 'big5') {
           reader.readAsArrayBuffer(fileObjOrUri);
@@ -71,21 +137,16 @@ export const readFileContent = async (fileObjOrUri: unknown, encoding: string): 
       });
     }
 
-    // Native 環境，原本的處理邏輯
-    const fileUri = typeof fileObjOrUri === 'string'
-      ? fileObjOrUri
-      : String((fileObjOrUri as { uri?: unknown } | null)?.uri ?? '');
-    if (encoding === 'big5') {
-      const base64 = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64
-      });
-      const buf = Buffer.from(base64, 'base64');
-      return iconv.decode(buf, 'big5');
+    const fileUri = resolveNativeFileUri(fileObjOrUri);
+    if (!fileUri) {
+      throw new Error('找不到可讀取的檔案路徑（uri 為空）');
     }
 
-    const text = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.UTF8
-    });
+    const buf = await readNativeFileBytes(fileUri);
+    const text = decodeCsvBuffer(buf, encoding);
+    if (!text.trim()) {
+      throw new Error('檔案內容是空的，請確認選到的是 AndroMoney CSV');
+    }
     return text;
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
@@ -151,18 +212,6 @@ export const parseCsvData = (csvText: string): RawRecord[] => {
   });
 
   return rows;
-};
-
-/** 正規化備註換行：真換行、\\n、以及 AndroMoney 常見的字面「 n 」 */
-export const normalizeNoteLines = (notes: string): string[] => {
-  if (!notes) return [];
-  return notes
-    .replace(/\r\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\s+n\s+/gi, '\n')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
 };
 
 export type ImportReport = {
@@ -638,351 +687,6 @@ export const computeProjectLifecycles = (
     .sort((a, b) => b.totalExpense - a.totalExpense);
 };
 
-// 輔助函數：初始化帳戶數據 - 確保包含所有已定義的帳戶，不僅限於有交易的
-export const initializeAccountData = (rawRecords: RawRecord[], accountFilter: string[] | null = null, excludedAccounts: string[] = [], customMappings: CustomAccountMappings = {}): { accountRunningBalances: { [key: string]: number }, finalAccountsSummary: AccountsSummaryMap } => {
-  const accountRunningBalances: { [key: string]: number } = {};
-  const finalAccountsSummary: AccountsSummaryMap = {};
-  const allKnownAccountNames = new Set<string>();
-
-  if (accountFilter) {
-    accountFilter.forEach(account => allKnownAccountNames.add(account));
-  } else {
-    Object.values(ACCOUNT_CATEGORIES).flat().forEach(account => allKnownAccountNames.add(String(account)));
-    Object.keys(customMappings).forEach(account => allKnownAccountNames.add(account));
-    rawRecords.forEach(row => {
-      if (row['收款(轉入)']) allKnownAccountNames.add(String(row['收款(轉入)']));
-      if (row['付款(轉出)']) allKnownAccountNames.add(String(row['付款(轉出)']));
-    });
-  }
-
-  allKnownAccountNames.forEach(accountName => {
-    // 排除特定帳戶
-    if (!excludedAccounts.includes(accountName)) {
-      accountRunningBalances[accountName] = 0;
-      finalAccountsSummary[accountName] = {
-        income: 0,
-        expenditure: 0,
-        balance: 0,
-        category: getCategoryForAccount(accountName, customMappings)
-      };
-    }
-  });
-
-  return { accountRunningBalances, finalAccountsSummary };
-};
-
-// 輔助函數：篩選和排序記錄
-export const filterAndSortRecords = (rawRecords: RawRecord[], startDate: Date | null = null, endDate: Date | null = null): RawRecord[] => {
-  const allRecords = rawRecords
-    .filter(row => {
-      if (row['分類'] === 'SYSTEM') return false;
-      const recordDateStr = typeof row['日期'] === 'string' ? row['日期'] : '';
-      return !(recordDateStr.length < 8);
-    })
-    .map(row => ({
-      ...row,
-      '分類': row['分類'] || row['主類別'] || '',
-      parsedDate: normalizeDate(row['日期']),
-    }))
-    .sort((a, b) => (a.parsedDate?.getTime() ?? 0) - (b.parsedDate?.getTime() ?? 0));
-
-  if (startDate && endDate) {
-    const start = new Date(startDate); start.setHours(0, 0, 0, 0);
-    const end = endOfDay(endDate);
-    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate >= start && row.parsedDate <= end);
-  } else if (endDate) {
-    const end = endOfDay(endDate);
-    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate <= end);
-  } else {
-    const today = endOfDay(new Date());
-    return allRecords.filter(row => isValidDate(row.parsedDate) && row.parsedDate <= today);
-  }
-};
-
-// 輔助函數：更新帳戶餘額和快照
-export const updateAccountBalancesAndSnapshots = (filteredRecords: RawRecord[], accountRunningBalances: { [key: string]: number }, isSplitShared: boolean = false): void => {
-  filteredRecords.forEach(row => {
-    const amount = convertAmountToTwd(row['金額'], row['幣別']);
-
-    const incomeAccountName = row['收款(轉入)'];
-    const expenseAccountName = row['付款(轉出)'];
-
-    if (incomeAccountName && accountRunningBalances.hasOwnProperty(incomeAccountName)) {
-      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
-      accountRunningBalances[incomeAccountName] += amount * splitFactor;
-    }
-    if (expenseAccountName && accountRunningBalances.hasOwnProperty(expenseAccountName)) {
-      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
-      accountRunningBalances[expenseAccountName] -= amount * splitFactor;
-    }
-  });
-};
-
-export const generateTrendData = (rawRecords: RawRecord[], startDateOfPeriod: Date, endDateOfPeriod: Date, durationInDays: number, accountFilter: string[] | null = null, excludedAccounts: string[] = [], isSplitShared: boolean = false) => {
-  const { accountRunningBalances: initialAccountsState } = initializeAccountData(rawRecords, accountFilter, excludedAccounts);
-
-  const sortedAllRecords = [...rawRecords]
-    .filter(row => {
-      if (row['分類'] === 'SYSTEM') return false;
-      const recordDateStr = typeof row['日期'] === 'string' ? row['日期'] : '';
-      return recordDateStr.length >= 8;
-    })
-    .map(row => {
-      const dateStr = (row['日期'] || '').toString();
-      const date = parseFormattedDate(dateStr);
-      const category = row['分類'] || row['主類別'] || '';
-      return { ...row, '分類': category, parsedDate: date };
-    })
-    .sort((a, b) => (a.parsedDate?.getTime() ?? 0) - (b.parsedDate?.getTime() ?? 0));
-
-  if (sortedAllRecords.length === 0) {
-    return { trendData: [], fullDailyBalanceSnapshots: new Map<string, { [key: string]: number }>(), minDateOverall: null, maxDateOverall: null };
-  }
-
-  const fullDailyBalanceSnapshots = new Map<string, { [key: string]: number }>();
-  const fullDailyIncomeExpense = new Map<string, { income: number, expense: number }>();
-
-  const currentOverallBalances: { [key: string]: number } = JSON.parse(JSON.stringify(initialAccountsState));
-
-  const minDateOverall = sortedAllRecords[0].parsedDate!;
-  const maxDateOverall = sortedAllRecords[sortedAllRecords.length - 1].parsedDate!;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const finalDateForSnapshots = maxDateOverall.getTime() > today.getTime() ? maxDateOverall : today;
-
-  let dailyCursor = new Date(minDateOverall);
-  dailyCursor.setHours(0, 0, 0, 0);
-  let recordIndex = 0;
-  while (dailyCursor.getTime() <= finalDateForSnapshots.getTime()) {
-    const dateKey = getIsoDateKey(dailyCursor);
-    let dayIncome = 0;
-    let dayExpense = 0;
-
-    if (dailyCursor.getTime() <= maxDateOverall.getTime()) {
-      while (recordIndex < sortedAllRecords.length && sortedAllRecords[recordIndex].parsedDate!.getTime() === dailyCursor.getTime()) {
-        const row = sortedAllRecords[recordIndex];
-        const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
-
-        const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
-        const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
-        const isIncomeAccountInFilter = Boolean(incomeAccountName && currentOverallBalances.hasOwnProperty(incomeAccountName));
-        const isExpenseAccountInFilter = Boolean(expenseAccountName && currentOverallBalances.hasOwnProperty(expenseAccountName));
-
-        // Balance updates must include ALL transactions to be accurate
-        if (isIncomeAccountInFilter) {
-          const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
-          currentOverallBalances[incomeAccountName] += amount * splitFactor;
-        }
-        if (isExpenseAccountInFilter) {
-          const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
-          currentOverallBalances[expenseAccountName] -= amount * splitFactor;
-        }
-
-        // Stats filtering: Determine what counts as "Income" or "Expense" for the chart
-        let isIncome = isIncomeAccountInFilter && !isExpenseAccountInFilter;
-        let isExpense = isExpenseAccountInFilter && !isIncomeAccountInFilter;
-
-        // Reset income/expense determination if cross-account transfers
-        if (row['分類'] === '代付' || (row['分類'] === '其他' && row['子分類'] === '代付')) {
-          isIncome = false;
-          isExpense = false;
-        } else if (row['分類'] === '轉帳') {
-          // Exclude transfers, unless it is '小伊轉帳' coming in as income
-          if (!(row['子分類'] === '小伊轉帳' && isIncome)) {
-            isIncome = false;
-            isExpense = false;
-          }
-        }
-
-        if (isIncome) {
-          const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
-          dayIncome += amount * splitFactor;
-        } else if (isExpense) {
-          const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
-          dayExpense += amount * splitFactor;
-        }
-
-        recordIndex++;
-      }
-    }
-
-    fullDailyBalanceSnapshots.set(dateKey, { ...currentOverallBalances });
-    fullDailyIncomeExpense.set(dateKey, { income: dayIncome, expense: dayExpense });
-    dailyCursor.setDate(dailyCursor.getDate() + 1);
-  }
-
-  const trendData: TrendDataPoint[] = [];
-  const isDailyView = durationInDays < 89;
-  let chartCursor = new Date(startDateOfPeriod);
-  chartCursor.setHours(0, 0, 0, 0);
-
-  let prevDayForChartStart = new Date(startDateOfPeriod.getTime() - (1000 * 60 * 60 * 24));
-  const prevDayKeyForChartStart = getIsoDateKey(prevDayForChartStart);
-  const initialSnapshot = fullDailyBalanceSnapshots.get(prevDayKeyForChartStart);
-  let currentRenderTotalBalance = initialSnapshot ? Object.values(initialSnapshot).reduce((s: number, v: number) => s + v, 0) : 0;
-
-  while (chartCursor.getTime() <= endDateOfPeriod.getTime()) {
-    const dateKeyDaily = getIsoDateKey(chartCursor);
-    let incomeForPeriod = 0;
-    let expenseForPeriod = 0;
-    let balanceForPoint = currentRenderTotalBalance;
-
-    if (isDailyView) {
-      const dailyAgg = fullDailyIncomeExpense.get(dateKeyDaily);
-      if (dailyAgg) {
-        incomeForPeriod = dailyAgg.income;
-        expenseForPeriod = dailyAgg.expense;
-      }
-      if (fullDailyBalanceSnapshots.has(dateKeyDaily)) {
-        balanceForPoint = Object.values(fullDailyBalanceSnapshots.get(dateKeyDaily)!).reduce((s: number, v: number) => s + v, 0);
-      }
-    } else {
-      let tempMonthIncome = 0;
-      let tempMonthExpense = 0;
-      let lastSnapshotForMonth: { [key: string]: number } | null = null;
-      let monthDayCursor = new Date(chartCursor.getFullYear(), chartCursor.getMonth(), 1);
-      let actualMonthEndDate = new Date(chartCursor.getFullYear(), chartCursor.getMonth() + 1, 0);
-      if (actualMonthEndDate.getTime() > endDateOfPeriod.getTime()) actualMonthEndDate = new Date(endDateOfPeriod);
-
-      while (monthDayCursor.getTime() <= actualMonthEndDate.getTime()) {
-        const dailyKey = getIsoDateKey(monthDayCursor);
-        const dailyAgg = fullDailyIncomeExpense.get(dailyKey);
-        if (dailyAgg) {
-          tempMonthIncome += dailyAgg.income;
-          tempMonthExpense += dailyAgg.expense;
-        }
-        if (fullDailyBalanceSnapshots.has(dailyKey)) lastSnapshotForMonth = fullDailyBalanceSnapshots.get(dailyKey)!;
-        monthDayCursor.setDate(monthDayCursor.getDate() + 1);
-      }
-      incomeForPeriod = tempMonthIncome;
-      expenseForPeriod = tempMonthExpense;
-      if (lastSnapshotForMonth) {
-        balanceForPoint = Object.values(lastSnapshotForMonth).reduce((s: number, v: number) => s + v, 0);
-      }
-    }
-
-    currentRenderTotalBalance = balanceForPoint;
-
-    trendData.push({
-      date: new Date(chartCursor),
-      income: Math.round(incomeForPeriod),
-      expense: Math.round(expenseForPeriod),
-      balance: Math.round(balanceForPoint)
-    });
-
-    if (isDailyView) {
-      chartCursor.setDate(chartCursor.getDate() + 1);
-    } else {
-      chartCursor.setMonth(chartCursor.getMonth() + 1);
-      chartCursor.setDate(1);
-    }
-  }
-
-  return { trendData, fullDailyBalanceSnapshots, minDateOverall, maxDateOverall: finalDateForSnapshots };
-};
-
-export const processAndAggregateRecords = (rawRecords: RawRecord[], chartStartDate: Date | null, chartEndDate: Date | null, accountFilter: string[] | null = null, excludedAccounts: string[] = [], isSplitShared: boolean = false, customMappings: CustomAccountMappings = {}) => {
-  if (!chartStartDate || !chartEndDate) {
-    return { aggregatedSummary: {}, dailyTrend: [], periodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 }, previousPeriodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 } };
-  }
-
-  const { accountRunningBalances: initialAllAccountsState } = initializeAccountData(rawRecords, accountFilter, excludedAccounts);
-  let currentAccumulatedBalancesForSummary = { ...initialAllAccountsState };
-  const recordsUpToChartEndDate = filterAndSortRecords(rawRecords, null, chartEndDate);
-  updateAccountBalancesAndSnapshots(recordsUpToChartEndDate, currentAccumulatedBalancesForSummary, isSplitShared);
-
-  const finalAccountsSummary: AccountsSummaryMap = {};
-  Object.keys(currentAccumulatedBalancesForSummary).forEach(accName => {
-    finalAccountsSummary[accName] = {
-      income: 0,
-      expenditure: 0,
-      balance: Math.round(currentAccumulatedBalancesForSummary[accName]),
-      category: getCategoryForAccount(accName)
-    };
-  });
-
-  const durationInDays = Math.ceil(Math.abs(chartEndDate.getTime() - chartStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-  const { trendData: dailyTrend, fullDailyBalanceSnapshots } = generateTrendData(rawRecords, chartStartDate, chartEndDate, durationInDays, accountFilter, excludedAccounts, isSplitShared);
-
-  let periodSummary = { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
-  const chartEndDateKey = getIsoDateKey(chartEndDate);
-  if (fullDailyBalanceSnapshots.has(chartEndDateKey)) {
-    periodSummary.totalBalance = Math.round(Object.values(fullDailyBalanceSnapshots.get(chartEndDateKey)!).reduce((s: number, v: number) => s + v, 0));
-  }
-
-  const recordsInCurrentChartPeriod = filterAndSortRecords(rawRecords, chartStartDate, chartEndDate);
-  recordsInCurrentChartPeriod.forEach(row => {
-    const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
-    const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
-    const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
-    const isIncomeAccountInFilter = Boolean(incomeAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(incomeAccountName) && (!accountFilter || accountFilter.includes(incomeAccountName)));
-    const isExpenseAccountInFilter = Boolean(expenseAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(expenseAccountName) && (!accountFilter || accountFilter.includes(expenseAccountName)));
-
-    let isIncome = isIncomeAccountInFilter && !isExpenseAccountInFilter;
-    let isExpense = isExpenseAccountInFilter && !isIncomeAccountInFilter;
-
-    if (row['分類'] === '代付' || (row['分類'] === '其他' && row['子分類'] === '代付')) {
-      isIncome = false;
-      isExpense = false;
-    } else if (row['分類'] === '轉帳') {
-      if (!(row['子分類'] === '小伊轉帳' && isIncome)) {
-        isIncome = false;
-        isExpense = false;
-      }
-    }
-
-    if (isIncome) {
-      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
-      periodSummary.totalIncome += amount * splitFactor;
-    } else if (isExpense) {
-      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
-      periodSummary.totalExpense += amount * splitFactor;
-    }
-  });
-
-  let previousPeriodSummary = { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
-  const ONE_DAY_MS = 1000 * 60 * 60 * 24;
-  const durationMs = durationInDays * ONE_DAY_MS;
-  const prevEndDate = new Date(chartStartDate.getTime() - ONE_DAY_MS);
-  const prevStartDate = new Date(prevEndDate.getTime() - durationMs + ONE_DAY_MS);
-  const prevEndDateKey = getIsoDateKey(prevEndDate);
-  if (fullDailyBalanceSnapshots.has(prevEndDateKey)) {
-    previousPeriodSummary.totalBalance = Math.round(Object.values(fullDailyBalanceSnapshots.get(prevEndDateKey)!).reduce((s: number, v: number) => s + v, 0));
-  }
-  const recordsInPrevChartPeriod = filterAndSortRecords(rawRecords, prevStartDate, prevEndDate);
-  recordsInPrevChartPeriod.forEach(row => {
-    const amount = Math.round(convertAmountToTwd(row['金額'], row['幣別']));
-    const incomeAccountName = row['收款(轉入)'] ? String(row['收款(轉入)']) : '';
-    const expenseAccountName = row['付款(轉出)'] ? String(row['付款(轉出)']) : '';
-    const isIncomeAccountInFilter = Boolean(incomeAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(incomeAccountName) && (!accountFilter || accountFilter.includes(incomeAccountName)));
-    const isExpenseAccountInFilter = Boolean(expenseAccountName && currentAccumulatedBalancesForSummary.hasOwnProperty(expenseAccountName) && (!accountFilter || accountFilter.includes(expenseAccountName)));
-
-    let isIncome = isIncomeAccountInFilter && !isExpenseAccountInFilter;
-    let isExpense = isExpenseAccountInFilter && !isIncomeAccountInFilter;
-
-    if (row['分類'] === '代付' || (row['分類'] === '其他' && row['子分類'] === '代付')) {
-      isIncome = false;
-      isExpense = false;
-    } else if (row['分類'] === '轉帳') {
-      if (!(row['子分類'] === '小伊轉帳' && isIncome)) {
-        isIncome = false;
-        isExpense = false;
-      }
-    }
-
-    if (isIncome) {
-      const splitFactor = (isSplitShared && isSharedAccountName(incomeAccountName)) ? 0.5 : 1.0;
-      previousPeriodSummary.totalIncome += amount * splitFactor;
-    } else if (isExpense) {
-      const splitFactor = (isSplitShared && isSharedAccountName(expenseAccountName)) ? 0.5 : 1.0;
-      previousPeriodSummary.totalExpense += amount * splitFactor;
-    }
-  });
-
-  return { aggregatedSummary: finalAccountsSummary, dailyTrend, periodSummary, previousPeriodSummary };
-};
-
 export const formatProductDetailLine = (line: string): string => {
   const regex = /(.*?)(?:\[NT\$(\d+\.?\d*)\])?\s*x\s*(\d+\.?\d*)/;
   const match = line.match(regex);
@@ -994,69 +698,6 @@ export const formatProductDetailLine = (line: string): string => {
     return `${itemName} ($${Math.round(price)}) ✕ ${quantity} ＝ $${total}`;
   }
   return line.trim();
-};
-
-// NEW HELPER FUNCTION: Extracts merchant name from notes if available, otherwise returns raw field
-export const extractMerchantName = (record: RawRecord): string => {
-  const finalMerchant = record['商家(公司)'];
-  const originalNotes = record['備註'] || '';
-
-  // 1. Explicit merchant field (Highest priority)
-  if (finalMerchant && finalMerchant.trim() !== '') {
-    return finalMerchant.trim();
-  }
-
-  // 2. "商家:" / "商家：" in Notes（支援真換行、\\n、字面「 n 」）
-  const noteLines = normalizeNoteLines(originalNotes);
-  for (const line of noteLines) {
-    if (line.startsWith('商家:')) {
-      return line.substring('商家:'.length).trim();
-    }
-    if (line.startsWith('商家：')) {
-      return line.substring('商家：'.length).trim();
-    }
-  }
-  // 單行備註內嵌「商家:xxx」
-  const inlineMatch = originalNotes.match(/商家[:：]\s*([^\n]+?)(?:\s+n\s+|$)/i);
-  if (inlineMatch?.[1]) {
-    return inlineMatch[1].replace(/\\n.*/s, '').trim();
-  }
-
-  // 3. Enhanced Extraction Logic from Notes (Payment Gateways, etc.)
-  if (originalNotes.trim()) {
-    const firstLine = (noteLines[0] || originalNotes.trim()).trim();
-
-    // Strategy A: Check for Payment Gateway prefixes
-    const paymentPrefixes = ['Line Pay', '街口', '台灣Pay', '悠遊付', '全支付', 'Uber Eats', 'Foodpanda', 'Uber'];
-    for (const prefix of paymentPrefixes) {
-      const regex = new RegExp(`^${prefix}[\\s-]*[:：\\-]?\\s*(.*)`, 'i');
-      const match = firstLine.match(regex);
-      if (match && match[1] && match[1].trim().length > 0) {
-        return `${match[1].trim()} (${prefix})`;
-      }
-    }
-
-    // Strategy B/C: short text-like note as merchant
-    const isNumeric = /^\d+$/.test(firstLine);
-    if (firstLine.length > 0 && firstLine.length < 20 && !isNumeric && !firstLine.startsWith('發票號碼')) {
-      return firstLine;
-    }
-    if (firstLine.length >= 20 && firstLine.length <= 40 && !firstLine.startsWith('發票號碼')) {
-      return firstLine;
-    }
-  }
-
-  // 4. Fallback: Category - SubCategory
-  const category = record['分類'] || record['主類別'];
-  const subCategory = record['子分類'];
-  if (category && category !== 'SYSTEM' && category.trim() !== '') {
-    if (subCategory && subCategory.trim() !== '') {
-      return `${category}-${subCategory}`;
-    }
-    return category;
-  }
-
-  return '';
 };
 
 export const transformRecord = (record: RawRecord): TransformedRecord[] | TransformedRecord | null => {

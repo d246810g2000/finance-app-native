@@ -1,4 +1,3 @@
-import '../global.css'; // NativeWind
 import { Stack } from 'expo-router';
 import { FinanceProvider } from '../context/FinanceContext';
 import { ThemeProvider } from '../context/ThemeContext';

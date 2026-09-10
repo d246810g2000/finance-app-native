@@ -1,18 +1,19 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, Platform, View } from 'react-native';
+import { StyleSheet, Platform, View, type ColorValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import HamburgerMenu from '../../components/layout/HamburgerMenu';
 import HeaderMenuButton from '../../components/layout/HeaderMenuButton';
-import SearchModal from '../../components/SearchModal';
 import { SearchFilters } from '../../context/FinanceContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
 import { useRouter } from 'expo-router';
-import ReconciliationModal from '../../components/reconciliation/ReconciliationModal';
 import { hapticSelection } from '../../utils/haptics';
+
+const SearchModal = lazy(() => import('../../components/SearchModal'));
+const ReconciliationModal = lazy(() => import('../../components/reconciliation/ReconciliationModal'));
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -32,7 +33,7 @@ function TabBarIcon({
 }: {
     routeName: string;
     focused: boolean;
-    color: string;
+    color: ColorValue;
 }) {
     const { colors } = useAppTheme();
     const iconSet = TAB_ICONS[routeName];
@@ -88,6 +89,8 @@ export default function TabLayout() {
                     },
                 }}
                 screenOptions={({ route }) => ({
+                    freezeOnBlur: true,
+                    lazy: route.name !== 'index',
                     tabBarIcon: ({ focused, color }) => (
                         <TabBarIcon routeName={route.name} focused={focused} color={color} />
                     ),
@@ -110,14 +113,14 @@ export default function TabLayout() {
                 <Tabs.Screen
                     name="upload"
                     options={{
-                        title: '匯入',
+                        title: '資料管理',
                         href: null,
                     }}
                 />
                 <Tabs.Screen
                     name="merchant"
                     options={{
-                        title: '商家',
+                        title: '商家消費',
                         href: null,
                     }}
                 />
@@ -154,17 +157,23 @@ export default function TabLayout() {
                 />
             </Tabs>
             <HamburgerMenu visible={menuVisible} onClose={() => setMenuVisible(false)} />
-            <SearchModal
-                visible={searchModalVisible}
-                onClose={() => setSearchModalVisible(false)}
-                onApply={handleApplySearch}
-            />
+            {searchModalVisible ? (
+                <Suspense fallback={null}>
+                    <SearchModal
+                        visible
+                        onClose={() => setSearchModalVisible(false)}
+                        onApply={handleApplySearch}
+                    />
+                </Suspense>
+            ) : null}
             {reconcilingCard ? (
-                <ReconciliationModal
-                    visible
-                    cardName={reconcilingCard}
-                    onClose={closeReconciliation}
-                />
+                <Suspense fallback={null}>
+                    <ReconciliationModal
+                        visible
+                        cardName={reconcilingCard}
+                        onClose={closeReconciliation}
+                    />
+                </Suspense>
             ) : null}
         </>
     );

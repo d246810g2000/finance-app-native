@@ -1,43 +1,34 @@
 #!/bin/bash
+set -euo pipefail
 
 # 置於專案根目錄執行: bash scripts/build-apk.sh
+# 體積相關設定已寫在 app.json → expo-build-properties（prebuild 時套用），
+# 不再用 sed 改 android/，避免 --clean 後設定遺失或 fragile patch。
 
-echo "🚀 開始自動化 APK 組建流程 (arm64-v8a 最佳化版)..."
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
 
-# 1. 清除並重新導出原生專案
+echo "🚀 開始自動化 APK 組建流程（arm64-v8a + R8 + 壓縮 native libs）..."
+
 echo "📦 執行 Expo Prebuild..."
 EXPO_NO_INTERACTIVE=1 npx expo prebuild --platform android --clean
 
-# 2. 修改 Gradle 設定以進行最佳化
-echo "🔧 優化組建設定 (Architecture: arm64-v8a, R8: Enabled)..."
-
-# 設定僅編譯 arm64-v8a 減少體積
-sed -i '' 's/reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64/reactNativeArchitectures=arm64-v8a/' android/gradle.properties
-
-# 啟用 R8 Minify
-sed -i '' "s/def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()/def enableMinifyInReleaseBuilds = true/" android/app/build.gradle
-
-# 啟用 Resource Shrinking
-sed -i '' "s/shrinkResources enableShrinkResources.toBoolean()/shrinkResources true/" android/app/build.gradle
-sed -i '' "/def enableShrinkResources = findProperty/d" android/app/build.gradle
-
-# 3. 執行 Gradle 編譯
-echo "🏗️ 開始編譯 Release APK (這可能需要幾分鐘)..."
-export ANDROID_HOME=$HOME/Library/Android/sdk
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-export GRADLE_USER_HOME=$HOME/.gradle
+echo "🏗️ 開始編譯 Release APK（這可能需要幾分鐘）..."
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 17)}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
 
 cd android
-# 先清理以避免舊的 root 權限快取干擾
 ./gradlew clean
 ./gradlew assembleRelease --no-daemon
 
-# 4. 複製結果到桌面
-if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
-    echo "✅ 編譯成功！正在將檔案複製到桌面..."
-    cp app/build/outputs/apk/release/app-release.apk ~/Desktop/finance-app.apk
-    echo "🎉 完成！檔案位於：~/Desktop/finance-app.apk"
+APK_PATH="app/build/outputs/apk/release/app-release.apk"
+if [ -f "$APK_PATH" ]; then
+  SIZE="$(du -h "$APK_PATH" | awk '{print $1}')"
+  echo "✅ 編譯成功！APK 大小：${SIZE}"
+  cp "$APK_PATH" "$HOME/Desktop/finance-app.apk"
+  echo "🎉 已複製到：~/Desktop/finance-app.apk"
 else
-    echo "❌ 錯誤：找不到生成的 APK 檔案。"
-    exit 1
+  echo "❌ 錯誤：找不到生成的 APK 檔案。"
+  exit 1
 fi

@@ -7,12 +7,6 @@
     "scheme": "finance-app-native",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.financeappnative"
@@ -22,7 +16,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.financeappnative"
     },
@@ -31,7 +24,33 @@
     },
     "plugins": [
       "expo-router",
-      "./plugins/withBudgetWidget"
+      "./plugins/withBudgetWidget",
+      "expo-sharing",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a"],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableBundleCompression": true,
+            "useLegacyPackaging": true,
+            "enablePngCrunchInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.facebook.hermes.** { *; }\n-keep class com.facebook.react.** { *; }\n-dontwarn com.facebook.react.**\n"
+          }
+        }
+      ]
     ]
   }
 }

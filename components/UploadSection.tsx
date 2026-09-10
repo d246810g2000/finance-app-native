@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet, ScrollView, Switch } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, ScrollView, Switch, Platform } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFinance } from '../context/FinanceContext';
 import {
@@ -59,11 +59,12 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 copyToCacheDirectory: true,
             });
             if (!result.canceled) {
-                const file: any = result.assets ? result.assets[0] : result;
-                if (file.uri) {
+                const file = result.assets ? result.assets[0] : (result as any);
+                if (file?.uri) {
                     setSelectedFileName(file.name || 'selected_file');
-                    setSelectedFileUri(file.uri);
-                    setSelectedFileObj(file.file || file);
+                    setSelectedFileUri(String(file.uri));
+                    // Web 才保留 File；Android/iOS 只記 uri，避免 RN 全域 File 造成誤判
+                    setSelectedFileObj(Platform.OS === 'web' ? (file.file || null) : null);
                 }
             }
         } catch (e: any) {
@@ -72,13 +73,17 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
     }, []);
 
     const handleParse = useCallback(async () => {
-        const targetFile = selectedFileObj || selectedFileUri;
-        if (!targetFile) return;
+        if (!selectedFileUri && !selectedFileObj) return;
         setLoading(true);
         setError(null);
         setImportReport(null);
         setMergeStats(null);
         try {
+            // Native 一律走 uri；Web 才用 File object。避免 RN 全域 File 誤判。
+            const targetFile =
+                Platform.OS === 'web' && selectedFileObj
+                    ? selectedFileObj
+                    : (selectedFileUri || selectedFileObj);
             const csvText = await readFileContent(targetFile, encoding);
             const parsedRecords: RawRecord[] = parseCsvData(csvText);
             if (parsedRecords.length === 0) {
@@ -108,7 +113,8 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                 setTimeout(() => onUploadSuccess(), 1600);
             }
         } catch (e: any) {
-            setError(`解析失敗：${e.message || '未知錯誤'}`);
+            const detail = e?.message || String(e) || '未知錯誤';
+            setError(`解析失敗：${detail}`);
         }
         setLoading(false);
     }, [
@@ -158,61 +164,28 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
             <Animated.View entering={FadeInDown.springify()}>
                 <View style={styles.intro}>
-                    <Text style={styles.eyebrow}>資料中心</Text>
-                    <Text style={styles.pageTitle}>匯入你的消費紀錄</Text>
+                    <Text style={styles.eyebrow}>資料管理</Text>
+                    <Text style={styles.pageTitle}>匯入與匯出</Text>
                     <Text style={styles.pageDescription}>
-                        選擇 AndroMoney 匯出的 CSV 建立總覽；本機已有資料時可匯出回 AndroMoney 格式。
+                        從 AndroMoney 匯入 CSV 建立總覽，或把本機資料匯出回官方格式。
                     </Text>
                 </View>
 
-                {hasExistingData ? (
-                    <View style={styles.exportSectionTop}>
-                        <View style={styles.existingDataRow}>
-                            <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
-                            <Text style={styles.existingDataText}>
-                                本機 {records.length.toLocaleString()} 筆 · 可匯出至 AndroMoney
-                            </Text>
+                <View style={styles.ioSection}>
+                    <Text style={styles.ioSectionTitle}>匯入</Text>
+                    <Pressable
+                        style={({ pressed }) => [styles.uploadArea, pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : {}]}
+                        onPress={handlePickFile}
+                        accessibilityRole="button"
+                        accessibilityLabel="選擇 CSV 檔案"
+                    >
+                        <View style={styles.uploadIconCircle}>
+                            <Ionicons name="cloud-upload-outline" size={40} color={colors.primary} />
                         </View>
-                        <Pressable
-                            style={({ pressed }) => [
-                                styles.exportBtn,
-                                exporting && styles.uploadBtnDisabled,
-                                pressed && !exporting ? styles.uploadBtnPressed : null,
-                            ]}
-                            onPress={handleExportAndroMoney}
-                            disabled={exporting}
-                            accessibilityRole="button"
-                            accessibilityLabel="匯出 AndroMoney CSV"
-                        >
-                            {exporting ? (
-                                <ActivityIndicator color={colors.primary} />
-                            ) : (
-                                <View style={styles.uploadBtnContent}>
-                                    <Ionicons name="download-outline" size={20} color={colors.primary} />
-                                    <Text style={styles.exportBtnText}>
-                                        匯出 AndroMoney.csv
-                                    </Text>
-                                </View>
-                            )}
-                        </Pressable>
-                        <Text style={styles.modeHint}>
-                            官方 CSV 格式（含 Id、uid、Periodic），可匯入回 AndroMoney App。
-                        </Text>
-                    </View>
-                ) : null}
-
-                <Pressable
-                    style={({ pressed }) => [styles.uploadArea, pressed ? { opacity: 0.85, transform: [{ scale: 0.98 }] } : {}]}
-                    onPress={handlePickFile}
-                    accessibilityRole="button"
-                    accessibilityLabel="選擇 CSV 檔案"
-                >
-                    <View style={styles.uploadIconCircle}>
-                        <Ionicons name="cloud-upload-outline" size={40} color={colors.primary} />
-                    </View>
-                    <Text style={styles.uploadTitle}>選擇 CSV 檔案</Text>
-                    <Text style={styles.uploadSubtitle}>支援 AndroMoney 匯出格式（uid 增量合併）</Text>
-                </Pressable>
+                        <Text style={styles.uploadTitle}>選擇 CSV 檔案</Text>
+                        <Text style={styles.uploadSubtitle}>支援 AndroMoney 匯出格式（uid 增量合併）</Text>
+                    </Pressable>
+                </View>
 
                 {selectedFileName ? (
                     <Animated.View entering={FadeInUp.springify()} style={styles.fileInfo}>
@@ -399,6 +372,52 @@ export default function UploadSection({ onUploadSuccess }: UploadSectionProps) {
                         )}
                     </Animated.View>
                 ) : null}
+
+                <View style={[styles.ioSection, styles.exportSection]}>
+                    <Text style={styles.ioSectionTitle}>匯出</Text>
+                    {hasExistingData ? (
+                        <View style={styles.exportCard}>
+                            <View style={styles.existingDataRow}>
+                                <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
+                                <Text style={styles.existingDataText}>
+                                    本機 {records.length.toLocaleString()} 筆紀錄
+                                </Text>
+                            </View>
+                            <Pressable
+                                style={({ pressed }) => [
+                                    styles.exportBtn,
+                                    exporting && styles.uploadBtnDisabled,
+                                    pressed && !exporting ? styles.uploadBtnPressed : null,
+                                ]}
+                                onPress={handleExportAndroMoney}
+                                disabled={exporting}
+                                accessibilityRole="button"
+                                accessibilityLabel="匯出 AndroMoney CSV"
+                            >
+                                {exporting ? (
+                                    <ActivityIndicator color={colors.primary} />
+                                ) : (
+                                    <View style={styles.uploadBtnContent}>
+                                        <Ionicons name="share-outline" size={20} color={colors.primary} />
+                                        <Text style={styles.exportBtnText}>
+                                            匯出 AndroMoney CSV
+                                        </Text>
+                                    </View>
+                                )}
+                            </Pressable>
+                            <Text style={styles.modeHint}>
+                                官方格式（含 Id、uid、Periodic），可匯入回 AndroMoney App。
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={styles.exportEmptyCard}>
+                            <Ionicons name="share-outline" size={20} color={colors.textMuted} />
+                            <Text style={styles.exportEmptyText}>
+                                尚無本機資料。先匯入 CSV 後即可匯出。
+                            </Text>
+                        </View>
+                    )}
+                </View>
             </Animated.View>
             <AccountMappingModal
                 visible={isMappingModalVisible}
@@ -418,6 +437,16 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     eyebrow: { ...typography.caption, color: colors.primary, marginBottom: 8 },
     pageTitle: { ...typography.h1, fontSize: 26, marginBottom: 8 },
     pageDescription: { ...typography.body, color: colors.textMuted, lineHeight: 22 },
+    ioSection: { marginBottom: 8 },
+    exportSection: { marginTop: 32 },
+    ioSectionTitle: {
+        ...typography.caption,
+        fontWeight: '800',
+        color: colors.onSurfaceVariant,
+        letterSpacing: 0.4,
+        marginBottom: 10,
+        marginLeft: 2,
+    },
     uploadArea: { backgroundColor: colors.surfaceContainer, borderWidth: 2, borderColor: colors.outlineVariant, borderStyle: 'dashed', ...withContinuousRadius(RADIUS.xl), paddingVertical: 48, alignItems: 'center' },
     uploadIconCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: colors.outlineVariant },
     uploadTitle: { ...typography.h2, fontSize: 20, marginBottom: 6 },
@@ -428,14 +457,29 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     fileStatus: { ...typography.caption, color: colors.primary, marginBottom: 2 },
     fileName: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
     encodingSection: { marginTop: 28 },
-    exportSectionTop: {
-        marginBottom: 24,
+    exportCard: {
         padding: 16,
         backgroundColor: colors.primaryContainer,
         borderRadius: RADIUS.lg,
         borderWidth: 1,
         borderColor: colors.outlineVariant,
         ...SHADOWS.sm,
+    },
+    exportEmptyCard: {
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: colors.surfaceContainer,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: colors.outlineVariant,
+    },
+    exportEmptyText: {
+        ...typography.bodySm,
+        color: colors.textMuted,
+        flex: 1,
+        lineHeight: 18,
     },
     existingDataRow: {
         flexDirection: 'row',
@@ -444,7 +488,6 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
         marginBottom: 12,
     },
     exportBtn: {
-        marginTop: 12,
         backgroundColor: colors.surfaceContainer,
         minHeight: 56,
         paddingHorizontal: 18,

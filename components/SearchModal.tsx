@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { useAppTheme } from '../context/ThemeContext';
-import { useFinance, buildSearchMetadata, SearchFilters } from '../context/FinanceContext';
+import { useFinanceRecords, buildSearchMetadata, type SearchFilters } from '../context/FinanceContext';
 import { useFinanceUI } from '../context/FinanceUIContext';
 import { AppColors, RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../theme';
 import HeaderMenuButton from './layout/HeaderMenuButton';
@@ -94,7 +94,7 @@ function DrumDatePicker({ initialDate, onConfirm, onCancel, colors, styles }: an
 export default function SearchModal({ visible, onClose, onApply }: SearchModalProps) {
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
-    const { records } = useFinance();
+    const { records } = useFinanceRecords();
     const { searchFilters } = useFinanceUI();
     const metadata = useMemo(
         () => (visible ? buildSearchMetadata(records) : buildSearchMetadata([])),
@@ -419,7 +419,7 @@ export default function SearchModal({ visible, onClose, onApply }: SearchModalPr
 
 const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppTheme>['typography'], edgeH: number) => StyleSheet.create({
     backdrop: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: colors.blackOverlay,
     },
     container: {

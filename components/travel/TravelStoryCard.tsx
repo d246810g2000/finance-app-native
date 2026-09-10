@@ -204,7 +204,7 @@ const TravelStoryCard = forwardRef<View, TravelStoryCardProps>(function TravelSt
                 locations={[0, 0.45, 1]}
                 start={{ x: 0.1, y: 0 }}
                 end={{ x: 0.9, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
             />
 
             <View style={[styles.glowTop, { backgroundColor: theme.glowA }]} />

@@ -1,10 +1,11 @@
 
 import React, { memo, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { BudgetStatus, BudgetRule } from '../../types';
-import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
+import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import AppPressable from '../ui/AppPressable';
 
 interface BudgetProgressCardProps {
     status: BudgetStatus;
@@ -58,14 +59,12 @@ export const BudgetProgressCard = memo(function BudgetProgressCard({ status, onE
     const barWidth = Math.min(percentage, 100);
 
     return (
-        <Pressable
+        <AppPressable
             onPress={() => onClick(rule)}
             onLongPress={() => onEdit(rule)}
-            style={({ pressed }) => [
-                styles.card,
-                { borderColor: palette.accentBorder },
-                pressed && styles.cardPressed,
-            ]}
+            style={[styles.card, { borderColor: palette.accentBorder }]}
+            pressedStyle={styles.cardPressed}
+            haptic="selection"
             accessibilityRole="button"
             accessibilityLabel={`${rule.category} 預算，已用 ${Math.round(percentage)}%`}
         >
@@ -104,7 +103,7 @@ export const BudgetProgressCard = memo(function BudgetProgressCard({ status, onE
                     )}
                 </View>
             </View>
-        </Pressable>
+        </AppPressable>
     );
 });
 
@@ -113,9 +112,11 @@ export const OtherExpensesCard = memo(function OtherExpensesCard({ amount, onCli
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
     return (
-        <Pressable
+        <AppPressable
             onPress={onClick}
-            style={({ pressed }) => [styles.card, styles.otherCard, pressed && styles.cardPressed]}
+            style={[styles.card, styles.otherCard]}
+            pressedStyle={styles.cardPressed}
+            haptic="selection"
             accessibilityRole="button"
             accessibilityLabel={`其他未歸類支出 ${amount.toLocaleString()} 元`}
         >
@@ -129,7 +130,7 @@ export const OtherExpensesCard = memo(function OtherExpensesCard({ amount, onCli
                     <Text style={styles.metaText}>${amount.toLocaleString()}</Text>
                 </View>
             </View>
-        </Pressable>
+        </AppPressable>
     );
 });
 
@@ -139,14 +140,12 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
             flexDirection: 'row',
             ...withContinuousRadius(RADIUS.lg),
             marginBottom: 10,
-            borderWidth: 1,
+            borderWidth: StyleSheet.hairlineWidth,
             overflow: 'hidden',
             backgroundColor: colors.surfaceContainer,
-            ...SHADOWS.sm,
         },
         cardPressed: {
-            opacity: 0.88,
-            transform: [{ scale: 0.98 }],
+            backgroundColor: colors.surfaceVariant,
         },
         otherCard: {
             borderStyle: 'dashed',

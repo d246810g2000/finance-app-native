@@ -1,6 +1,5 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import {
-    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -11,8 +10,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LineChart, LineChartBicolor } from 'react-native-gifted-charts';
 import { useNavigation, useIsFocused } from 'expo-router/react-navigation';
 import { useRouter } from 'expo-router';
-import { useFinance } from '../../context/FinanceContext';
+import { useFinanceRecords, useFinanceSettings } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
+import { useIdleReady } from '../../hooks/useIdleReady';
+import AppPressable from '../../components/ui/AppPressable';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import {
     HEALTH_SCORE_WEIGHTS,
@@ -83,7 +85,8 @@ export default function HealthScreen() {
     const { width } = useWindowDimensions();
     const { colors } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
-    const { records, budgets, budgetConfig, personalAccounts, sharedAccounts } = useFinance();
+    const { records } = useFinanceRecords();
+    const { budgets, budgetConfig, personalAccounts, sharedAccounts } = useFinanceSettings();
     const isFocused = useIsFocused();
     const [targetMonth, setTargetMonth] = useState(() => new Date());
     const [detailView, setDetailView] = useState<DetailView>(null);
@@ -98,51 +101,48 @@ export default function HealthScreen() {
     useLayoutEffect(() => {
         navigation.setOptions({
             headerLeft: () => (
-                <Pressable
+                <AppPressable
                     onPress={exitHealth}
                     hitSlop={12}
-                    style={({ pressed }) => [styles.headerBack, pressed && styles.pressed]}
+                    style={styles.headerBack}
+                    haptic="light"
                     accessibilityRole="button"
                     accessibilityLabel="離開財務健檢"
                 >
                     <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
                     <Text style={styles.headerBackText}>返回</Text>
-                </Pressable>
+                </AppPressable>
             ),
         });
     }, [colors.textPrimary, exitHealth, navigation, styles]);
 
-    // Heavy aggregation is gated behind focus so background tabs don't burn JS time
-    // when records change while the user is on another screen.
-    const lastGoodDashboard = useRef<ReturnType<typeof buildHealthScreenData>['dashboard'] | null>(null);
-    const { dashboard } = useMemo(() => buildHealthScreenData({
-        accountViewType,
-        personalAccounts,
-        sharedAccounts,
-        isSplitShared: !!budgetConfig.isSplitEnabled,
-        dailyOnly: healthMode === 'daily',
-        excludedDailyProjects: DAILY_EXCLUDED_PROJECTS,
-        records,
-        targetMonth,
-        budgetConfig,
-        budgets,
+    const { dashboard } = useFocusedMemo(
         isFocused,
-        previousDashboard: lastGoodDashboard.current,
-    }), [
-        accountViewType,
-        personalAccounts,
-        sharedAccounts,
-        budgetConfig.isSplitEnabled,
-        healthMode,
-        records,
-        targetMonth,
-        budgetConfig,
-        budgets,
-        isFocused,
-    ]);
-    if (isFocused && dashboard !== lastGoodDashboard.current) {
-        lastGoodDashboard.current = dashboard;
-    }
+        () => buildHealthScreenData({
+            accountViewType,
+            personalAccounts,
+            sharedAccounts,
+            isSplitShared: !!budgetConfig.isSplitEnabled,
+            dailyOnly: healthMode === 'daily',
+            excludedDailyProjects: DAILY_EXCLUDED_PROJECTS,
+            records,
+            targetMonth,
+            budgetConfig,
+            budgets,
+            isFocused: true,
+            previousDashboard: null,
+        }),
+        [
+            accountViewType,
+            personalAccounts,
+            sharedAccounts,
+            budgetConfig,
+            healthMode,
+            records,
+            targetMonth,
+            budgets,
+        ],
+    );
 
     const chartWidth = Math.max(240, width - 32 - 20);
     const monthLabel = `${targetMonth.getFullYear()}年${targetMonth.getMonth() + 1}月`;
@@ -170,40 +170,7 @@ export default function HealthScreen() {
         return `${strongest.label}表現最佳；${weakest.label}仍有 ${weakest.max - weakest.score} 分改善空間`;
     }, [dashboard.health.breakdown]);
 
-    // Hoisted so re-entering the trends tab skips the loading placeholder.
-    const [chartsReady, setChartsReady] = useState(false);
-    useEffect(() => {
-        if (!isFocused || chartsReady) return;
-
-        const warmCharts = () => {
-            // Warm the trend aggregations before flipping ready, so the first
-            // chart frame doesn't pay for 12-month aggregation work.
-            void dashboard.savings.months.length;
-            void dashboard.cashflowYear.length;
-            void dashboard.categoryTrends.length;
-            void dashboard.cashflowSankey.nodes.length;
-            void dashboard.cashflowSankeyPersonal.nodes.length;
-            void dashboard.cashflowSankeyShared.nodes.length;
-            setChartsReady(true);
-        };
-
-        // InteractionManager is deprecated; defer heavy warm-up until the JS
-        // thread is idle (with setTimeout fallback where idle callbacks are missing).
-        let idleId: number | undefined;
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        if (typeof requestIdleCallback === 'function') {
-            idleId = requestIdleCallback(warmCharts);
-        } else {
-            timeoutId = setTimeout(warmCharts, 0);
-        }
-
-        return () => {
-            if (idleId !== undefined && typeof cancelIdleCallback === 'function') {
-                cancelIdleCallback(idleId);
-            }
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-        };
-    }, [isFocused, chartsReady, dashboard]);
+    const chartsReady = useIdleReady(isFocused && !dashboard.health.insufficientData);
 
     const detailTitle =
         detailView === 'structure' ? '收入 / 支出流向'
@@ -254,16 +221,18 @@ export default function HealthScreen() {
 
                 {detailView ? (
                     <View style={styles.detailHeader}>
-                        <Pressable
+                        <AppPressable
                             onPress={closeDetail}
-                            style={({ pressed }) => [styles.detailBackBtn, pressed && styles.pressed]}
+                            style={styles.detailBackBtn}
+                            pressedStyle={styles.pressed}
+                            haptic="light"
                             accessibilityRole="button"
                             accessibilityLabel="返回健檢總覽"
                             hitSlop={8}
                         >
                             <Ionicons name="chevron-back" size={20} color={colors.primary} />
                             <Text style={styles.detailBackText}>返回</Text>
-                        </Pressable>
+                        </AppPressable>
                         <Text style={styles.detailHeaderTitle} numberOfLines={1}>{detailTitle}</Text>
                         <View style={styles.detailHeaderSide} />
                     </View>
@@ -353,8 +322,10 @@ const OverviewTab = memo(function OverviewTab({
     return (
         <>
             <Animated.View entering={FadeInDown.duration(380).springify()} style={styles.summaryCard}>
-                <Pressable
+                <AppPressable
                     onPress={() => setDetailsExpanded((value) => !value)}
+                    pressScale={1}
+                    haptic="light"
                     accessibilityRole="button"
                     accessibilityState={{ expanded: detailsExpanded }}
                     accessibilityLabel={`財務健康分數 ${dashboard.health.score ?? '無資料'}，${scoreStatus}`}
@@ -377,7 +348,7 @@ const OverviewTab = memo(function OverviewTab({
                             color={colors.primary}
                         />
                     </View>
-                </Pressable>
+                </AppPressable>
 
                 {detailsExpanded ? (
                     <View style={styles.breakdownList}>
@@ -490,9 +461,11 @@ const StructureTab = memo(function StructureTab({
                 title="生活／投資"
                 style={styles.sectionHeader}
                 trailing={(
-                    <Pressable
+                    <AppPressable
                         onPress={() => setSplitExpanded((value) => !value)}
                         hitSlop={8}
+                        haptic="light"
+                        pressScale={1}
                         accessibilityRole="button"
                         accessibilityState={{ expanded: splitExpanded }}
                         accessibilityLabel="展開或收合生活與投資現金流"
@@ -502,7 +475,7 @@ const StructureTab = memo(function StructureTab({
                             size={18}
                             color={colors.primary}
                         />
-                    </Pressable>
+                    </AppPressable>
                 )}
             />
             {splitExpanded ? (
@@ -544,9 +517,11 @@ const StructureTab = memo(function StructureTab({
                 </AccentListCard>
             ))}
             {dashboard.structure.length > 5 ? (
-                <Pressable
+                <AppPressable
                     onPress={() => setShowAllCategories((value) => !value)}
-                    style={({ pressed }) => [styles.listExpandButton, pressed && styles.pressed]}
+                    style={styles.listExpandButton}
+                    pressedStyle={styles.pressed}
+                    haptic="light"
                     accessibilityRole="button"
                     accessibilityLabel={showAllCategories ? '收合類別' : '顯示其餘類別'}
                     accessibilityState={{ expanded: showAllCategories }}
@@ -559,16 +534,18 @@ const StructureTab = memo(function StructureTab({
                         size={16}
                         color={colors.primary}
                     />
-                </Pressable>
+                </AppPressable>
             ) : null}
 
             <SectionHeader
                 title="行為"
                 style={styles.sectionHeader}
                 trailing={(
-                    <Pressable
+                    <AppPressable
                         onPress={() => setShowBehavior((value) => !value)}
                         hitSlop={8}
+                        haptic="light"
+                        pressScale={1}
                         accessibilityRole="button"
                         accessibilityState={{ expanded: showBehavior }}
                         accessibilityLabel="展開或收合消費行為"
@@ -578,7 +555,7 @@ const StructureTab = memo(function StructureTab({
                             size={18}
                             color={colors.primary}
                         />
-                    </Pressable>
+                    </AppPressable>
                 )}
             />
             {showBehavior ? (
@@ -720,14 +697,15 @@ const TrendsTab = memo(function TrendsTab({
                 <>
                     <View style={styles.categoryChips}>
                         {dashboard.categoryTrends.map((trend, index) => (
-                            <Pressable
+                            <AppPressable
                                 key={trend.category}
                                 onPress={() => setCategoryIndex(index)}
-                                style={({ pressed }) => [
+                                style={[
                                     styles.categoryChip,
                                     categoryIndex === index && styles.categoryChipActive,
-                                    pressed && styles.pressed,
                                 ]}
+                                pressedStyle={styles.pressed}
+                                haptic="selection"
                                 accessibilityRole="tab"
                                 accessibilityLabel={`類別 ${trend.category}`}
                                 accessibilityState={{ selected: categoryIndex === index }}
@@ -741,7 +719,7 @@ const TrendsTab = memo(function TrendsTab({
                                 >
                                     {trend.category}
                                 </Text>
-                            </Pressable>
+                            </AppPressable>
                         ))}
                     </View>
                     <View style={styles.chartCard}>

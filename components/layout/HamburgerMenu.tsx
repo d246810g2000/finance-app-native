@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, Dimensions, Alert, ActivityIndicator, type ColorValue } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, Dimensions, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -7,9 +7,6 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } fro
 import { RADIUS, SCREEN_EDGE_MIN, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
-import { useFinance } from '../../context/FinanceContext';
-import { shareAndroMoneyCsv } from '../../services/financeService';
-import { hapticSuccess } from '../../utils/haptics';
 import SettingsModal from '../settings/SettingsModal';
 import CreditCardManagementModal from '../reconciliation/CreditCardManagementModal';
 import { MOTION_DURATION } from '../ui/motion';
@@ -69,8 +66,6 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
     const { colors } = useAppTheme();
     const insets = useSafeAreaInsets();
     const { setSearchModalVisible, menuVisible: propVisible, setMenuVisible } = useFinanceUI();
-    const { records } = useFinance();
-    const [exporting, setExporting] = useState(false);
 
     const actualVisible = visible !== undefined ? visible : propVisible;
     const actualOnClose = onClose || (() => setMenuVisible(false));
@@ -159,24 +154,6 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
         });
     };
 
-    const handleExportAndroMoney = async () => {
-        if (records.length === 0) {
-            Alert.alert('無法匯出', '尚無資料可匯出，請先到「資料匯入」載入 CSV。');
-            return;
-        }
-        setExporting(true);
-        try {
-            actualOnClose();
-            await shareAndroMoneyCsv(records);
-            hapticSuccess();
-        } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : '未知錯誤';
-            Alert.alert('匯出失敗', message);
-        } finally {
-            setExporting(false);
-        }
-    };
-
     return (
         <>
             <Modal
@@ -209,8 +186,8 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                         >
                             <View style={styles.header}>
                                 <View>
-                                    <Text style={styles.headerTitle}>選單</Text>
-                                    <Text style={styles.headerSubtitle}>快速導覽與設定</Text>
+                                    <Text style={styles.headerTitle}>更多</Text>
+                                    <Text style={styles.headerSubtitle}>工具、分析與設定</Text>
                                 </View>
                                 <Pressable
                                     onPress={actualOnClose}
@@ -223,74 +200,37 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                 </Pressable>
                             </View>
 
-                            <Text style={styles.sectionLabel}>功能</Text>
+                            <Text style={styles.sectionLabel}>工具</Text>
                             <View style={styles.menuCard}>
-                                <Pressable
-                                    onPress={openSearch}
-                                    android_ripple={{ color: colors.statePressed }}
-                                    style={({ pressed }) => [styles.menuItemPressable, pressed && styles.menuItemPressed]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="搜尋記錄"
-                                >
-                                    <View style={styles.menuItemRow}>
-                                        <View style={[styles.menuIconCircle, { backgroundColor: colors.primaryContainer }]}>
-                                            <Ionicons name="search" size={20} color={colors.primary} />
-                                        </View>
-                                        <View style={styles.menuLabelWrap}>
-                                            <Text style={styles.menuText}>搜尋記錄</Text>
-                                            <Text style={styles.menuSubtext} numberOfLines={1}>
-                                                關鍵字、類別、帳戶...
-                                            </Text>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-                                    </View>
-                                </Pressable>
-
-                                <View style={styles.itemDivider} />
-
                                 <MenuRow
-                                    icon="cloud-upload-outline"
-                                    label="資料匯入"
-                                    subtitle="從 CSV 匯入交易紀錄"
+                                    icon="search"
+                                    label="搜尋交易"
+                                    subtitle="關鍵字、類別、帳戶"
+                                    iconColor={colors.primary}
+                                    iconBg={colors.primaryContainer}
+                                    onPress={openSearch}
+                                    colors={colors}
+                                    styles={styles}
+                                    showDivider
+                                />
+                                <MenuRow
+                                    icon="swap-vertical-outline"
+                                    label="資料管理"
+                                    subtitle="匯入／匯出 AndroMoney CSV"
                                     iconColor={colors.primary}
                                     iconBg={colors.primaryContainer}
                                     onPress={() => navigateTo('/upload')}
                                     colors={colors}
                                     styles={styles}
-                                    showDivider
                                 />
-                                <Pressable
-                                    onPress={handleExportAndroMoney}
-                                    disabled={exporting}
-                                    android_ripple={{ color: colors.statePressed }}
-                                    style={({ pressed }) => [styles.menuItemPressable, pressed && styles.menuItemPressed]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="匯出 AndroMoney CSV"
-                                >
-                                    <View style={styles.menuItemRow}>
-                                        <View style={[styles.menuIconCircle, { backgroundColor: colors.primaryContainer }]}>
-                                            {exporting ? (
-                                                <ActivityIndicator size="small" color={colors.primary} />
-                                            ) : (
-                                                <Ionicons name="download-outline" size={20} color={colors.primary} />
-                                            )}
-                                        </View>
-                                        <View style={styles.menuLabelWrap}>
-                                            <Text style={styles.menuText} numberOfLines={1}>匯出 AndroMoney CSV</Text>
-                                            <Text style={styles.menuSubtext} numberOfLines={1}>
-                                                {records.length > 0
-                                                    ? `官方格式 · ${records.length.toLocaleString()} 筆`
-                                                    : '需先匯入資料'}
-                                            </Text>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} style={styles.menuChevron} />
-                                    </View>
-                                </Pressable>
-                                <View style={styles.itemDivider} />
+                            </View>
+
+                            <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>分析</Text>
+                            <View style={styles.menuCard}>
                                 <MenuRow
                                     icon="storefront-outline"
-                                    label="商家分析"
-                                    subtitle="商家排行與發票品項"
+                                    label="商家消費"
+                                    subtitle="排行榜與發票品項"
                                     iconColor={colors.primary}
                                     iconBg={colors.primaryContainer}
                                     onPress={() => navigateTo('/merchant')}
@@ -301,18 +241,21 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                 <MenuRow
                                     icon="heart-outline"
                                     label="財務健檢"
-                                    subtitle="健康分數、現金流與規則提醒"
+                                    subtitle="健康分數、現金流與提醒"
                                     iconColor={colors.red}
                                     iconBg={colors.redLight}
                                     onPress={() => navigateTo('/health')}
                                     colors={colors}
                                     styles={styles}
-                                    showDivider
                                 />
+                            </View>
+
+                            <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>設定</Text>
+                            <View style={styles.menuCard}>
                                 <MenuRow
-                                    icon="layers-outline"
-                                    label="信用卡對帳設定"
-                                    subtitle="結帳日、帳單群組，並可由此開始對帳"
+                                    icon="card-outline"
+                                    label="信用卡對帳"
+                                    subtitle="結帳日、帳單群組與對帳"
                                     iconColor={colors.primary}
                                     iconBg={colors.primaryContainer}
                                     onPress={openCreditCardSettings}
@@ -322,7 +265,7 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                 />
                                 <MenuRow
                                     icon="settings-outline"
-                                    label="系統設定"
+                                    label="偏好設定"
                                     subtitle="帳戶、預算與外觀主題"
                                     iconColor={colors.green}
                                     iconBg={colors.greenLight}
@@ -362,7 +305,7 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
             flex: 1,
         },
         backdrop: {
-            ...StyleSheet.absoluteFillObject,
+            ...StyleSheet.absoluteFill,
             backgroundColor: colors.scrim,
         },
         drawerShell: {
@@ -417,6 +360,9 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
             marginBottom: 10,
             marginLeft: 2,
             includeFontPadding: false,
+        },
+        sectionLabelSpaced: {
+            marginTop: 20,
         },
         menuCard: {
             backgroundColor: colors.surfaceContainer,

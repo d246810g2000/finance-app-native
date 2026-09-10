@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["jest", "node"],
+    "noEmit": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "__tests__/**/*.ts",
+    "__tests__/**/*.tsx",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "services/**/*.ts",
+    "viewModels/**/*.ts",
+    "types/**/*.ts",
+    "utils/**/*.ts",
+    "constants.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios"
+  ]
+}

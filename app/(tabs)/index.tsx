@@ -1,13 +1,14 @@
 
-import React, { useMemo, useState, useCallback, useRef, memo } from 'react';
+import React, { useMemo, useState, useCallback, memo } from 'react';
 import { View, Text, ScrollView, Dimensions, Pressable, StyleSheet, Modal, TouchableWithoutFeedback } from 'react-native';
 import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { BarChart, LineChartBicolor } from 'react-native-gifted-charts';
 import Animated, { FadeInDown, FadeInLeft } from 'react-native-reanimated';
-import { useFinance } from '../../context/FinanceContext';
-import { processAndAggregateRecords, transformRecordsForExport, filterAndSortRecords } from '../../services/financeService';
-import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS, ASSET_CLASSES, getAssetClass } from '../../constants';
-import { TrendDataPoint, AccountsSummaryMap, TransformedRecord } from '../../types';
+import { useFinanceRecords, useFinanceSettings } from '../../context/FinanceContext';
+import { transformRecordsForExport, filterAndSortRecords } from '../../services/financeService';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
+import { PERSONAL_ACCOUNTS, SHARED_ACCOUNTS, ASSET_CLASSES } from '../../constants';
+import { TransformedRecord } from '../../types';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import DateRangeSelector from '../../components/DateRangeSelector';
@@ -20,9 +21,10 @@ import EmptyState from '../../components/ui/EmptyState';
 import SheetHeader from '../../components/ui/SheetHeader';
 import PageChrome from '../../components/layout/PageChrome';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from 'expo-router/react-navigation';
 import { loadExcludedAccounts, saveExcludedAccounts } from '../../services/accountConfigService';
 import { buildHistoricalPeriods } from '../../viewModels/assetViewModel';
+import { buildAccountTableData, buildDashboardAggregation } from '../../viewModels/dashboardViewModel';
 import AccountSettingsModal from '../../components/account/AccountSettingsModal';
 import { useBottomSheetSwipe } from '../../components/ui/useBottomSheetSwipe';
 import BottomSheetGestureWrapper from '../../components/ui/BottomSheetGestureWrapper';
@@ -441,7 +443,8 @@ const AccountGroupCard = memo(function AccountGroupCard({
 });
 
 export default function DashboardScreen() {
-    const { records, budgetConfig } = useFinance();
+    const { records } = useFinanceRecords();
+    const { budgetConfig } = useFinanceSettings();
     const { colors, typography, assetClassColors } = useAppTheme();
     const isFocused = useIsFocused();
     const styles = useMemo(() => createStyles(colors), [colors]);
@@ -525,32 +528,18 @@ export default function DashboardScreen() {
         return Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
     }, [startDate, endDate]);
 
-    const lastAggregation = useRef<{
-        aggregatedSummary: AccountsSummaryMap;
-        dailyTrend: TrendDataPoint[];
-        periodSummary: { totalBalance: number; totalIncome: number; totalExpense: number };
-        previousPeriodSummary: { totalBalance: number; totalIncome: number; totalExpense: number };
-    } | null>(null);
-
-    const { aggregatedSummary, dailyTrend, periodSummary, previousPeriodSummary } = useMemo(() => {
-        if (!isFocused && lastAggregation.current) return lastAggregation.current;
-        if (records.length === 0) return {
-            aggregatedSummary: {} as AccountsSummaryMap,
-            dailyTrend: [] as TrendDataPoint[],
-            periodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
-            previousPeriodSummary: { totalBalance: 0, totalIncome: 0, totalExpense: 0 },
-        };
-        const next = processAndAggregateRecords(
+    const { aggregatedSummary, dailyTrend, periodSummary, previousPeriodSummary } = useFocusedMemo(
+        isFocused,
+        () => buildDashboardAggregation({
             records,
             startDate,
             endDate,
             accountFilter,
             excludedAccounts,
-            !!budgetConfig.isSplitEnabled,
-        );
-        lastAggregation.current = next;
-        return next;
-    }, [isFocused, records, startDate, endDate, accountFilter, excludedAccounts, budgetConfig.isSplitEnabled]);
+            isSplitShared: !!budgetConfig.isSplitEnabled,
+        }),
+        [records, startDate, endDate, accountFilter, excludedAccounts, budgetConfig.isSplitEnabled],
+    );
 
     const currentSavingsRate = periodSummary.totalIncome > 0
         ? ((periodSummary.totalIncome - periodSummary.totalExpense) / periodSummary.totalIncome) * 100 : 0;
@@ -610,83 +599,10 @@ export default function DashboardScreen() {
 
     }, [savingsModalVisible, balanceModalVisible, records, startDate, endDate, durationInDays, accountFilter, periodSummary.totalBalance]);
 
-    const accountTableData = useMemo(() => {
-        // Prepare groups for all 5 ASSET_CLASSES in order
-        const groupsMap = new Map<string, {
-            category: string;
-            accounts: { name: string; balance: number; originalCategory: string }[];
-            subGroups: { name: string; accounts: { name: string; balance: number; originalCategory: string }[], totalBalance: number }[];
-            isCollapsed: boolean;
-            totalBalance: number;
-            percentage: number;
-        }>();
-
-        Object.keys(ASSET_CLASSES).forEach(assetClass => {
-            groupsMap.set(assetClass, {
-                category: assetClass,
-                accounts: [],
-                subGroups: [],
-                isCollapsed: collapsedGroups.has(assetClass),
-                totalBalance: 0,
-                percentage: 0
-            });
-        });
-
-        // Populate accounts
-        Object.entries(aggregatedSummary).forEach(([accountName, accData]) => {
-            if (accData.balance === 0) return;
-
-            // Optional: apply personal/shared filter logic if needed here, 
-            // but aggregatedSummary might already be filtered. Assuming it's already filtered by processAndAggregateRecords
-
-            // We need to know the original category to map it to ASSET_CLASSES
-            const originalCategory = accData.category || '未分類';
-            const assetClass = getAssetClass(originalCategory);
-
-            const group = groupsMap.get(assetClass);
-            if (group) {
-                const newAcc = { name: accountName, balance: accData.balance, originalCategory };
-                group.accounts.push(newAcc);
-
-                // Find or create subGroup
-                let subGroup = group.subGroups.find(sg => sg.name === originalCategory);
-                if (!subGroup) {
-                    subGroup = { name: originalCategory, accounts: [], totalBalance: 0 };
-                    group.subGroups.push(subGroup);
-                }
-                subGroup.accounts.push(newAcc);
-                subGroup.totalBalance += accData.balance;
-
-                // Note: For liabilities, balances are typically negative. 
-                // We keep the raw balance, but sum them up based on the absolute value for percentage later
-                group.totalBalance += accData.balance;
-            }
-        });
-
-        const groups = Array.from(groupsMap.values());
-
-        // Sort accounts and subGroups by absolute balance descending
-        groups.forEach(g => {
-            g.accounts.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-            g.subGroups.sort((a, b) => Math.abs(b.totalBalance) - Math.abs(a.totalBalance));
-            g.subGroups.forEach(sg => {
-                sg.accounts.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-            });
-        });
-
-        // Compute total absolute sum across all classes for calculating percentages
-        const totalAbsoluteSum = groups.reduce((sum, g) => sum + Math.abs(g.totalBalance), 0);
-
-        // Assign percentage
-        groups.forEach(g => {
-            g.percentage = totalAbsoluteSum > 0 ? (Math.abs(g.totalBalance) / totalAbsoluteSum) * 100 : 0;
-        });
-
-        // Determine if there are ANY accounts to show at all
-        const hasAnyAccounts = groups.some(g => g.accounts.length > 0);
-
-        return { groups, totalAbsoluteSum, hasAnyAccounts };
-    }, [aggregatedSummary, collapsedGroups]);
+    const accountTableData = useMemo(
+        () => buildAccountTableData(aggregatedSummary, collapsedGroups),
+        [aggregatedSummary, collapsedGroups],
+    );
 
     const accountCategoryIcons: Record<string, string> = {
         '現金': '💵', '銀行': '🏦', '信用卡': '💳', '儲值卡': '🪪', '證券戶': '📈', '其他': '📦',
@@ -773,7 +689,7 @@ export default function DashboardScreen() {
                             assetClassColors={assetClassColors}
                         />
                     ) : (
-                        <Animated.View entering={FadeInDown.duration(400).springify()} style={styles.accountListContainer}>
+                        <View style={styles.accountListContainer}>
                             {accountTableData.groups.filter(g => g.accounts.length > 0).map(group => (
                                 <AccountGroupCard
                                     key={`list-${group.category}`}
@@ -788,7 +704,7 @@ export default function DashboardScreen() {
                                     onAccountPress={handleAccountClick}
                                 />
                             ))}
-                        </Animated.View>
+                        </View>
                     )}
                 </View>
             ) : (
@@ -798,32 +714,37 @@ export default function DashboardScreen() {
             )
             }
 
-            {/* Detail Modal (shared component) */}
-            <DetailModal
-                visible={detailModal.visible}
-                title={detailModal.title}
-                records={detailModal.data}
-                onClose={() => setDetailModal({ ...detailModal, visible: false })}
-            />
+            {/* Detail Modal (shared component) — 僅開啟時掛載 */}
+            {detailModal.visible ? (
+                <DetailModal
+                    visible
+                    title={detailModal.title}
+                    records={detailModal.data}
+                    onClose={() => setDetailModal({ ...detailModal, visible: false })}
+                />
+            ) : null}
 
-            {/* Account Settings Modal */}
-            <AccountSettingsModal
-                visible={isAccountSettingsVisible}
-                onClose={() => setIsAccountSettingsVisible(false)}
-                excludedAccounts={excludedAccounts}
-                onSave={handleSaveExcludedAccounts}
-            />
+            {isAccountSettingsVisible ? (
+                <AccountSettingsModal
+                    visible
+                    onClose={() => setIsAccountSettingsVisible(false)}
+                    excludedAccounts={excludedAccounts}
+                    onSave={handleSaveExcludedAccounts}
+                />
+            ) : null}
 
-            {/* Account Detail Modal */}
-            <AccountDetailModal
-                visible={accountDetailModal.visible}
-                accountName={accountDetailModal.accountName}
-                onClose={() => setAccountDetailModal({ ...accountDetailModal, visible: false })}
-                onOpenInvestment={openAccountInvestment}
-            />
+            {accountDetailModal.visible ? (
+                <AccountDetailModal
+                    visible
+                    accountName={accountDetailModal.accountName}
+                    onClose={() => setAccountDetailModal({ ...accountDetailModal, visible: false })}
+                    onOpenInvestment={openAccountInvestment}
+                />
+            ) : null}
 
             {/* Dedicated Balance Modal */}
-            <Modal visible={balanceModalVisible} animationType="none" transparent presentationStyle="overFullScreen">
+            {balanceModalVisible ? (
+            <Modal visible animationType="none" transparent presentationStyle="overFullScreen">
                 <ModalBackdrop colors={colors}>
                     <TouchableWithoutFeedback onPress={() => setBalanceModalVisible(false)}>
                         <View style={{ flex: 1, width: '100%' }} />
@@ -980,9 +901,11 @@ export default function DashboardScreen() {
                     </BottomSheetGestureWrapper>
                 </ModalBackdrop>
             </Modal>
+            ) : null}
 
             {/* Dedicated Savings Rate Modal */}
-            <Modal visible={savingsModalVisible} animationType="none" transparent presentationStyle="overFullScreen">
+            {savingsModalVisible ? (
+            <Modal visible animationType="none" transparent presentationStyle="overFullScreen">
                 <ModalBackdrop colors={colors}>
                     <TouchableWithoutFeedback onPress={() => setSavingsModalVisible(false)}>
                         <View style={{ flex: 1, width: '100%' }} />
@@ -1083,6 +1006,7 @@ export default function DashboardScreen() {
                     </BottomSheetGestureWrapper>
                 </ModalBackdrop>
             </Modal>
+            ) : null}
         </ScrollView>
     );
 }

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
+import { hapticSelection } from '../../utils/haptics';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type Typography = ReturnType<typeof useAppTheme>['typography'];
@@ -54,12 +55,20 @@ export default memo(function AccentListCard({
         transform: [{ scale: scale.value }],
     }));
 
+    const handlePressIn = () => {
+        if (onPress || onLongPress) {
+            scale.value = withTiming(0.98, { duration: 120 });
+            setIsPressed(true);
+            hapticSelection();
+        }
+    };
+
     return (
         <Pressable
             onPress={onPress}
             onLongPress={onLongPress}
             disabled={!onPress && !onLongPress}
-            onPressIn={() => { scale.value = withTiming(0.98, { duration: 120 }); setIsPressed(true); }}
+            onPressIn={handlePressIn}
             onPressOut={() => { scale.value = withTiming(1, { duration: 160 }); setIsPressed(false); }}
             style={style}
             accessibilityRole={onPress ? 'button' : undefined}

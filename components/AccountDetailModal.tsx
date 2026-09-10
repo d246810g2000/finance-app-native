@@ -14,7 +14,7 @@ import BottomSheetGestureWrapper from './ui/BottomSheetGestureWrapper';
 import { RawRecord } from '../types';
 import { transformRecord, initializeAccountData, filterAndSortRecords, updateAccountBalancesAndSnapshots, getCategoryForAccount } from '../services/financeService';
 import { Ionicons } from '@expo/vector-icons';
-import { useFinance } from '../context/FinanceContext';
+import { useFinanceRecords, useFinanceSettings } from '../context/FinanceContext';
 import { useFinanceUI } from '../context/FinanceUIContext';
 import { parseFormattedDate, zeroPadDate } from '../utils/dateUtils';
 import { EXCHANGE_RATES } from '../constants';
@@ -133,7 +133,8 @@ export default function AccountDetailModal({
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const { records: rawRecords, customMappings, creditCardSettings } = useFinance();
+    const { records: rawRecords } = useFinanceRecords();
+    const { customMappings, creditCardSettings } = useFinanceSettings();
     const { openReconciliation } = useFinanceUI();
     const [viewMode, setViewMode] = useState<'year' | 'month'>('month');
     const [currentDate, setCurrentDate] = useState(() => new Date());

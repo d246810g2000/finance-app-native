@@ -1,11 +1,11 @@
-import React, { useState, useMemo, useCallback, useRef, useLayoutEffect, memo } from 'react';
+import React, { useState, useMemo, useCallback, useLayoutEffect, memo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from 'expo-router/react-navigation';
 import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated';
-import { useFinance } from '../../context/FinanceContext';
+import { useFinanceRecords } from '../../context/FinanceContext';
 import { useFinanceUI } from '../../context/FinanceUIContext';
-import { transformRecordsForExport } from '../../services/financeService';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
 import { TransformedRecord } from '../../types';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
@@ -95,7 +95,7 @@ export default function CalendarScreen() {
     const { colors, typography } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
     const typeColors = useMemo(() => getTypeColors(colors), [colors]);
-    const { records, deleteRecord, refreshRecords } = useFinance();
+    const { records, transformedRecords, deleteRecord, refreshRecords } = useFinanceRecords();
     const { searchFilters, setSearchFilters, setSearchModalVisible, setMenuVisible } = useFinanceUI();
     const isFocused = useIsFocused();
     const [refreshing, setRefreshing] = useState(false);
@@ -154,17 +154,8 @@ export default function CalendarScreen() {
         });
     }, [navigation, viewMode, showModePicker, searchFilters, colors.textPrimary, setSearchFilters, setSearchModalVisible, setMenuVisible]);
 
-    // Transform is O(n); skip while the tab is backgrounded and reuse last result.
-    const lastAllData = useRef<TransformedRecord[]>([]);
-    const allData = useMemo(
-        () => {
-            if (!isFocused) return lastAllData.current;
-            const next = transformRecordsForExport(records);
-            lastAllData.current = next;
-            return next;
-        },
-        [isFocused, records]
-    );
+    // Transform is O(n) in context; skip rebinding while the tab is backgrounded.
+    const allData = useFocusedMemo(isFocused, () => transformedRecords, [transformedRecords]);
 
     const uniqueAccounts = useMemo(() => {
         const accounts = new Set<string>();
@@ -502,7 +493,7 @@ export default function CalendarScreen() {
                     <EmptyState
                         icon="receipt-outline"
                         title="尚無記錄"
-                        description={searchFilters ? '試著調整搜尋條件' : '切換日期範圍或從選單匯入資料'}
+                        description={searchFilters ? '試著調整搜尋條件' : '切換日期範圍或到「資料管理」匯入 CSV'}
                     />
                 }
             />
@@ -550,7 +541,7 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
     },
     modeBadgeText: { fontSize: 12, fontWeight: '700', color: colors.onSurfaceVariant },
     dropdownBackdrop: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: colors.scrim,
         zIndex: 90,
     },

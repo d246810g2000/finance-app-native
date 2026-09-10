@@ -8,10 +8,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router/react-navigation';
 import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFinance } from '../../context/FinanceContext';
+import { useFinanceRecords } from '../../context/FinanceContext';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
+import { useIdleReady } from '../../hooks/useIdleReady';
 import { useAppTheme } from '../../context/ThemeContext';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -181,7 +183,7 @@ function IssueCard({
 export default function InvestmentScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { records } = useFinance();
+  const { records } = useFinanceRecords();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { account: accountParam } = useLocalSearchParams<{ account?: string }>();
@@ -233,7 +235,7 @@ export default function InvestmentScreen() {
     periodRealizedPnl,
     pnl,
     stockData,
-  } = useMemo(() => buildInvestmentScreenData({
+  } = useFocusedMemo(isFocused, () => buildInvestmentScreenData({
     records,
     ownership,
     account: accountFilter,
@@ -242,6 +244,8 @@ export default function InvestmentScreen() {
     startDate,
     endDate,
   }), [records, ownership, accountFilter, infoCache, priceCache, startDate, endDate]);
+
+  const chartsReady = useIdleReady(isFocused);
 
   useEffect(() => {
     if (detailPanel !== 'holdings') {
@@ -705,20 +709,27 @@ export default function InvestmentScreen() {
           {hasStockData ? summaryCard : null}
 
           {hasStockData ? (
-            <>
-              <InvestmentTimelineSection
-                assetTimeline={assetTimeline}
-              />
+            chartsReady ? (
+              <>
+                <InvestmentTimelineSection
+                  assetTimeline={assetTimeline}
+                />
 
-              <InvestmentPnlSection
-                data={pnl}
-                onOpenMissingPrices={() => openSheet({
-                  kind: 'missingPrices',
-                  title: '缺收盤價持股',
-                  items: insights.missingPrices,
-                })}
-              />
-            </>
+                <InvestmentPnlSection
+                  data={pnl}
+                  onOpenMissingPrices={() => openSheet({
+                    kind: 'missingPrices',
+                    title: '缺收盤價持股',
+                    items: insights.missingPrices,
+                  })}
+                />
+              </>
+            ) : (
+              <View style={[styles.section, { alignItems: 'center', paddingVertical: 28 }]}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={{ marginTop: 10, color: colors.textMuted, fontSize: 13 }}>正在準備圖表…</Text>
+              </View>
+            )
           ) : null}
 
           {hasHuiQianData ? (

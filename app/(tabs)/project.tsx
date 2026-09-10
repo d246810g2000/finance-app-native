@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, ScrollView, Dimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router/react-navigation';
 import { LineChart } from 'react-native-gifted-charts';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from 'expo-router/react-navigation';
 import { useFinance } from '../../context/FinanceContext';
 import { filterAndSortRecords, transformRecordsForExport, computeProjectLifecycles, ProjectLifecycle } from '../../services/financeService';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
 import { AppColors, RADIUS } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import DateRangeSelector from '../../components/DateRangeSelector';
@@ -126,15 +127,10 @@ export default function ProjectScreen() {
         setEndDate(end);
     }, []);
 
-    const lastLifecycles = useRef<ReturnType<typeof computeProjectLifecycles> | null>(null);
-    const allLifecycles = useMemo(
-        () => {
-            if (!isFocused && lastLifecycles.current) return lastLifecycles.current;
-            const next = computeProjectLifecycles(records, true);
-            lastLifecycles.current = next;
-            return next;
-        },
-        [isFocused, records]
+    const allLifecycles = useFocusedMemo(
+        isFocused,
+        () => computeProjectLifecycles(records, true),
+        [records],
     );
 
     const lifecyclesByName = useMemo(() => {

@@ -1,10 +1,10 @@
 import React, { memo, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AppColors, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
-import { hapticSelection } from '../../utils/haptics';
+import AppPressable from './AppPressable';
 
 type Typography = ReturnType<typeof useAppTheme>['typography'];
 
@@ -37,9 +37,11 @@ const SortChip = memo(function SortChip({
     }));
 
     return (
-        <Pressable
+        <AppPressable
             onPress={onPress}
             hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+            pressScale={1}
+            haptic="selection"
             onPressIn={() => { scale.value = withTiming(0.96, { duration: 100 }); }}
             onPressOut={() => { scale.value = withTiming(1, { duration: 140 }); }}
             android_ripple={{ color: colors.statePressed, borderless: false }}
@@ -64,7 +66,7 @@ const SortChip = memo(function SortChip({
                     />
                 ) : null}
             </Reanimated.View>
-        </Pressable>
+        </AppPressable>
     );
 });
 
@@ -87,7 +89,6 @@ export default function SortChips<T extends string>({
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
 
     const handlePress = (key: T) => {
-        hapticSelection();
         if (key === activeKey) {
             onChange(key, direction === 'asc' ? 'desc' : 'asc');
         } else {

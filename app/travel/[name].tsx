@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFinance } from '../../context/FinanceContext';
+import { useFinanceRecords } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
 import { aggregateTravelProjects } from '../../services/shared';
 import TravelDetailScreen from '../../components/travel/TravelDetailScreen';
@@ -10,7 +10,7 @@ import EmptyState from '../../components/ui/EmptyState';
 
 export default function TravelDetailRoute() {
     const { name } = useLocalSearchParams<{ name: string }>();
-    const { records } = useFinance();
+    const { records } = useFinanceRecords();
     const { colors } = useAppTheme();
     const router = useRouter();
     const insets = useSafeAreaInsets();

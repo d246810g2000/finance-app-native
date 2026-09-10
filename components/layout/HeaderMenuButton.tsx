@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import AppPressable from '../ui/AppPressable';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../../context/ThemeContext';
 import { RADIUS, withContinuousRadius } from '../../theme';
@@ -15,16 +16,17 @@ interface HeaderMenuButtonProps {
 export default function HeaderMenuButton({
     onPress,
     icon = 'menu',
-    accessibilityLabel = '開啟選單',
+    accessibilityLabel = '開啟更多',
 }: HeaderMenuButtonProps) {
     const { colors } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
 
     return (
-        <Pressable
+        <AppPressable
             onPress={onPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            style={styles.button}
+            haptic="light"
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
         >
@@ -33,7 +35,7 @@ export default function HeaderMenuButton({
                 size={icon === 'back' ? 22 : 20}
                 color={colors.onSurface}
             />
-        </Pressable>
+        </AppPressable>
     );
 }
 
@@ -46,8 +48,5 @@ const createStyles = (colors: ReturnType<typeof useAppTheme>['colors']) =>
             justifyContent: 'center',
             backgroundColor: colors.surfaceVariant,
             ...withContinuousRadius(RADIUS.full),
-        },
-        buttonPressed: {
-            opacity: 0.85,
         },
     });

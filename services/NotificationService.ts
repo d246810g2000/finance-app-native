@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { BudgetRule, BudgetGlobalConfig, RawRecord } from '../types';
 import { calculateBudgetStatus } from './budgetService';
 import { Platform } from 'react-native';
@@ -6,18 +7,23 @@ import { Platform } from 'react-native';
 const NOTIFICATION_CHANNEL_ID = 'budget-ongoing';
 const SETTING_KEY = '@budget_notification_enabled';
 const DEBOUNCE_MS = 2000; // 防止短時間內重複觸發
+const isExpoGo = Constants.appOwnership === 'expo';
 
 let notifee: any = null;
 let AndroidImportance: any = null;
 let AndroidStyle: any = null;
 
-try {
-    const notifeeModule = require('@notifee/react-native');
-    notifee = notifeeModule.default;
-    AndroidImportance = notifeeModule.AndroidImportance;
-    AndroidStyle = notifeeModule.AndroidStyle;
-} catch (e) {
-    console.warn("Notifee native module not found. Budget notifications will be disabled.");
+if (!isExpoGo) {
+    try {
+        const notifeeModule = require('@notifee/react-native');
+        notifee = notifeeModule.default;
+        AndroidImportance = notifeeModule.AndroidImportance;
+        AndroidStyle = notifeeModule.AndroidStyle;
+    } catch {
+        if (__DEV__) {
+            console.warn('Notifee native module not found. Budget notifications will be disabled.');
+        }
+    }
 }
 
 class NotificationService {

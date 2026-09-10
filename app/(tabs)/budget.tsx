@@ -1,18 +1,19 @@
-import React, { useState, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
-import { useIsFocused } from '@react-navigation/native';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, Alert, Modal, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { useFinance } from '../../context/FinanceContext';
-import { loadBudgets, saveBudgets, loadBudgetConfig, saveBudgetConfig, calculateBudgetStatus } from '../../services/budgetService';
-import { BudgetRule, BudgetGlobalConfig, TransformedRecord, BudgetStatus } from '../../types';
+import React, { useState, useMemo, useCallback, useLayoutEffect } from 'react';
+import { useIsFocused } from 'expo-router/react-navigation';
+import { View, Text, StyleSheet, RefreshControl, Pressable, Alert, Modal, Platform } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { useNavigation } from 'expo-router/react-navigation';
+import { useFinanceRecords, useFinanceSettings } from '../../context/FinanceContext';
+import { calculateBudgetStatus } from '../../services/budgetService';
+import { BudgetRule, TransformedRecord, BudgetStatus } from '../../types';
 import { AppColors, SHADOWS, RADIUS, withContinuousRadius } from '../../theme';
 import { useAppTheme } from '../../context/ThemeContext';
 import { BudgetProgressCard, OtherExpensesCard } from '../../components/budget/BudgetProgressCard';
 import HealthCheckCard from '../../components/budget/HealthCheckCard';
 import BudgetSettingModal from '../../components/budget/BudgetSettingModal';
-import SettingsModal from '../../components/settings/SettingsModal';
 import DetailModal from '../../components/DetailModal';
 import { transformRecordsForExport, detectExpenseSpikes, summarizePersonalVsSharedBurden } from '../../services/financeService';
+import { useFocusedMemo } from '../../hooks/useFocusedMemo';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
@@ -21,19 +22,22 @@ import EmptyState from '../../components/ui/EmptyState';
 import SortChips from '../../components/ui/SortChips';
 import SectionHeader from '../../components/ui/SectionHeader';
 import PageChrome from '../../components/layout/PageChrome';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import AppPressable from '../../components/ui/AppPressable';
+
+type DailyRow =
+    | { kind: 'status'; status: BudgetStatus }
+    | { kind: 'other'; amount: number };
 
 export default function BudgetScreen() {
     const { colors, typography, isDark } = useAppTheme();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const { 
-        records, 
-        refreshRecords,
+    const { records, refreshRecords } = useFinanceRecords();
+    const {
         budgets,
         saveBudgets,
         budgetConfig: config,
         customMappings,
-    } = useFinance();
+    } = useFinanceSettings();
     const navigation = useNavigation();
     const isFocused = useIsFocused();
     const [refreshing, setRefreshing] = useState(false);
@@ -61,13 +65,11 @@ export default function BudgetScreen() {
     }, [refreshRecords]);
 
     // Calculations
-    const lastBudgetCalc = useRef<ReturnType<typeof calculateBudgetStatus> | null>(null);
-    const budgetCalc = useMemo(() => {
-        if (!isFocused && lastBudgetCalc.current) return lastBudgetCalc.current;
-        const next = calculateBudgetStatus(records, budgets, targetMonth, config);
-        lastBudgetCalc.current = next;
-        return next;
-    }, [isFocused, records, budgets, targetMonth, config]);
+    const budgetCalc = useFocusedMemo(
+        isFocused,
+        () => calculateBudgetStatus(records, budgets, targetMonth, config),
+        [records, budgets, targetMonth, config],
+    );
 
     const sortStatuses = useCallback((statuses: BudgetStatus[]) => {
         return [...statuses].sort((a, b) => {
@@ -88,6 +90,14 @@ export default function BudgetScreen() {
     }, [sortKey]);
 
     const sortedDailyStatuses = useMemo(() => sortStatuses(budgetCalc.dailyStatuses), [budgetCalc.dailyStatuses, sortStatuses]);
+
+    const dailyRows = useMemo(() => {
+        const rows: DailyRow[] = sortedDailyStatuses.map(status => ({ kind: 'status', status }));
+        if (budgetCalc.dailyUnbudgetedSpent > 0) {
+            rows.push({ kind: 'other', amount: budgetCalc.dailyUnbudgetedSpent });
+        }
+        return rows;
+    }, [sortedDailyStatuses, budgetCalc.dailyUnbudgetedSpent]);
 
     const burdenSplit = useMemo(() => {
         const start = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
@@ -267,7 +277,7 @@ export default function BudgetScreen() {
     }, [records, targetMonth, config]);
 
     // 固定支出專案點擊 → 顯示該專案的明細
-    const handleFixedProjectClick = (projectName: string) => {
+    const handleFixedProjectClick = useCallback((projectName: string) => {
         const targetYear = targetMonth.getFullYear();
         const targetMonthIndex = targetMonth.getMonth();
 
@@ -314,24 +324,298 @@ export default function BudgetScreen() {
         setDetailModalTitle(`${projectName} 固定支出明細 (已按分帳規則計算)`);
         setDetailModalData(transformedData);
         setIsDetailModalOpen(true);
-    };
+    }, [records, targetMonth, config]);
 
     // Set header right buttons
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRight: () => (
-                <Pressable
+                <AppPressable
                     onPress={() => openModal()}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={({ pressed }) => [styles.headerAddBtn, pressed && styles.headerAddBtnPressed]}
+                    style={styles.headerAddBtn}
+                    pressedStyle={styles.headerAddBtnPressed}
+                    haptic="light"
                     accessibilityRole="button"
                     accessibilityLabel="新增預算"
                 >
                     <Ionicons name="add" size={26} color={colors.textPrimary} />
-                </Pressable>
+                </AppPressable>
             ),
         });
-    }, [navigation, colors.textPrimary]);
+    }, [navigation, colors.textPrimary, openModal, styles.headerAddBtn, styles.headerAddBtnPressed]);
+
+    const showEmptyState =
+        budgetCalc.dailyStatuses.length === 0 &&
+        budgetCalc.fixedProjectStatuses.length === 0 &&
+        budgetCalc.dailyUnbudgetedSpent === 0;
+
+    const listHeader = useMemo(() => (
+        <View>
+            <View style={styles.burdenCard}>
+                <Text style={styles.burdenTitle}>本月負擔拆分</Text>
+                <Text style={styles.burdenDesc}>個人全額 + 共同／共享帳戶的你的 50% 份額（不重複疊加）</Text>
+                <View style={styles.burdenRow}>
+                    <View style={styles.burdenItem}>
+                        <Text style={styles.burdenLabel}>個人全額</Text>
+                        <Text style={styles.burdenValue}>${burdenSplit.personalFull.toLocaleString()}</Text>
+                        <Text style={styles.burdenMeta}>{burdenSplit.personalCount} 筆</Text>
+                    </View>
+                    <View style={styles.burdenDivider} />
+                    <View style={styles.burdenItem}>
+                        <Text style={styles.burdenLabel}>共同份額</Text>
+                        <Text style={[styles.burdenValue, { color: colors.blue }]}>${burdenSplit.sharedShare.toLocaleString()}</Text>
+                        <Text style={styles.burdenMeta}>{burdenSplit.sharedCount} 筆 · 毛額 ${burdenSplit.sharedGross.toLocaleString()}</Text>
+                    </View>
+                </View>
+            </View>
+
+            {/* ══ Unified Summary Card ══ */}
+            <View style={styles.summaryCard}>
+                <LinearGradient
+                    colors={colors.accentGradientShape as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.summaryCardAccent}
+                />
+                {/* Segmented Progress Bar */}
+                <View style={styles.segBarContainer}>
+                    <View style={styles.segBarTrack}>
+                        {totalBudget > 0 && (
+                            <>
+                                {/* Fixed segment (blue-gray) */}
+                                <View style={[styles.segBarFill, {
+                                    width: `${Math.min((budgetCalc.totalFixedSpent / totalBudget) * 100, 100)}%`,
+                                    backgroundColor: fixedColor,
+                                    borderTopLeftRadius: 4, borderBottomLeftRadius: 4,
+                                }]} />
+                                {/* Daily segment (indigo) */}
+                                <View style={[styles.segBarFill, {
+                                    width: `${Math.min((budgetCalc.totalDailySpent / totalBudget) * 100, Math.max(0, 100 - (budgetCalc.totalFixedSpent / totalBudget) * 100))}%`,
+                                    backgroundColor: dailyColor,
+                                }]} />
+                            </>
+                        )}
+                    </View>
+                    {/* Legend chips */}
+                    <View style={styles.segLegendRow}>
+                        <View style={styles.segLegendItem}>
+                            <View style={[styles.segLegendDot, { backgroundColor: fixedColor }]} />
+                            <Text style={styles.segLegendText}>固定</Text>
+                        </View>
+                        <View style={styles.segLegendItem}>
+                            <View style={[styles.segLegendDot, { backgroundColor: dailyColor }]} />
+                            <Text style={styles.segLegendText}>日常</Text>
+                        </View>
+                        <View style={styles.segLegendItem}>
+                            <View style={[styles.segLegendDot, { backgroundColor: colors.divider }]} />
+                            <Text style={styles.segLegendText}>剩餘</Text>
+                        </View>
+                    </View>
+                </View>
+
+                {/* Key Metrics Grid */}
+                <View style={styles.metricsGrid}>
+                    <View style={styles.metricItem}>
+                        <View style={styles.metricLabelRow}>
+                            <Ionicons name="pin-outline" size={14} color={fixedColor} />
+                            <Text style={styles.metricLabel}>固定支出</Text>
+                        </View>
+                        <Text style={[styles.metricValue, { color: fixedColor }]}>
+                            ${budgetCalc.totalFixedSpent.toLocaleString()}
+                        </Text>
+                    </View>
+                    <View style={styles.metricDividerV} />
+                    <View style={styles.metricItem}>
+                        <View style={styles.metricLabelRow}>
+                            <Ionicons name="wallet-outline" size={14} color={dailyColor} />
+                            <Text style={styles.metricLabel}>日常已支出</Text>
+                        </View>
+                        <Text style={[styles.metricValue, { color: budgetCalc.totalDailySpent > disposableDailyBudget ? colors.red : dailyColor }]}>
+                            ${budgetCalc.totalDailySpent.toLocaleString()}
+                        </Text>
+                    </View>
+                    <View style={styles.metricDividerV} />
+                    <View style={styles.metricItem}>
+                        <View style={styles.metricLabelRow}>
+                            <Ionicons name={dailyRemaining >= 0 ? 'sparkles-outline' : 'warning-outline'} size={14} color={dailyRemaining >= 0 ? colors.green : colors.red} />
+                            <Text style={styles.metricLabel}>{dailyRemaining >= 0 ? '可用餘額' : '超支'}</Text>
+                        </View>
+                        <Text style={[styles.metricValue, {
+                            color: dailyRemaining >= 0 ? colors.green : colors.red,
+                        }]}>
+                            ${Math.abs(dailyRemaining).toLocaleString()}
+                        </Text>
+                    </View>
+                </View>
+
+            </View>
+
+            {/* ════════════════ 固定支出區 ════════════════ */}
+            {hasFixedProjects && (
+                <View style={styles.groupSection}>
+                    <View style={[styles.groupHeader, { borderLeftColor: fixedColor }]}>
+                        <View style={styles.groupTitleRow}>
+                            <Ionicons name="pin-outline" size={16} color={fixedColor} />
+                            <Text style={styles.groupTitle}>固定支出</Text>
+                        </View>
+                        <Text style={styles.groupSubtitle}>
+                            合計 <Text style={{ color: fixedColor, fontWeight: '800' }}>${budgetCalc.totalFixedSpent.toLocaleString()}</Text>
+                        </Text>
+                    </View>
+                    {budgetCalc.fixedProjectStatuses.map(ps => (
+                        <AppPressable
+                            key={ps.project}
+                            onPress={() => handleFixedProjectClick(ps.project)}
+                            style={styles.fixedProjectCard}
+                            haptic="light"
+                        >
+                            <View style={[styles.fixedProjectStrip, { backgroundColor: fixedColor }]} />
+                            <View style={styles.fixedProjectContent}>
+                                <Text style={styles.fixedProjectName}>{ps.project || '(無專案)'}</Text>
+                                <Text style={[styles.fixedProjectAmount, { color: fixedColor }]}>
+                                    ${ps.spent.toLocaleString()}
+                                </Text>
+                            </View>
+                        </AppPressable>
+                    ))}
+                </View>
+            )}
+
+            {/* ════════════════ 日常預算區 header + sort ════════════════ */}
+            <View style={styles.groupSection}>
+                <View style={[styles.groupHeader, { borderLeftColor: colors.green }]}>
+                    <View style={styles.groupTitleRow}>
+                        <Ionicons name="wallet-outline" size={16} color={colors.green} />
+                        <Text style={styles.groupTitle}>日常預算</Text>
+                    </View>
+                    <Text style={styles.groupSubtitle}>
+                        {dailyRemaining >= 0 ? '剩餘 ' : '超支 '}
+                        <Text style={{ color: dailyRemaining >= 0 ? colors.green : colors.red, fontWeight: '800' }}>
+                            ${Math.abs(dailyRemaining).toLocaleString()}
+                        </Text>
+                    </Text>
+                </View>
+
+                {/* Sort Chips (only for daily) */}
+                <View style={styles.sortContainer}>
+                    <SortChips
+                        options={[
+                            { key: 'pct', label: '使用率' },
+                            { key: 'spent', label: '已支出' },
+                            { key: 'remaining', label: '剩餘' },
+                            { key: 'limit', label: '預算額' },
+                            { key: 'name', label: '名稱' },
+                        ]}
+                        activeKey={sortKey.replace(/_(asc|desc)$/, '')}
+                        direction={sortKey.endsWith('_asc') ? 'asc' : 'desc'}
+                        onChange={(key, direction) => setSortKey(`${key}_${direction}` as BudgetSortKey)}
+                    />
+                </View>
+            </View>
+        </View>
+    ), [
+        styles,
+        colors,
+        burdenSplit,
+        totalBudget,
+        budgetCalc.totalFixedSpent,
+        budgetCalc.totalDailySpent,
+        budgetCalc.fixedProjectStatuses,
+        fixedColor,
+        dailyColor,
+        disposableDailyBudget,
+        dailyRemaining,
+        hasFixedProjects,
+        handleFixedProjectClick,
+        sortKey,
+    ]);
+
+    const listFooter = useMemo(() => (
+        <View>
+            {showEmptyState && (
+                <EmptyState
+                    icon="wallet-outline"
+                    title="尚無預算設定且無支出"
+                    description="點擊右上角 + 新增預算規則"
+                />
+            )}
+
+            {/* 財務健檢 (Health Alerts) */}
+            <View style={styles.healthSection}>
+                <SectionHeader
+                    title="財務健檢"
+                    accent={spikes.length > 0 ? colors.red : colors.green}
+                    trailing={spikes.length > 0 ? (
+                        <Text style={[styles.healthAlertCount, { color: colors.red }]}>
+                            {spikes.length} 項異常
+                        </Text>
+                    ) : undefined}
+                />
+
+                {spikes.length === 0 ? (
+                    <HealthCheckCard
+                        variant="success"
+                        title="本月消費控制良好"
+                        description="未發現異常超支的消費分類，請繼續保持！"
+                    />
+                ) : (
+                    <View style={styles.healthAlertList}>
+                        {spikes.map((spike) => {
+                            const isRed = spike.status === 'red';
+                            const isNew = spike.status === 'new';
+                            const variant = isRed ? 'red' : isNew ? 'new' : 'yellow';
+                            const badge = isNew ? '全新類別' : isRed ? '嚴重超支' : '輕微超支';
+
+                            const description = isNew
+                                ? `本月新增支出 $${spike.currentSpent.toLocaleString()}，過去 3 期無此項支出。`
+                                : `本月 $${spike.currentSpent.toLocaleString()}，為歷史平均 $${spike.avgSpent.toLocaleString()} 的 ${Math.round(spike.ratio * 100)}%，超額 $${spike.difference.toLocaleString()}。`;
+
+                            return (
+                                <View key={spike.category}>
+                                    <HealthCheckCard
+                                        variant={variant}
+                                        title={spike.category}
+                                        description={description}
+                                        badge={badge}
+                                        onPress={() => {
+                                            setDetailModalTitle(`${spike.category} 異常消費明細 (Top 5)`);
+                                            setDetailModalData(spike.topTransactions);
+                                            setIsDetailModalOpen(true);
+                                        }}
+                                    />
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+            </View>
+        </View>
+    ), [showEmptyState, styles, spikes, colors.red, colors.green]);
+
+    const renderItem = useCallback(({ item }: { item: DailyRow }) => {
+        if (item.kind === 'status') {
+            return (
+                <BudgetProgressCard
+                    status={item.status}
+                    onEdit={() => openModal(item.status.rule)}
+                    onDelete={() => handleDeleteBudget(item.status.rule.id)}
+                    onClick={() => handleCardClick(item.status.rule.category)}
+                />
+            );
+        }
+        return (
+            <OtherExpensesCard
+                amount={item.amount}
+                onClick={() => handleCardClick('OTHER', true)}
+            />
+        );
+    }, [openModal, handleDeleteBudget, handleCardClick]);
+
+    const keyExtractor = useCallback((item: DailyRow) => {
+        if (item.kind === 'status') return item.status.rule.id;
+        return 'other-expenses';
+    }, []);
 
     return (
         <View style={styles.container}>
@@ -349,265 +633,32 @@ export default function BudgetScreen() {
                 />
             </PageChrome>
 
-            <ScrollView
+            <FlashList
+                data={dailyRows}
+                renderItem={renderItem}
+                keyExtractor={keyExtractor}
+                ListHeaderComponent={listHeader}
+                ListFooterComponent={listFooter}
+                style={{ flex: 1 }}
                 contentContainerStyle={styles.scrollContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-            >
-                <View style={styles.burdenCard}>
-                    <Text style={styles.burdenTitle}>本月負擔拆分</Text>
-                    <Text style={styles.burdenDesc}>個人全額 + 共同／共享帳戶的你的 50% 份額（不重複疊加）</Text>
-                    <View style={styles.burdenRow}>
-                        <View style={styles.burdenItem}>
-                            <Text style={styles.burdenLabel}>個人全額</Text>
-                            <Text style={styles.burdenValue}>${burdenSplit.personalFull.toLocaleString()}</Text>
-                            <Text style={styles.burdenMeta}>{burdenSplit.personalCount} 筆</Text>
-                        </View>
-                        <View style={styles.burdenDivider} />
-                        <View style={styles.burdenItem}>
-                            <Text style={styles.burdenLabel}>共同份額</Text>
-                            <Text style={[styles.burdenValue, { color: colors.blue }]}>${burdenSplit.sharedShare.toLocaleString()}</Text>
-                            <Text style={styles.burdenMeta}>{burdenSplit.sharedCount} 筆 · 毛額 ${burdenSplit.sharedGross.toLocaleString()}</Text>
-                        </View>
-                    </View>
-                </View>
-
-                {/* ══ Unified Summary Card ══ */}
-                <View style={styles.summaryCard}>
-                    <LinearGradient
-                        colors={colors.accentGradientShape as [string, string]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.summaryCardAccent}
-                    />
-                    {/* Segmented Progress Bar */}
-                    <View style={styles.segBarContainer}>
-                        <View style={styles.segBarTrack}>
-                            {totalBudget > 0 && (
-                                <>
-                                    {/* Fixed segment (blue-gray) */}
-                                    <View style={[styles.segBarFill, {
-                                        width: `${Math.min((budgetCalc.totalFixedSpent / totalBudget) * 100, 100)}%`,
-                                        backgroundColor: fixedColor,
-                                        borderTopLeftRadius: 4, borderBottomLeftRadius: 4,
-                                    }]} />
-                                    {/* Daily segment (indigo) */}
-                                    <View style={[styles.segBarFill, {
-                                        width: `${Math.min((budgetCalc.totalDailySpent / totalBudget) * 100, Math.max(0, 100 - (budgetCalc.totalFixedSpent / totalBudget) * 100))}%`,
-                                        backgroundColor: dailyColor,
-                                    }]} />
-                                </>
-                            )}
-                        </View>
-                        {/* Legend chips */}
-                        <View style={styles.segLegendRow}>
-                            <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: fixedColor }]} />
-                                <Text style={styles.segLegendText}>固定</Text>
-                            </View>
-                            <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: dailyColor }]} />
-                                <Text style={styles.segLegendText}>日常</Text>
-                            </View>
-                            <View style={styles.segLegendItem}>
-                                <View style={[styles.segLegendDot, { backgroundColor: colors.divider }]} />
-                                <Text style={styles.segLegendText}>剩餘</Text>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* Key Metrics Grid */}
-                    <View style={styles.metricsGrid}>
-                        <View style={styles.metricItem}>
-                            <View style={styles.metricLabelRow}>
-                                <Ionicons name="pin-outline" size={14} color={fixedColor} />
-                                <Text style={styles.metricLabel}>固定支出</Text>
-                            </View>
-                            <Text style={[styles.metricValue, { color: fixedColor }]}>
-                                ${budgetCalc.totalFixedSpent.toLocaleString()}
-                            </Text>
-                        </View>
-                        <View style={styles.metricDividerV} />
-                        <View style={styles.metricItem}>
-                            <View style={styles.metricLabelRow}>
-                                <Ionicons name="wallet-outline" size={14} color={dailyColor} />
-                                <Text style={styles.metricLabel}>日常已支出</Text>
-                            </View>
-                            <Text style={[styles.metricValue, { color: budgetCalc.totalDailySpent > disposableDailyBudget ? colors.red : dailyColor }]}>
-                                ${budgetCalc.totalDailySpent.toLocaleString()}
-                            </Text>
-                        </View>
-                        <View style={styles.metricDividerV} />
-                        <View style={styles.metricItem}>
-                            <View style={styles.metricLabelRow}>
-                                <Ionicons name={dailyRemaining >= 0 ? 'sparkles-outline' : 'warning-outline'} size={14} color={dailyRemaining >= 0 ? colors.green : colors.red} />
-                                <Text style={styles.metricLabel}>{dailyRemaining >= 0 ? '可用餘額' : '超支'}</Text>
-                            </View>
-                            <Text style={[styles.metricValue, {
-                                color: dailyRemaining >= 0 ? colors.green : colors.red,
-                            }]}>
-                                ${Math.abs(dailyRemaining).toLocaleString()}
-                            </Text>
-                        </View>
-                    </View>
-
-                </View>
-
-                {/* ════════════════ 固定支出區 ════════════════ */}
-                {hasFixedProjects && (
-                    <View style={styles.groupSection}>
-                        <View style={[styles.groupHeader, { borderLeftColor: fixedColor }]}>
-                            <View style={styles.groupTitleRow}>
-                                <Ionicons name="pin-outline" size={16} color={fixedColor} />
-                                <Text style={styles.groupTitle}>固定支出</Text>
-                            </View>
-                            <Text style={styles.groupSubtitle}>
-                                合計 <Text style={{ color: fixedColor, fontWeight: '800' }}>${budgetCalc.totalFixedSpent.toLocaleString()}</Text>
-                            </Text>
-                        </View>
-                        {budgetCalc.fixedProjectStatuses.map(ps => (
-                            <Pressable
-                                key={ps.project}
-                                onPress={() => handleFixedProjectClick(ps.project)}
-                                style={({ pressed }) => [
-                                    styles.fixedProjectCard,
-                                    pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-                                ]}
-                            >
-                                <View style={[styles.fixedProjectStrip, { backgroundColor: fixedColor }]} />
-                                <View style={styles.fixedProjectContent}>
-                                    <Text style={styles.fixedProjectName}>{ps.project || '(無專案)'}</Text>
-                                    <Text style={[styles.fixedProjectAmount, { color: fixedColor }]}>
-                                        ${ps.spent.toLocaleString()}
-                                    </Text>
-                                </View>
-                            </Pressable>
-                        ))}
-                    </View>
-                )}
-
-                {/* ════════════════ 日常預算區 ════════════════ */}
-                <View style={styles.groupSection}>
-                    <View style={[styles.groupHeader, { borderLeftColor: colors.green }]}>
-                        <View style={styles.groupTitleRow}>
-                            <Ionicons name="wallet-outline" size={16} color={colors.green} />
-                            <Text style={styles.groupTitle}>日常預算</Text>
-                        </View>
-                        <Text style={styles.groupSubtitle}>
-                            {dailyRemaining >= 0 ? '剩餘 ' : '超支 '}
-                            <Text style={{ color: dailyRemaining >= 0 ? colors.green : colors.red, fontWeight: '800' }}>
-                                ${Math.abs(dailyRemaining).toLocaleString()}
-                            </Text>
-                        </Text>
-                    </View>
-
-                    {/* Sort Chips (only for daily) */}
-                    <View style={styles.sortContainer}>
-                        <SortChips
-                            options={[
-                                { key: 'pct', label: '使用率' },
-                                { key: 'spent', label: '已支出' },
-                                { key: 'remaining', label: '剩餘' },
-                                { key: 'limit', label: '預算額' },
-                                { key: 'name', label: '名稱' },
-                            ]}
-                            activeKey={sortKey.replace(/_(asc|desc)$/, '')}
-                            direction={sortKey.endsWith('_asc') ? 'asc' : 'desc'}
-                            onChange={(key, direction) => setSortKey(`${key}_${direction}` as BudgetSortKey)}
-                        />
-                    </View>
-
-                    {/* Daily Budget Cards */}
-                    <View style={styles.listContainer}>
-                        {sortedDailyStatuses.map(status => (
-                            <BudgetProgressCard
-                                key={status.rule.id}
-                                status={status}
-                                onEdit={() => openModal(status.rule)}
-                                onDelete={() => handleDeleteBudget(status.rule.id)}
-                                onClick={() => handleCardClick(status.rule.category)}
-                            />
-                        ))}
-                        {budgetCalc.dailyUnbudgetedSpent > 0 && (
-                            <OtherExpensesCard amount={budgetCalc.dailyUnbudgetedSpent} onClick={() => handleCardClick('OTHER', true)} />
-                        )}
-                    </View>
-                </View>
-
-                {budgetCalc.dailyStatuses.length === 0 && budgetCalc.fixedProjectStatuses.length === 0 && budgetCalc.dailyUnbudgetedSpent === 0 && (
-                    <EmptyState
-                        icon="wallet-outline"
-                        title="尚無預算設定且無支出"
-                        description="點擊右上角 + 新增預算規則"
-                    />
-                )}
-
-                {/* 財務健檢 (Health Alerts) */}
-                <View style={styles.healthSection}>
-                    <SectionHeader
-                        title="財務健檢"
-                        accent={spikes.length > 0 ? colors.red : colors.green}
-                        trailing={spikes.length > 0 ? (
-                            <Text style={[styles.healthAlertCount, { color: colors.red }]}>
-                                {spikes.length} 項異常
-                            </Text>
-                        ) : undefined}
-                    />
-
-                    {spikes.length === 0 ? (
-                        <Animated.View entering={FadeInDown.duration(400).springify()}>
-                            <HealthCheckCard
-                                variant="success"
-                                title="本月消費控制良好"
-                                description="未發現異常超支的消費分類，請繼續保持！"
-                            />
-                        </Animated.View>
-                    ) : (
-                        <View style={styles.healthAlertList}>
-                            {spikes.map((spike, idx) => {
-                                const isRed = spike.status === 'red';
-                                const isNew = spike.status === 'new';
-                                const variant = isRed ? 'red' : isNew ? 'new' : 'yellow';
-                                const badge = isNew ? '全新類別' : isRed ? '嚴重超支' : '輕微超支';
-
-                                const description = isNew
-                                    ? `本月新增支出 $${spike.currentSpent.toLocaleString()}，過去 3 期無此項支出。`
-                                    : `本月 $${spike.currentSpent.toLocaleString()}，為歷史平均 $${spike.avgSpent.toLocaleString()} 的 ${Math.round(spike.ratio * 100)}%，超額 $${spike.difference.toLocaleString()}。`;
-
-                                return (
-                                    <Animated.View
-                                        key={spike.category}
-                                        entering={FadeInDown.delay(idx * 80).duration(400).springify()}
-                                    >
-                                        <HealthCheckCard
-                                            variant={variant}
-                                            title={spike.category}
-                                            description={description}
-                                            badge={badge}
-                                            onPress={() => {
-                                                setDetailModalTitle(`${spike.category} 異常消費明細 (Top 5)`);
-                                                setDetailModalData(spike.topTransactions);
-                                                setIsDetailModalOpen(true);
-                                            }}
-                                        />
-                                    </Animated.View>
-                                );
-                            })}
-                        </View>
-                    )}
-                </View>
-            </ScrollView>
+                // @ts-expect-error FlashList v2 estimatedItemSize
+                estimatedItemSize={100}
+            />
 
             {/* Modals */}
-            <BudgetSettingModal
-                visible={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onSave={handleSaveBudget}
-                editingId={editingId}
-                initialCategory={formCategory}
-                initialLimit={formLimit}
-                uniqueCategories={uniqueCategories}
-                allRawRecords={records}
-            />
+            {isModalOpen && (
+                <BudgetSettingModal
+                    visible={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onSave={handleSaveBudget}
+                    editingId={editingId}
+                    initialCategory={formCategory}
+                    initialLimit={formLimit}
+                    uniqueCategories={uniqueCategories}
+                    allRawRecords={records}
+                />
+            )}
 
             <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
                 <ModalBackdrop colors={colors} placement="center" isDark={isDark}>
@@ -645,12 +696,14 @@ export default function BudgetScreen() {
                 </ModalBackdrop>
             </Modal>
 
-            <DetailModal
-                visible={isDetailModalOpen}
-                onClose={() => setIsDetailModalOpen(false)}
-                title={detailModalTitle}
-                records={detailModalData}
-            />
+            {isDetailModalOpen && (
+                <DetailModal
+                    visible={isDetailModalOpen}
+                    onClose={() => setIsDetailModalOpen(false)}
+                    title={detailModalTitle}
+                    records={detailModalData}
+                />
+            )}
         </View>
     );
 }
@@ -731,8 +784,6 @@ const createStyles = (colors: AppColors, typography: ReturnType<typeof useAppThe
 
     // ── Sort Chips ──
     sortContainer: { marginHorizontal: -16, marginBottom: 8 },
-
-    listContainer: { },
 
     // ── Header Add Button ──
     headerAddBtn: {

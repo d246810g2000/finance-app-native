@@ -3,7 +3,7 @@
  * 保守原則：不批次建議改利息/回饋專案、不偵測旅遊漏標。
  * 專案採用時間線見 .cursor/skills/andro-money-projects/SKILL.md
  */
-import { extractMerchantName } from './financeService';
+import { extractMerchantName } from './merchantParse';
 import {
   canSuggestProject,
   isProjectAdoptedBy,
