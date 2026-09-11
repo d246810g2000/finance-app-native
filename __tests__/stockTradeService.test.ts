@@ -96,6 +96,23 @@ describe('stock note parsing', () => {
     expect(trades[0].symbol).toBe('2409');
   });
 
+  it('strips zero-width space so 台達電 still resolves to 2308', () => {
+    const { trades, issues } = deriveStockData([
+      buyRecord({
+        id: 'buy-delta-zwsp',
+        '收款(轉入)': '共享股票帳戶',
+        '付款(轉出)': '共享樂天帳戶',
+        '金額': '3630',
+        '備註': '\u200b台達電 1815 2股',
+      }),
+    ]);
+
+    expect(issues).toHaveLength(0);
+    expect(trades).toHaveLength(1);
+    expect(trades[0].name).toBe('台達電');
+    expect(trades[0].symbol).toBe('2308');
+  });
+
   it('converts compound Chinese numeral board lots', () => {
     const { trades, issues } = deriveStockData([
       buyRecord({

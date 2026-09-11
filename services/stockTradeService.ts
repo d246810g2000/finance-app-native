@@ -115,7 +115,7 @@ export function resolveStockSymbol(
   name: string,
   infoByName?: Record<string, string>,
 ): string | undefined {
-  const trimmed = String(name || '').trim();
+  const trimmed = stripInvisibleChars(name);
   if (!trimmed) return undefined;
   return STOCK_NAME_ALIASES[trimmed] || infoByName?.[trimmed] || undefined;
 }
@@ -223,13 +223,20 @@ function chineseNumberToInteger(input: string): number | null {
   return total + current;
 }
 
+/** Strip invisible prefixes that break exact name→symbol matching (e.g. ZWSP from mobile keyboards). */
+function stripInvisibleChars(value: string): string {
+  return String(value || '')
+    .replace(/[\u200B-\u200D\uFEFF\u2060]/g, '')
+    .trim();
+}
+
 export function normalizeStockNoteLines(note: string): string[] {
   return String(note || '')
     .replace(/\r\n/g, '\n')
     .replace(/\\n/g, '\n')
     .replace(/\s+n\s+/gi, '\n')
     .split('\n')
-    .map(line => line.trim())
+    .map(line => stripInvisibleChars(line))
     .filter(Boolean)
     .filter(line => !/^發票號碼[:：]/.test(line) && !/^商家[:：]/.test(line));
 }
@@ -254,7 +261,7 @@ function stripTradePrefix(line: string): string {
 
 function parseName(line: string): string {
   const beforeNumber = stripTradePrefix(line).match(/^[^\d+>\-→]+/)?.[0] || '';
-  return beforeNumber.replace(/[：:，,、|]/g, '').trim();
+  return stripInvisibleChars(beforeNumber.replace(/[：:，,、|]/g, ''));
 }
 
 function parseSellPrices(line: string): { costPrice?: number; salePrice?: number } {
