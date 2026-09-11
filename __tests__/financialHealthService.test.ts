@@ -76,6 +76,8 @@ describe('financialHealthService', () => {
       expense('2026/07/10', '交通', '5000'),
       income('2026/06/01', '80000'),
       expense('2026/06/05', '餐飲', '20000'),
+      income('2026/05/01', '80000'),
+      expense('2026/05/05', '餐飲', '18000'),
     ];
     const result = computeHealthScore(records, july, config, []);
     expect(result.insufficientData).toBe(false);
@@ -85,8 +87,8 @@ describe('financialHealthService', () => {
     expect(result.kpi.savingsRate).toBeCloseTo(81.25, 1);
     expect(result.kpi.topExpenseCategory).toBe('餐飲');
     expect(result.score).toBeGreaterThan(50);
-    expect(result.breakdown.savings).toBe(30);
-    expect(result.breakdown.cashflow).toBe(20);
+    expect(result.breakdown.livingSurplus).toBe(25);
+    expect(result.breakdown.housingBurden).toBe(15);
   });
 
   it('computeHealthScore handles empty month without NaN', () => {
@@ -96,14 +98,60 @@ describe('financialHealthService', () => {
     expect(result.kpi.savingsRate).toBeNull();
   });
 
-  it('computeHealthScore overspend penalty when budget exceeded', () => {
+  it('computeHealthScore spendControl penalty when budget exceeded', () => {
     const budgets: BudgetRule[] = [{ id: '1', category: '餐飲', monthlyLimit: 5000 }];
     const records = [
       income('2026/07/01', '50000'),
       expense('2026/07/05', '餐飲', '8000'),
     ];
     const result = computeHealthScore(records, july, config, budgets);
-    expect(result.breakdown.overspend).toBe(0);
+    expect(result.breakdown.spendControl).toBeLessThanOrEqual(4);
+  });
+
+  it('computeHealthScore uses living surplus not investment-inflated savings', () => {
+    const records = [
+      income('2026/07/01', '50000'),
+      {
+        ...income('2026/07/02', '40000'),
+        '分類': '投資收入',
+        '子分類': '股利',
+      },
+      expense('2026/07/05', '餐飲', '45000'),
+    ];
+    const result = computeHealthScore(records, july, config, []);
+    // 整體儲蓄仍为正，但生活結餘僅 5000/50000 = 10% → 18 分而非滿分
+    expect(result.kpi.net).toBe(45000);
+    expect(result.breakdown.livingSurplus).toBe(18);
+  });
+
+  it('computeHealthScore includes 房屋購置 in housing burden even when excluded from daily scope', () => {
+    const records = [
+      income('2026/07/01', '100000'),
+      expense('2026/07/05', '餐飲', '10000', { '專案': '正常開銷' }),
+      expense('2026/07/08', '居家生活', '40000', { '專案': '房屋購置' }),
+      expense('2026/07/09', '居家', '5000', { '專案': '住家支出' }),
+    ];
+    const daily = computeHealthScore(records, july, config, [], {
+      excludedProjects: ['房屋購置', '裝潢家具'],
+      basePreparedRows: undefined,
+    });
+    // 日常支出不含房貸，但住房負擔 = 40000+5000 / 生活收入 100000 = 45% → 5 分
+    expect(daily.kpi.expense).toBe(15000);
+    expect(daily.breakdown.housingBurden).toBe(5);
+  });
+
+  it('computeHealthScore investmentHabit rewards consistent 理財投資 spend', () => {
+    const records = [
+      income('2026/05/01', '100000'),
+      expense('2026/05/10', '理財投資', '8000'),
+      income('2026/06/01', '100000'),
+      expense('2026/06/10', '理財投資', '8000'),
+      income('2026/07/01', '100000'),
+      expense('2026/07/10', '理財投資', '8000'),
+      expense('2026/07/15', '餐飲', '10000'),
+    ];
+    const result = computeHealthScore(records, july, config, []);
+    expect(result.breakdown.investmentHabit).toBe(14);
   });
 
   it('computeCashflowMonth splits fixed vs variable', () => {
@@ -279,6 +327,21 @@ describe('financialHealthService', () => {
     const insights = evaluateHealthRules(records, july, config, []);
     expect(insights.some((i) => i.id === 'expense-gt-income')).toBe(true);
     expect(insights.some((i) => i.id === 'low-savings')).toBe(true);
+    expect(insights.some((i) => i.id === 'low-living-surplus')).toBe(true);
+    expect(insights.find((i) => i.id === 'expense-gt-income')?.title).toContain('全部｜');
+  });
+
+  it('evaluateHealthRules prefixes personal scope on titles', () => {
+    const records = [
+      income('2026/07/01', '10000'),
+      expense('2026/07/05', '餐飲', '15000'),
+    ];
+    const insights = evaluateHealthRules(records, july, config, [], {
+      accountFilter: ['現金', '銀行'],
+      personalAccounts: ['現金', '銀行'],
+      sharedAccounts: ['共享現金帳戶'],
+    });
+    expect(insights.find((i) => i.id === 'expense-gt-income')?.title).toContain('個人｜');
   });
 
   it('evaluateHealthRules detects 3-month category rise', () => {

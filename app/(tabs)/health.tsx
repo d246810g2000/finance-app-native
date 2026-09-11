@@ -40,11 +40,11 @@ type HealthMode = 'daily' | 'all';
 type HealthStyles = ReturnType<typeof createStyles>;
 
 const SCORE_PARTS = [
-    ['儲蓄率', 'savings', HEALTH_SCORE_WEIGHTS.savings],
-    ['現金流', 'cashflow', HEALTH_SCORE_WEIGHTS.cashflow],
-    ['支出穩定', 'stability', HEALTH_SCORE_WEIGHTS.stability],
-    ['固定負擔', 'debtOrBurden', HEALTH_SCORE_WEIGHTS.debtOrBurden],
-    ['超支控制', 'overspend', HEALTH_SCORE_WEIGHTS.overspend],
+    ['生活結餘', 'livingSurplus', HEALTH_SCORE_WEIGHTS.livingSurplus],
+    ['支出波動', 'stability', HEALTH_SCORE_WEIGHTS.stability],
+    ['預算暴衝', 'spendControl', HEALTH_SCORE_WEIGHTS.spendControl],
+    ['住房固定', 'housingBurden', HEALTH_SCORE_WEIGHTS.housingBurden],
+    ['投資投入', 'investmentHabit', HEALTH_SCORE_WEIGHTS.investmentHabit],
 ] as const;
 
 const DAILY_EXCLUDED_PROJECTS = PROJECT_DEFINITIONS
@@ -984,7 +984,7 @@ const createStyles = (colors: AppColors) => StyleSheet.create({
         borderTopColor: colors.divider,
     },
     breakdownRow: { flexDirection: 'row', alignItems: 'center', minHeight: 26 },
-    breakdownLabel: { width: 64, fontSize: 12, color: colors.textSecondary },
+    breakdownLabel: { width: 72, fontSize: 12, color: colors.textSecondary },
     breakdownPoints: { width: 42, textAlign: 'right', fontSize: 11, color: colors.textMuted },
     expandButton: {
         alignSelf: 'flex-start',

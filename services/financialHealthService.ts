@@ -13,20 +13,21 @@ import {
 } from './cashFlowClassification';
 
 // ─── Weights（寫死、可測）───
+/** 總分 100：偏警示力；口徑跟隨帳戶範圍（全部／個人／共享） */
 export const HEALTH_SCORE_WEIGHTS = {
-  savings: 30,
-  cashflow: 20,
+  livingSurplus: 25,
   stability: 20,
-  debtOrBurden: 20,
-  overspend: 10,
+  spendControl: 20,
+  housingBurden: 15,
+  investmentHabit: 20,
 } as const;
 
 export type HealthScoreBreakdown = {
-  savings: number;
-  cashflow: number;
+  livingSurplus: number;
   stability: number;
-  debtOrBurden: number;
-  overspend: number;
+  spendControl: number;
+  housingBurden: number;
+  investmentHabit: number;
 };
 
 export type MonthlyKpi = {
@@ -165,6 +166,11 @@ export type HealthScopeOptions = {
   excludedProjects?: string[];
   /** 排除 YYMMDD-名稱 格式的旅遊專案 */
   excludeTravelProjects?: boolean;
+  /**
+   * 尚未套用專案排除的收支列（帳戶／分帳可再套用）。
+   * 住房負擔需計入「房屋購置」時使用。
+   */
+  basePreparedRows?: TransformedRecord[];
   /** 內部快取：避免同一張健檢頁重複轉換完整紀錄 */
   preparedRows?: TransformedRecord[];
   /** 內部標記：preparedRows 已套用帳戶／專案篩選 */
@@ -511,18 +517,22 @@ function topCategory(categoryTotals: Record<string, number>): { name: string | n
 
 // ─── Phase 1: Health score ───
 
-function scoreSavings(rate: number | null): number {
-  if (rate === null) return 10;
-  if (rate >= 30) return 30;
-  if (rate >= 20) return 24;
-  if (rate >= 10) return 15;
-  if (rate >= 0) return 8;
-  return 0;
+/** 住房／固定負擔專案：日常模式仍應計入房貸 */
+const HOUSING_BURDEN_PROJECTS = new Set(['房屋購置', '住家支出']);
+
+function isHousingBurdenExpense(r: TransformedRecord, config: BudgetGlobalConfig): boolean {
+  const project = (r['專案'] || '').trim();
+  if (HOUSING_BURDEN_PROJECTS.has(project)) return true;
+  return getProjectGroup(project, config) === 'fixed';
 }
 
-function scoreCashflow(net: number): number {
-  if (net > 0) return 20;
-  if (net === 0) return 10;
+function scoreLivingSurplus(livingIncome: number, livingNet: number): number {
+  if (livingIncome <= 0) return livingNet >= 0 ? 12 : 0;
+  const rate = (livingNet / livingIncome) * 100;
+  if (rate >= 20) return HEALTH_SCORE_WEIGHTS.livingSurplus;
+  if (rate >= 10) return 18;
+  if (rate >= 0) return 10;
+  if (rate >= -10) return 4;
   return 0;
 }
 
@@ -533,37 +543,117 @@ function scoreStability(expenseHistory: number[]): number {
   const variance =
     expenseHistory.reduce((s, x) => s + (x - mean) ** 2, 0) / expenseHistory.length;
   const cv = Math.sqrt(variance) / mean;
-  if (cv < 0.2) return 20;
-  if (cv < 0.4) return 14;
-  if (cv < 0.7) return 8;
+  if (cv < 0.15) return HEALTH_SCORE_WEIGHTS.stability;
+  if (cv < 0.3) return 14;
+  if (cv < 0.5) return 8;
   return 4;
 }
 
-function scoreDebtBurden(fixedExpense: number, income: number): number {
-  if (income <= 0) return 10;
-  const ratio = fixedExpense / income;
-  if (ratio < 0.3) return 20;
-  if (ratio < 0.5) return 14;
-  if (ratio < 0.7) return 8;
-  return 2;
+function scoreSpendControl(
+  categoryTotals: Record<string, number>,
+  budgets: BudgetRule[],
+  priorExpenseTotals: number[],
+): number {
+  const max = HEALTH_SCORE_WEIGHTS.spendControl;
+  if (budgets.length) {
+    let worst: 'ok' | 'warn' | 'exceeded' = 'ok';
+    let exceededCount = 0;
+    for (const b of budgets) {
+      const spent = categoryTotals[b.category] || 0;
+      if (b.monthlyLimit <= 0) continue;
+      const pct = spent / b.monthlyLimit;
+      if (pct >= 1) {
+        worst = 'exceeded';
+        exceededCount += 1;
+      } else if (pct >= 0.85 && worst === 'ok') {
+        worst = 'warn';
+      }
+    }
+    if (worst === 'exceeded') return exceededCount >= 2 ? 0 : 4;
+    if (worst === 'warn') return 10;
+    return max;
+  }
+
+  const currTotal = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+  const priors = priorExpenseTotals.filter((n) => n > 0);
+  if (!priors.length) return 14;
+  const avgPrev = priors.reduce((a, b) => a + b, 0) / priors.length;
+  if (avgPrev <= 0) return 14;
+  const ratio = currTotal / avgPrev;
+  if (ratio <= 1.1) return max;
+  if (ratio <= 1.3) return 12;
+  if (ratio <= 1.5) return 6;
+  return 0;
 }
 
-function scoreOverspend(
-  categoryTotals: Record<string, number>,
-  budgets: BudgetRule[]
+function scoreHousingBurden(burdenExpense: number, livingIncome: number): number {
+  const max = HEALTH_SCORE_WEIGHTS.housingBurden;
+  if (livingIncome <= 0) return burdenExpense > 0 ? 6 : 8;
+  const ratio = burdenExpense / livingIncome;
+  if (ratio < 0.2) return max;
+  if (ratio < 0.35) return 10;
+  if (ratio < 0.5) return 5;
+  return 1;
+}
+
+function scoreInvestmentHabit(investRates: Array<number | null>): number {
+  const max = HEALTH_SCORE_WEIGHTS.investmentHabit;
+  const rates = investRates.filter((r): r is number => r !== null);
+  if (!rates.length) return 10;
+  const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
+  const activeMonths = rates.filter((r) => r > 0).length;
+  let score = 0;
+  if (avg >= 0.1) score = max;
+  else if (avg >= 0.05) score = 14;
+  else if (avg >= 0.02) score = 8;
+  else if (avg > 0) score = 4;
+  else score = 0;
+  // 近月有中斷投入時略扣，鼓勵穩定習慣
+  if (rates.length >= 3 && activeMonths <= 1 && score > 0) score = Math.max(0, score - 4);
+  return score;
+}
+
+/** 僅帳戶／分帳過濾，不排除專案（住房負擔用） */
+function getAccountScopedRows(
+  records: RawRecord[],
+  scope?: HealthScopeOptions,
+): TransformedRecord[] {
+  return getIncomeExpenseRows(records, {
+    accountFilter: scope?.accountFilter,
+    isSplitShared: scope?.isSplitShared,
+    sharedAccounts: scope?.sharedAccounts,
+    personalAccounts: scope?.personalAccounts,
+    preparedRows: scope?.basePreparedRows,
+    scopeApplied: false,
+  });
+}
+
+function sumHousingBurdenInMonth(
+  rows: TransformedRecord[],
+  targetMonth: Date,
+  config: BudgetGlobalConfig,
 ): number {
-  if (!budgets.length) return 8;
-  let worst: 'ok' | 'warn' | 'exceeded' = 'ok';
-  for (const b of budgets) {
-    const spent = categoryTotals[b.category] || 0;
-    if (b.monthlyLimit <= 0) continue;
-    const pct = spent / b.monthlyLimit;
-    if (pct >= 1) worst = 'exceeded';
-    else if (pct >= 0.85 && worst === 'ok') worst = 'warn';
+  let total = 0;
+  for (const r of rows) {
+    if (!isExpense(r)) continue;
+    const d = recordDate(r);
+    if (isNaN(d.getTime()) || !inMonth(d, targetMonth)) continue;
+    if (!isHousingBurdenExpense(r, config)) continue;
+    total += expenseAbs(r);
   }
-  if (worst === 'exceeded') return 0;
-  if (worst === 'warn') return 5;
-  return 10;
+  return roundMoney(total);
+}
+
+export function inferHealthScopeLabel(scope?: HealthScopeOptions): string {
+  if (!scope?.accountFilter?.length) return '全部';
+  const filter = scope.accountFilter;
+  const personal = scope.personalAccounts ?? [];
+  const shared = scope.sharedAccounts ?? [];
+  const sameSet = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((name) => b.includes(name));
+  if (personal.length && sameSet(filter, personal)) return '個人';
+  if (shared.length && sameSet(filter, shared)) return '共享';
+  return '選定帳戶';
 }
 
 export function computeHealthScore(
@@ -579,27 +669,40 @@ export function computeHealthScore(
   const top = topCategory(curr.categoryTotals);
   const rate = savingsRate(curr.income, curr.expense);
   const net = curr.income - curr.expense;
+  const split = curr.cashFlowSplit;
 
-  const expenseHistory: number[] = [];
+  const livingExpenseHistory: number[] = [];
+  const priorExpenseTotals: number[] = [];
+  const investRates: Array<number | null> = [];
   for (let i = 2; i >= 0; i--) {
-    expenseHistory.push(aggregateMonth(rows, shiftMonth(targetMonth, -i), config, scope?.monthlyCache).expense);
+    const month = shiftMonth(targetMonth, -i);
+    const agg = aggregateMonth(rows, month, config, scope?.monthlyCache);
+    livingExpenseHistory.push(agg.cashFlowSplit.livingExpense);
+    if (i > 0) priorExpenseTotals.push(agg.cashFlowSplit.livingExpense);
+    const livingIncome = agg.cashFlowSplit.livingIncome;
+    investRates.push(
+      livingIncome > 0 ? agg.cashFlowSplit.investmentExpense / livingIncome : null,
+    );
   }
 
+  const accountRows = getAccountScopedRows(records, scope);
+  const housingBurden = sumHousingBurdenInMonth(accountRows, targetMonth, config);
+
   const breakdown: HealthScoreBreakdown = {
-    savings: scoreSavings(rate),
-    cashflow: scoreCashflow(net),
-    stability: scoreStability(expenseHistory),
-    debtOrBurden: scoreDebtBurden(curr.fixedExpense, curr.income),
-    overspend: scoreOverspend(curr.categoryTotals, budgets),
+    livingSurplus: scoreLivingSurplus(split.livingIncome, split.livingNet),
+    stability: scoreStability(livingExpenseHistory),
+    spendControl: scoreSpendControl(curr.categoryTotals, budgets, priorExpenseTotals),
+    housingBurden: scoreHousingBurden(housingBurden, split.livingIncome),
+    investmentHabit: scoreInvestmentHabit(investRates),
   };
 
   const hasAny = curr.income > 0 || curr.expense > 0;
   const score = hasAny
-    ? breakdown.savings +
-      breakdown.cashflow +
+    ? breakdown.livingSurplus +
       breakdown.stability +
-      breakdown.debtOrBurden +
-      breakdown.overspend
+      breakdown.spendControl +
+      breakdown.housingBurden +
+      breakdown.investmentHabit
     : null;
 
   return {
@@ -1048,6 +1151,9 @@ export function evaluateHealthRules(
   const rate = savingsRate(curr.income, curr.expense);
   const net = curr.income - curr.expense;
   const prevNet = prev.income - prev.expense;
+  const split = curr.cashFlowSplit;
+  const scopeTag = inferHealthScopeLabel(scope);
+  const titled = (title: string) => `${scopeTag}｜${title}`;
 
   // Rule: category rising 3 months
   const cats = new Set([
@@ -1063,7 +1169,7 @@ export function evaluateHealthRules(
       insights.push({
         id: `cat-rise-${cat}`,
         severity: 'warning',
-        title: `${cat}連續三個月增加`,
+        title: titled(`${cat}連續三個月增加`),
         detail: `${toMonthKey(shiftMonth(targetMonth, -2))} $${roundMoney(a).toLocaleString()} → ${toMonthKey(shiftMonth(targetMonth, -1))} $${roundMoney(b).toLocaleString()} → 本月 $${roundMoney(c).toLocaleString()}`,
       });
     }
@@ -1076,18 +1182,76 @@ export function evaluateHealthRules(
       insights.push({
         id: `over-budget-${b.category}`,
         severity: 'danger',
-        title: `${b.category}超過預算`,
+        title: titled(`${b.category}超過預算`),
         detail: `已花 $${roundMoney(spent).toLocaleString()}／預算 $${b.monthlyLimit.toLocaleString()}`,
       });
     }
   }
 
-  // Rule: savings < 10%
+  // Rule: living surplus low（不含投資收入灌水）
+  if (split.livingIncome > 0) {
+    const livingRate = (split.livingNet / split.livingIncome) * 100;
+    if (livingRate < 10) {
+      insights.push({
+        id: 'low-living-surplus',
+        severity: livingRate < 0 ? 'danger' : 'warning',
+        title: titled('生活結餘偏低'),
+        detail: `生活結餘率 ${livingRate.toFixed(1)}%（生活收入 $${roundMoney(split.livingIncome).toLocaleString()}）`,
+      });
+    }
+  }
+
+  // Rule: spend spike vs prior 2 months（無預算時的暴衝警示）
+  if (!budgets.length) {
+    const prevAvg =
+      (prev.cashFlowSplit.livingExpense + prev2.cashFlowSplit.livingExpense) / 2;
+    if (prevAvg > 0 && split.livingExpense > prevAvg * 1.3) {
+      const growth = ((split.livingExpense / prevAvg) - 1) * 100;
+      insights.push({
+        id: 'living-spend-spike',
+        severity: split.livingExpense > prevAvg * 1.5 ? 'danger' : 'warning',
+        title: titled('生活支出明顯暴衝'),
+        detail: `較近兩月均高出 ${growth.toFixed(0)}%（$${roundMoney(prevAvg).toLocaleString()} → $${roundMoney(split.livingExpense).toLocaleString()}）`,
+      });
+    }
+  }
+
+  // Rule: investment habit thin
+  if (split.livingIncome > 0) {
+    const investRate = split.investmentExpense / split.livingIncome;
+    const prevInvest =
+      prev.cashFlowSplit.livingIncome > 0
+        ? prev.cashFlowSplit.investmentExpense / prev.cashFlowSplit.livingIncome
+        : 0;
+    if (investRate < 0.02 && prevInvest < 0.02) {
+      insights.push({
+        id: 'low-investment-habit',
+        severity: 'info',
+        title: titled('投資投入偏少'),
+        detail: `本月投資支出佔生活收入 ${(investRate * 100).toFixed(1)}%（建議持續投入）`,
+      });
+    }
+  }
+
+  // Rule: housing burden high（含房屋購置，即使日常模式排除）
+  const accountRows = getAccountScopedRows(records, scope);
+  const housingBurden = sumHousingBurdenInMonth(accountRows, targetMonth, config);
+  if (split.livingIncome > 0 && housingBurden / split.livingIncome >= 0.35) {
+    const burdenPct = (housingBurden / split.livingIncome) * 100;
+    insights.push({
+      id: 'high-housing-burden',
+      severity: burdenPct >= 50 ? 'danger' : 'warning',
+      title: titled('住房與固定負擔偏高'),
+      detail: `約佔生活收入 ${burdenPct.toFixed(0)}%（$${housingBurden.toLocaleString()}）`,
+    });
+  }
+
+  // Rule: savings < 10%（總口徑，輔助）
   if (rate !== null && rate < 10) {
     insights.push({
       id: 'low-savings',
       severity: rate < 0 ? 'danger' : 'warning',
-      title: '儲蓄率偏低',
+      title: titled('整體儲蓄率偏低'),
       detail: `本月儲蓄率 ${rate.toFixed(1)}%（門檻 10%）`,
     });
   }
@@ -1097,14 +1261,14 @@ export function evaluateHealthRules(
     insights.push({
       id: 'expense-gt-income',
       severity: 'danger',
-      title: '本月支出大於收入',
+      title: titled('本月支出大於收入'),
       detail: `收入 $${curr.income.toLocaleString()}、支出 $${curr.expense.toLocaleString()}`,
     });
   } else if (curr.income === 0 && curr.expense > 0) {
     insights.push({
       id: 'expense-no-income',
       severity: 'warning',
-      title: '本月有支出但無收入',
+      title: titled('本月有支出但無收入'),
       detail: `支出 $${curr.expense.toLocaleString()}`,
     });
   }
@@ -1114,7 +1278,7 @@ export function evaluateHealthRules(
     insights.push({
       id: 'neg-cashflow-2m',
       severity: 'danger',
-      title: '連續兩個月負現金流',
+      title: titled('連續兩個月負現金流'),
       detail: `上月結餘 $${prevNet.toLocaleString()}、本月 $${net.toLocaleString()}`,
     });
   }
@@ -1138,7 +1302,7 @@ export function evaluateHealthRules(
       insights.push({
         id: `merchant-freq-${m}`,
         severity: 'info',
-        title: `${m}一週消費過密`,
+        title: titled(`${m}一週消費過密`),
         detail: `近 7 天出現 ${n} 次`,
       });
     }
@@ -1150,7 +1314,7 @@ export function evaluateHealthRules(
     insights.push({
       id: 'fixed-up-20',
       severity: 'warning',
-      title: '固定支出明顯增加',
+      title: titled('固定支出明顯增加'),
       detail: `較上月增加 ${growth !== null ? growth.toFixed(0) : '?'}%（$${prev.fixedExpense.toLocaleString()} → $${curr.fixedExpense.toLocaleString()}）`,
     });
   }
@@ -1485,6 +1649,7 @@ export function buildHealthDashboard(
   const monthlyCache = buildMonthlyAggregateCache(scopedRows, config);
   const preparedScope: HealthScopeOptions = {
     ...scope,
+    basePreparedRows: preparedRows,
     preparedRows: scopedRows,
     scopeApplied: true,
     monthlyCache,

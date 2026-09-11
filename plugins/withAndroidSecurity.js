@@ -1,5 +1,62 @@
 const { withAndroidManifest, withAppBuildGradle } = require('@expo/config-plugins');
 
+const RELEASE_SIGNING_BLOCK = `release {
+            // Use RELEASE_* from env / gradle.properties when the keystore exists;
+            // otherwise leave storeFile unset so release can fall back to debug.
+            def releaseStorePath = findProperty('RELEASE_STORE_FILE') ?: System.getenv('RELEASE_STORE_FILE')
+            if (releaseStorePath) {
+                def releaseStoreFile = file(releaseStorePath)
+                if (releaseStoreFile.exists()) {
+                    storeFile releaseStoreFile
+                    storePassword findProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD') ?: ''
+                    keyAlias findProperty('RELEASE_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: ''
+                    keyPassword findProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: ''
+                }
+            }
+        }`;
+
+const RELEASE_SIGNING_CONFIG_LINE =
+  'signingConfig (signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug)';
+
+function ensureReleaseSigningConfig(contents) {
+  if (contents.includes('def releaseStorePath')) {
+    return contents;
+  }
+
+  // Expo template: signingConfigs { debug { ... } }  — inject release before the outer close.
+  // Use a brace-light match: debug body has no nested blocks.
+  const injected = contents.replace(
+    /(signingConfigs\s*\{\s*debug\s*\{[^}]*\}\s*)\}/m,
+    `$1${RELEASE_SIGNING_BLOCK}\n    }`,
+  );
+
+  if (injected === contents) {
+    throw new Error(
+      '[withAndroidSecurity] Failed to inject signingConfigs.release — Expo build.gradle template may have changed.',
+    );
+  }
+  return injected;
+}
+
+function ensureReleaseBuildTypeSigning(contents) {
+  if (contents.includes(RELEASE_SIGNING_CONFIG_LINE)) {
+    return contents;
+  }
+
+  // Only rewrite the release buildType's signingConfig (debug comes first in the template).
+  const next = contents.replace(
+    /(buildTypes\s*\{[\s\S]*?\brelease\s*\{[\s\S]*?)signingConfig\s+signingConfigs\.(?:debug|release)/,
+    `$1${RELEASE_SIGNING_CONFIG_LINE}`,
+  );
+
+  if (next === contents) {
+    throw new Error(
+      '[withAndroidSecurity] Failed to set release buildType signingConfig.',
+    );
+  }
+  return next;
+}
+
 /** Keep financial records out of Android backup and avoid legacy broad permissions. */
 function withAndroidSecurity(config) {
   config = withAndroidManifest(config, config => {
@@ -20,16 +77,8 @@ function withAndroidSecurity(config) {
 
   return withAppBuildGradle(config, config => {
     let contents = config.modResults.contents;
-    if (!contents.includes("storeFile file(findProperty('RELEASE_STORE_FILE')")) {
-      contents = contents.replace(
-        /signingConfigs \{\n        debug \{([\s\S]*?)\n        \}\n    \}/,
-        `signingConfigs {\n        debug {$1\n        }\n        release {\n            storeFile file(findProperty('RELEASE_STORE_FILE') ?: System.getenv('RELEASE_STORE_FILE') ?: 'release.keystore')\n            storePassword findProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD') ?: ''\n            keyAlias findProperty('RELEASE_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: ''\n            keyPassword findProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: ''\n        }\n    }`,
-      );
-    }
-    contents = contents.replace(
-      /(buildTypes\s*\{[\s\S]*?release\s*\{[\s\S]*?)signingConfig signingConfigs\.debug/,
-      '$1signingConfig signingConfigs.release',
-    );
+    contents = ensureReleaseSigningConfig(contents);
+    contents = ensureReleaseBuildTypeSigning(contents);
     config.modResults.contents = contents;
     return config;
   });
