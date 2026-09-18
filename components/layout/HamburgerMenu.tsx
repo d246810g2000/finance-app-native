@@ -214,6 +214,17 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                     showDivider
                                 />
                                 <MenuRow
+                                    icon="list-outline"
+                                    label="交易記錄"
+                                    subtitle="較少使用；日常請看 AndroMoney"
+                                    iconColor={colors.primary}
+                                    iconBg={colors.primaryContainer}
+                                    onPress={() => navigateTo('/records')}
+                                    colors={colors}
+                                    styles={styles}
+                                    showDivider
+                                />
+                                <MenuRow
                                     icon="swap-vertical-outline"
                                     label="資料管理"
                                     subtitle="匯入／匯出 AndroMoney CSV"
@@ -234,17 +245,6 @@ export default function HamburgerMenu({ visible, onClose }: HamburgerMenuProps) 
                                     iconColor={colors.primary}
                                     iconBg={colors.primaryContainer}
                                     onPress={() => navigateTo('/merchant')}
-                                    colors={colors}
-                                    styles={styles}
-                                    showDivider
-                                />
-                                <MenuRow
-                                    icon="heart-outline"
-                                    label="財務健檢"
-                                    subtitle="健康分數、現金流與提醒"
-                                    iconColor={colors.red}
-                                    iconBg={colors.redLight}
-                                    onPress={() => navigateTo('/health')}
                                     colors={colors}
                                     styles={styles}
                                 />

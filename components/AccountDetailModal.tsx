@@ -142,7 +142,7 @@ export default function AccountDetailModal({
     const [accountData, setAccountData] = useState(EMPTY_ACCOUNT_DATA);
     const [stockPriceCache, setStockPriceCache] = useState<StockPriceCache | null>(null);
     const [stockInfoCache, setStockInfoCache] = useState<StockInfoCache | null>(null);
-    const swipe = useBottomSheetSwipe(onClose, visible);
+    const swipe = useBottomSheetSwipe(onClose, visible, { disableSheetSwipe: true });
 
     const isCreditCard = useMemo(
         () => getCategoryForAccount(accountName, customMappings) === '信用卡',

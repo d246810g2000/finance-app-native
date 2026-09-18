@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
     ScrollView,
     StyleSheet,
@@ -8,8 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart, LineChartBicolor } from 'react-native-gifted-charts';
-import { useNavigation, useIsFocused } from 'expo-router/react-navigation';
-import { useRouter } from 'expo-router';
+import { useIsFocused } from 'expo-router/react-navigation';
 import { useFinanceRecords, useFinanceSettings } from '../../context/FinanceContext';
 import { useAppTheme } from '../../context/ThemeContext';
 import { useFocusedMemo } from '../../hooks/useFocusedMemo';
@@ -22,6 +21,15 @@ import {
     type HealthInsight,
 } from '../../services/financialHealthService';
 import { buildHealthScreenData, type HealthDashboard } from '../../viewModels/healthViewModel';
+import {
+    buildCashFlowSplitDrilldown,
+    buildCategoryDrilldown,
+    buildInsightDrilldown,
+    buildKpiDrilldown,
+    buildMerchantMonthDrilldown,
+    buildScoreDrilldown,
+    type HealthDrilldownResult,
+} from '../../viewModels/healthDrilldown';
 import { PROJECT_DEFINITIONS } from '../../services/projectDefinitions';
 import PageChrome from '../../components/layout/PageChrome';
 import UnifiedDateNavigator from '../../components/layout/UnifiedDateNavigator';
@@ -32,6 +40,7 @@ import CompactSummaryBar from '../../components/ui/CompactSummaryBar';
 import AccentListCard from '../../components/ui/AccentListCard';
 import HealthCheckCard from '../../components/budget/HealthCheckCard';
 import CashflowSankeyChart from '../../components/health/CashflowSankeyChart';
+import DetailModal from '../../components/DetailModal';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 type DetailView = 'structure' | 'trends' | 'alerts' | null;
@@ -80,8 +89,6 @@ function monthShort(monthKey: string): string {
 }
 
 export default function HealthScreen() {
-    const router = useRouter();
-    const navigation = useNavigation();
     const { width } = useWindowDimensions();
     const { colors } = useAppTheme();
     const styles = useMemo(() => createStyles(colors), [colors]);
@@ -92,31 +99,9 @@ export default function HealthScreen() {
     const [detailView, setDetailView] = useState<DetailView>(null);
     const [accountViewType, setAccountViewType] = useState<AccountViewType>('all');
     const [healthMode, setHealthMode] = useState<HealthMode>('daily');
+    const [drilldown, setDrilldown] = useState<HealthDrilldownResult | null>(null);
 
-    const exitHealth = useCallback(() => {
-        if (router.canGoBack()) router.back();
-        else router.replace('/');
-    }, [router]);
-
-    useLayoutEffect(() => {
-        navigation.setOptions({
-            headerLeft: () => (
-                <AppPressable
-                    onPress={exitHealth}
-                    hitSlop={12}
-                    style={styles.headerBack}
-                    haptic="light"
-                    accessibilityRole="button"
-                    accessibilityLabel="離開財務健檢"
-                >
-                    <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-                    <Text style={styles.headerBackText}>返回</Text>
-                </AppPressable>
-            ),
-        });
-    }, [colors.textPrimary, exitHealth, navigation, styles]);
-
-    const { dashboard } = useFocusedMemo(
+    const screenData = useFocusedMemo(
         isFocused,
         () => buildHealthScreenData({
             accountViewType,
@@ -143,6 +128,9 @@ export default function HealthScreen() {
             budgets,
         ],
     );
+    const dashboard = screenData.dashboard;
+    const scopedRows = screenData.scopedRows;
+    const accountScopedRows = screenData.accountScopedRows;
 
     const chartWidth = Math.max(240, width - 32 - 20);
     const monthLabel = `${targetMonth.getFullYear()}年${targetMonth.getMonth() + 1}月`;
@@ -150,6 +138,53 @@ export default function HealthScreen() {
     const onNext = useCallback(() => setTargetMonth((date) => shiftMonth(date, 1)), []);
     const openDetail = useCallback((view: Exclude<DetailView, null>) => setDetailView(view), []);
     const closeDetail = useCallback(() => setDetailView(null), []);
+    const openDrilldown = useCallback((next: HealthDrilldownResult) => setDrilldown(next), []);
+    const closeDrilldown = useCallback(() => setDrilldown(null), []);
+
+    const openScoreDrilldown = useCallback((scoreKey: keyof typeof dashboard.health.breakdown) => {
+        const rows = scoreKey === 'housingBurden' ? accountScopedRows : scopedRows;
+        openDrilldown(buildScoreDrilldown({
+            scoreKey,
+            score: dashboard.health.breakdown[scoreKey],
+            rows,
+            targetMonth,
+            budgetConfig,
+            budgets,
+        }));
+    }, [accountScopedRows, budgetConfig, budgets, dashboard.health.breakdown, openDrilldown, scopedRows, targetMonth]);
+
+    const openInsightDrilldown = useCallback((insight: HealthInsight) => {
+        const rows = insight.id === 'high-housing-burden' ? accountScopedRows : scopedRows;
+        openDrilldown(buildInsightDrilldown({
+            insight,
+            rows,
+            targetMonth,
+            budgetConfig,
+        }));
+    }, [accountScopedRows, budgetConfig, openDrilldown, scopedRows, targetMonth]);
+
+    const openKpiDrilldown = useCallback((kind: 'income' | 'expense' | 'net') => {
+        openDrilldown(buildKpiDrilldown({ kind, rows: scopedRows, targetMonth }));
+    }, [openDrilldown, scopedRows, targetMonth]);
+
+    const openCategoryDrilldown = useCallback((category: string) => {
+        openDrilldown(buildCategoryDrilldown({ category, rows: scopedRows, targetMonth }));
+    }, [openDrilldown, scopedRows, targetMonth]);
+
+    const openSplitDrilldown = useCallback((
+        kind: 'livingIncome' | 'livingExpense' | 'investmentIncome' | 'investmentExpense',
+    ) => {
+        openDrilldown(buildCashFlowSplitDrilldown({ kind, rows: scopedRows, targetMonth }));
+    }, [openDrilldown, scopedRows, targetMonth]);
+
+    const openMerchantDrilldown = useCallback((merchant: string, title?: string) => {
+        openDrilldown(buildMerchantMonthDrilldown({
+            merchant,
+            rows: scopedRows,
+            targetMonth,
+            title,
+        }));
+    }, [openDrilldown, scopedRows, targetMonth]);
 
     const scoreColor = useCallback((score: number | null) => {
         if (score === null) return colors.textMuted;
@@ -256,6 +291,8 @@ export default function HealthScreen() {
                         onShowAlerts={() => openDetail('alerts')}
                         onShowStructure={() => openDetail('structure')}
                         onShowTrends={() => openDetail('trends')}
+                        onOpenScore={openScoreDrilldown}
+                        onOpenKpi={openKpiDrilldown}
                     />
                 ) : null}
 
@@ -264,6 +301,8 @@ export default function HealthScreen() {
                         dashboard={dashboard}
                         colors={colors}
                         styles={styles}
+                        onOpenCategory={openCategoryDrilldown}
+                        onOpenSplit={openSplitDrilldown}
                     />
                 ) : null}
 
@@ -278,9 +317,25 @@ export default function HealthScreen() {
                 ) : null}
 
                 {detailView === 'alerts' && !dashboard.health.insufficientData ? (
-                    <AlertsTab dashboard={dashboard} colors={colors} styles={styles} />
+                    <AlertsTab
+                        dashboard={dashboard}
+                        colors={colors}
+                        styles={styles}
+                        onOpenInsight={openInsightDrilldown}
+                        onOpenMerchant={openMerchantDrilldown}
+                    />
                 ) : null}
             </ScrollView>
+
+            {drilldown ? (
+                <DetailModal
+                    visible
+                    title={drilldown.title}
+                    subtitle={drilldown.subtitle}
+                    records={drilldown.records}
+                    onClose={closeDrilldown}
+                />
+            ) : null}
         </View>
     );
 }
@@ -294,6 +349,8 @@ const OverviewTab = memo(function OverviewTab({
     onShowAlerts,
     onShowStructure,
     onShowTrends,
+    onOpenScore,
+    onOpenKpi,
 }: {
     dashboard: HealthDashboard;
     scoreSummary: string;
@@ -303,6 +360,8 @@ const OverviewTab = memo(function OverviewTab({
     onShowAlerts: () => void;
     onShowStructure: () => void;
     onShowTrends: () => void;
+    onOpenScore: (key: keyof typeof dashboard.health.breakdown) => void;
+    onOpenKpi: (kind: 'income' | 'expense' | 'net') => void;
 }) {
     const [detailsExpanded, setDetailsExpanded] = useState(false);
     const alertCount = dashboard.insights.length;
@@ -356,7 +415,15 @@ const OverviewTab = memo(function OverviewTab({
                             const value = dashboard.health.breakdown[key];
                             const ratio = value / max;
                             return (
-                                <View key={key} style={styles.breakdownRow}>
+                                <AppPressable
+                                    key={key}
+                                    onPress={() => onOpenScore(key)}
+                                    style={styles.breakdownRow}
+                                    pressedStyle={styles.pressed}
+                                    haptic="light"
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`查看${label}相關明細，${value}分滿分${max}`}
+                                >
                                     <Text style={styles.breakdownLabel}>{label}</Text>
                                     <View style={styles.barTrack}>
                                         <View
@@ -370,7 +437,8 @@ const OverviewTab = memo(function OverviewTab({
                                         />
                                     </View>
                                     <Text style={styles.breakdownPoints}>{value}/{max}</Text>
-                                </View>
+                                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                                </AppPressable>
                             );
                         })}
                     </View>
@@ -381,12 +449,23 @@ const OverviewTab = memo(function OverviewTab({
                 compact
                 style={styles.inlineSummary}
                 items={[
-                    { label: '收入', value: money(dashboard.health.kpi.income), valueColor: colors.green },
-                    { label: '支出', value: money(dashboard.health.kpi.expense), valueColor: colors.red },
+                    {
+                        label: '收入',
+                        value: money(dashboard.health.kpi.income),
+                        valueColor: colors.green,
+                        onPress: () => onOpenKpi('income'),
+                    },
+                    {
+                        label: '支出',
+                        value: money(dashboard.health.kpi.expense),
+                        valueColor: colors.red,
+                        onPress: () => onOpenKpi('expense'),
+                    },
                     {
                         label: '結餘',
                         value: money(dashboard.health.kpi.net),
                         valueColor: dashboard.health.kpi.net >= 0 ? colors.green : colors.red,
+                        onPress: () => onOpenKpi('net'),
                     },
                 ]}
             />
@@ -426,10 +505,14 @@ const StructureTab = memo(function StructureTab({
     dashboard,
     colors,
     styles,
+    onOpenCategory,
+    onOpenSplit,
 }: {
     dashboard: HealthDashboard;
     colors: AppColors;
     styles: HealthStyles;
+    onOpenCategory: (category: string) => void;
+    onOpenSplit: (kind: 'livingIncome' | 'livingExpense' | 'investmentIncome' | 'investmentExpense') => void;
 }) {
     const [showAllCategories, setShowAllCategories] = useState(false);
     const [showBehavior, setShowBehavior] = useState(false);
@@ -484,19 +567,42 @@ const StructureTab = memo(function StructureTab({
                         依分類計算，不看專案欄（利息標正常開銷仍算投資收入）
                     </Text>
                     <View style={styles.panel}>
-                        {[
-                            ['生活收入', dashboard.cashFlowSplit.livingIncome, colors.green],
-                            ['生活支出', -dashboard.cashFlowSplit.livingExpense, colors.red],
-                            ['生活結餘', dashboard.cashFlowSplit.livingNet, dashboard.cashFlowSplit.livingNet >= 0 ? colors.green : colors.red],
-                            ['投資收入', dashboard.cashFlowSplit.investmentIncome, colors.blue],
-                            ['投資支出', -dashboard.cashFlowSplit.investmentExpense, colors.yellow],
-                            ['投資結餘', dashboard.cashFlowSplit.investmentNet, dashboard.cashFlowSplit.investmentNet >= 0 ? colors.green : colors.red],
-                        ].map(([label, value, color], index) => (
-                            <View key={label as string} style={[styles.valueRow, index > 0 && styles.divider]}>
-                                <Text style={styles.rowLabel}>{label}</Text>
-                                <Text style={[styles.rowValue, { color: color as string }]}>{money(value as number)}</Text>
-                            </View>
-                        ))}
+                        {([
+                            ['生活收入', dashboard.cashFlowSplit.livingIncome, colors.green, 'livingIncome'],
+                            ['生活支出', -dashboard.cashFlowSplit.livingExpense, colors.red, 'livingExpense'],
+                            ['生活結餘', dashboard.cashFlowSplit.livingNet, dashboard.cashFlowSplit.livingNet >= 0 ? colors.green : colors.red, null],
+                            ['投資收入', dashboard.cashFlowSplit.investmentIncome, colors.blue, 'investmentIncome'],
+                            ['投資支出', -dashboard.cashFlowSplit.investmentExpense, colors.yellow, 'investmentExpense'],
+                            ['投資結餘', dashboard.cashFlowSplit.investmentNet, dashboard.cashFlowSplit.investmentNet >= 0 ? colors.green : colors.red, null],
+                        ] as const).map(([label, value, color, drillKind], index) => {
+                            const row = (
+                                <>
+                                    <Text style={styles.rowLabel}>{label}</Text>
+                                    <Text style={[styles.rowValue, { color: color as string }]}>{money(value as number)}</Text>
+                                    {drillKind ? <Ionicons name="chevron-forward" size={14} color={colors.textMuted} /> : null}
+                                </>
+                            );
+                            if (!drillKind) {
+                                return (
+                                    <View key={label} style={[styles.valueRow, index > 0 && styles.divider]}>
+                                        {row}
+                                    </View>
+                                );
+                            }
+                            return (
+                                <AppPressable
+                                    key={label}
+                                    onPress={() => onOpenSplit(drillKind)}
+                                    style={[styles.valueRow, index > 0 && styles.divider]}
+                                    pressedStyle={styles.pressed}
+                                    haptic="light"
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`查看${label}明細`}
+                                >
+                                    {row}
+                                </AppPressable>
+                            );
+                        })}
                     </View>
                 </>
             ) : null}
@@ -510,6 +616,9 @@ const StructureTab = memo(function StructureTab({
                     meta={[{
                         text: `${item.pct.toFixed(1)}% · ${item.deltaPct === null ? '首次' : `${deltaLabel(item.deltaPct)} vs 上月`}`,
                     }]}
+                    titleBadge={<Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+                    onPress={() => onOpenCategory(item.name)}
+                    accessibilityLabel={`查看${item.name}支出明細`}
                 >
                     <View style={styles.structureTrackFull}>
                         <View style={[styles.structureFill, { width: `${Math.min(100, item.pct)}%` }]} />
@@ -768,10 +877,14 @@ const AlertsTab = memo(function AlertsTab({
     dashboard,
     colors,
     styles,
+    onOpenInsight,
+    onOpenMerchant,
 }: {
     dashboard: HealthDashboard;
     colors: AppColors;
     styles: HealthStyles;
+    onOpenInsight: (insight: HealthInsight) => void;
+    onOpenMerchant: (merchant: string, title?: string) => void;
 }) {
     const dangerCount = dashboard.insights.filter((item) => item.severity === 'danger').length;
 
@@ -806,6 +919,8 @@ const AlertsTab = memo(function AlertsTab({
                         variant={insightVariant(item.severity)}
                         title={item.title}
                         description={item.detail}
+                        actionLabel="查看相關明細"
+                        onPress={() => onOpenInsight(item)}
                     />
                 )) : (
                     <HealthCheckCard
@@ -825,6 +940,9 @@ const AlertsTab = memo(function AlertsTab({
                         title={item.merchant}
                         amount={money(item.amount)}
                         meta={[{ icon: 'repeat-outline', text: `每 ${item.intervalDays} 天 · 下次 ${item.nextDate}` }]}
+                        titleBadge={<Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+                        onPress={() => onOpenMerchant(item.merchant, `${item.merchant} 固定扣款`)}
+                        accessibilityLabel={`查看${item.merchant}本月明細`}
                     />
                 ))
             ) : (
@@ -845,6 +963,9 @@ const AlertsTab = memo(function AlertsTab({
                         amount={money(item.amount)}
                         amountColor={colors.red}
                         meta={[{ icon: 'calendar-outline', text: item.date }]}
+                        titleBadge={<Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+                        onPress={() => onOpenMerchant(item.merchant, `${item.merchant} 即將付款`)}
+                        accessibilityLabel={`查看${item.merchant}本月明細`}
                     />
                 ))
             ) : (
@@ -888,14 +1009,6 @@ function insightVariant(severity: HealthInsight['severity']) {
 
 const createStyles = (colors: AppColors) => StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.surface },
-    headerBack: {
-        minWidth: 72,
-        minHeight: 44,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-    },
-    headerBackText: { fontSize: 15, color: colors.textPrimary, marginLeft: 2 },
     pressed: { opacity: 0.55 },
     content: {
         paddingVertical: 8,

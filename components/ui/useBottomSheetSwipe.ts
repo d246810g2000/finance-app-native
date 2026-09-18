@@ -73,7 +73,7 @@ export function useBottomSheetSwipe(
     }, [visible, isAtTop, translateY]);
 
     const headerGesture = useMemo(() => Gesture.Pan()
-        .activeOffsetY([0, 12])
+        .activeOffsetY([-1e5, 12])
         .failOffsetX([-24, 24])
         .onUpdate((e) => {
             'worklet';
@@ -92,11 +92,12 @@ export function useBottomSheetSwipe(
     [dismissSheet, snapBack, translateY]);
 
     const sheetGesture = useMemo(() => {
-        if (disableSheetSwipe) {
-            return Gesture.Native().enabled(false);
-        }
+        // Only activate on downward pull. activeOffsetY([12, 500]) was wrong: the first
+        // value is the *upward* threshold, so ty < 12 (including finger-up scroll) activated
+        // the sheet pan and stole scrolling from the list.
         return Gesture.Pan()
-            .activeOffsetY([12, 500])
+            .activeOffsetY([-1e5, 12])
+            .failOffsetY([-10, 1e5])
             .failOffsetX([-18, 18])
             .onUpdate((e) => {
                 'worklet';
@@ -116,7 +117,7 @@ export function useBottomSheetSwipe(
                     runOnJS(snapBack)();
                 }
             });
-    }, [disableSheetSwipe, dismissSheet, isAtTop, snapBack, translateY]);
+    }, [dismissSheet, isAtTop, snapBack, translateY]);
 
     const sheetAnimatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: translateY.value }],
@@ -132,5 +133,6 @@ export function useBottomSheetSwipe(
         sheetAnimatedStyle,
         handleScroll,
         scrollEventThrottle: 16 as const,
+        disableSheetSwipe,
     };
 }

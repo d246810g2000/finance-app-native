@@ -26,7 +26,7 @@ export default function AccountMappingModal({ visible, onClose, unmappedAccounts
     const { colors, typography } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
-    const swipe = useBottomSheetSwipe(onClose, visible);
+    const swipe = useBottomSheetSwipe(onClose, visible, { disableSheetSwipe: true });
     const [localMappings, setLocalMappings] = useState<CustomAccountMappings>({});
 
     useEffect(() => {

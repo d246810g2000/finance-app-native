@@ -290,12 +290,12 @@ function amountTolerance(amount: number): number {
 }
 
 /**
- * Broker-style TWD 成交價金: round half away from zero to integer
- * (matches Taiwan broker fills, e.g. 49.95×98 → 4895).
+ * Broker-style TWD 成交價金: 元以下無條件捨去
+ * (matches Taiwan broker / 零股交割, e.g. 251.5×21 → 5281, not 5282).
  */
 export function roundStockPrincipal(price: number, shares: number): number {
   if (!Number.isFinite(price) || !Number.isFinite(shares)) return 0;
-  return Math.round(price * shares);
+  return Math.floor(price * shares);
 }
 
 function getOwnership(account: string): StockOwnership {

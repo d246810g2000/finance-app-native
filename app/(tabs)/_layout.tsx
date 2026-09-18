@@ -20,7 +20,7 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 const TAB_ICONS: Record<string, { focused: IoniconsName, default: IoniconsName }> = {
     index: { focused: 'card', default: 'card-outline' },
     budget: { focused: 'cash', default: 'cash-outline' },
-    records: { focused: 'list', default: 'list-outline' },
+    health: { focused: 'heart', default: 'heart-outline' },
     project: { focused: 'folder', default: 'folder-outline' },
     travel: { focused: 'airplane', default: 'airplane-outline' },
     investment: { focused: 'trending-up', default: 'trending-up-outline' },
@@ -125,9 +125,9 @@ export default function TabLayout() {
                     }}
                 />
                 <Tabs.Screen
-                    name="health"
+                    name="records"
                     options={{
-                        title: '財務健檢',
+                        title: '記錄',
                         href: null,
                     }}
                 />
@@ -140,8 +140,8 @@ export default function TabLayout() {
                     options={{ title: '預算' }}
                 />
                 <Tabs.Screen
-                    name="records"
-                    options={{ title: '記錄' }}
+                    name="health"
+                    options={{ title: '健檢' }}
                 />
                 <Tabs.Screen
                     name="project"

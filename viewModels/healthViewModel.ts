@@ -1,5 +1,6 @@
 import type { BudgetGlobalConfig, BudgetRule, RawRecord, TransformedRecord } from '../types';
 import {
+  applyHealthScope,
   buildHealthDashboard,
   getIncomeExpenseRows,
 } from '../services/financialHealthService';
@@ -43,6 +44,17 @@ export function buildHealthScreenData(input: HealthScreenInput) {
     excludeTravelProjects: input.dailyOnly,
     preparedRows,
   };
+  const scopedRows = input.isFocused
+    ? applyHealthScope(preparedRows, { ...healthScope, preparedRows: undefined })
+    : [];
+  const accountScopedRows = input.isFocused
+    ? applyHealthScope(preparedRows, {
+        accountFilter,
+        isSplitShared: input.isSplitShared,
+        sharedAccounts: input.sharedAccounts,
+        personalAccounts: input.personalAccounts,
+      })
+    : [];
   const dashboard = input.isFocused
     ? buildHealthDashboard(
         input.records,
@@ -54,5 +66,5 @@ export function buildHealthScreenData(input: HealthScreenInput) {
     : input.previousDashboard ??
       buildHealthDashboard([], input.targetMonth, input.budgetConfig, input.budgets, healthScope);
 
-  return { dashboard, healthScope, preparedRows };
+  return { dashboard, healthScope, preparedRows, scopedRows, accountScopedRows };
 }

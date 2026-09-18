@@ -520,7 +520,7 @@ function topCategory(categoryTotals: Record<string, number>): { name: string | n
 /** 住房／固定負擔專案：日常模式仍應計入房貸 */
 const HOUSING_BURDEN_PROJECTS = new Set(['房屋購置', '住家支出']);
 
-function isHousingBurdenExpense(r: TransformedRecord, config: BudgetGlobalConfig): boolean {
+export function isHousingBurdenExpense(r: TransformedRecord, config: BudgetGlobalConfig): boolean {
   const project = (r['專案'] || '').trim();
   if (HOUSING_BURDEN_PROJECTS.has(project)) return true;
   return getProjectGroup(project, config) === 'fixed';

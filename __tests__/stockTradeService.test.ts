@@ -163,10 +163,10 @@ describe('stock note parsing', () => {
     expect(issues[0].reasons).toContain('amount_mismatch');
   });
 
-  it('rounds each fill principal like Taiwan broker 成交價金 (四捨五入)', () => {
+  it('floors each fill principal like Taiwan broker 成交價金 (元以下捨去)', () => {
     const { trades, issues } = deriveStockData([
       buyRecord({
-        id: 'buy-round',
+        id: 'buy-floor',
         '金額': '4895',
         '備註': '兆豐金 49.95 98股',
       }),
@@ -177,18 +177,21 @@ describe('stock note parsing', () => {
     expect(49.95 * 98).toBeCloseTo(4895.1, 10);
   });
 
-  it('sums rounded per-line principals for multi-line buys', () => {
-    // 39.15×192 = 7516.8 → 7517; 241.5×17 = 4105.5 → 4106
+  it('sums floored per-line principals for multi-line buys', () => {
+    // 251.5×21 = 5281.5 → 5281; 50.4×102 = 5140.8 → 5140
     const { trades, issues } = deriveStockData([
       buyRecord({
-        id: 'buy-multi-round',
-        '金額': '11623',
-        '備註': '兆豐金 39.15 192股\\n鴻海 241.5 17股',
+        id: 'buy-multi-floor',
+        '收款(轉入)': '共享股票帳戶',
+        '付款(轉出)': '共享樂天帳戶',
+        '金額': '21506',
+        '備註': '台達電 1815 2股\\n鴻海 251.5 21股\\n台積電 2485 3股\\n兆豐金 50.4 102股',
       }),
     ]);
 
     expect(issues).toHaveLength(0);
-    expect(trades.map(t => t.amount)).toEqual([7517, 4106]);
+    expect(trades.map(t => t.amount)).toEqual([3630, 5281, 7455, 5140]);
+    expect(trades.reduce((sum, t) => sum + t.amount, 0)).toBe(21506);
   });
 
   it('parses dividend income notes into dividends counted as realized cash', () => {
@@ -330,7 +333,7 @@ describe('stock note parsing', () => {
 });
 
 describe('FIFO portfolio calculation', () => {
-  it('uses rounded principal for holding cost (券商成交價金)', () => {
+  it('uses floored principal for holding cost (券商成交價金元以下捨去)', () => {
     const trades: StockTrade[] = [
       {
         id: 'b-mega', sourceId: 'b-mega', date: '20260811', side: 'buy', name: '兆豐金', symbol: '2886',

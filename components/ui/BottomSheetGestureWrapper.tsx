@@ -18,14 +18,28 @@ export default function BottomSheetGestureWrapper({
     header,
     children,
 }: BottomSheetGestureWrapperProps) {
+    const headerNode = (
+        <GestureDetector gesture={swipe.headerGesture}>
+            <View style={styles.dragHeader} collapsable={false}>
+                {header}
+            </View>
+        </GestureDetector>
+    );
+
+    // 列表 Modal：不掛 sheet pan，避免與 FlashList/ScrollView 搶手勢
+    if (swipe.disableSheetSwipe) {
+        return (
+            <Reanimated.View style={[style, swipe.sheetAnimatedStyle]}>
+                {headerNode}
+                {children}
+            </Reanimated.View>
+        );
+    }
+
     return (
         <GestureDetector gesture={swipe.sheetGesture}>
             <Reanimated.View style={[style, swipe.sheetAnimatedStyle]}>
-                <GestureDetector gesture={swipe.headerGesture}>
-                    <View style={styles.dragHeader} collapsable={false}>
-                        {header}
-                    </View>
-                </GestureDetector>
+                {headerNode}
                 {children}
             </Reanimated.View>
         </GestureDetector>

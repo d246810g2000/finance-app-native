@@ -72,7 +72,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     const { colors, theme, setTheme, isDark } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors), [colors]);
-    const swipe = useBottomSheetSwipe(onClose, visible);
+    const swipe = useBottomSheetSwipe(onClose, visible, { disableSheetSwipe: true });
     const {
         records,
         customMappings,

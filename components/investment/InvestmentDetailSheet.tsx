@@ -164,7 +164,7 @@ export default function InvestmentDetailSheet({
   const { colors, typography } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
   const insets = useSafeAreaInsets();
-  const swipe = useBottomSheetSwipe(onClose, visible);
+  const swipe = useBottomSheetSwipe(onClose, visible, { disableSheetSwipe: true });
 
   const subtitle = useMemo(() => {
     if (!content) return undefined;

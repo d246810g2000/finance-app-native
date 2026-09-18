@@ -26,6 +26,8 @@ interface DetailModalProps {
     title: string;
     records: TransformedRecord[];
     onClose: () => void;
+    /** 覆寫預設「N 筆記錄」副標（例如健檢鑽取說明） */
+    subtitle?: string;
 }
 
 const getRecordName = (r: TransformedRecord): string => {
@@ -206,7 +208,7 @@ const DetailRow = memo(function DetailRow({
 });
 
 // ─── Main Component ───
-export default function DetailModal({ visible, title, records, onClose }: DetailModalProps) {
+export default function DetailModal({ visible, title, records, onClose, subtitle }: DetailModalProps) {
     const { colors, typography, isDark } = useAppTheme();
     const insets = useSafeAreaInsets();
     const styles = useMemo(() => createStyles(colors, typography), [colors, typography]);
@@ -215,7 +217,8 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
     const [sortKey, setSortKey] = useState<SortKey>('日期');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-    const swipe = useBottomSheetSwipe(onClose, visible);
+    // FlashList 需要完整垂直滾動；僅允許從標題列下滑關閉
+    const swipe = useBottomSheetSwipe(onClose, visible, { disableSheetSwipe: true });
 
     const sorted = useMemo(() => {
         const data = [...records];
@@ -238,6 +241,7 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
 
     const totalIncome = useMemo(() => sorted.filter(r => r['金額'] > 0).reduce((s, r) => s + r['金額'], 0), [sorted]);
     const totalExpense = useMemo(() => sorted.filter(r => r['金額'] < 0).reduce((s, r) => s + Math.abs(r['金額']), 0), [sorted]);
+    const headerSubtitle = subtitle?.trim() || `${sorted.length} 筆記錄`;
 
     const renderItem = useCallback(({ item }: { item: TransformedRecord }) => (
         <DetailRow item={item} styles={styles} />
@@ -260,7 +264,7 @@ export default function DetailModal({ visible, title, records, onClose }: Detail
                     header={(
                         <>
                             <View style={styles.handleBar} />
-                            <SheetHeader title={title} subtitle={`${sorted.length} 筆記錄`} onClose={onClose} />
+                            <SheetHeader title={title} subtitle={headerSubtitle} onClose={onClose} />
                         </>
                     )}
                 >
